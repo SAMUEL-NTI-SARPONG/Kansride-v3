@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, Logger, forwardRef } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
@@ -6,6 +6,7 @@ import { Database, rides } from '@kansride/db';
 import { eq, desc } from 'drizzle-orm';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
+import { DispatchService } from './dispatch.service';
 
 @Injectable()
 export class RidesService {
@@ -16,6 +17,7 @@ export class RidesService {
     @Inject(MAPS_PROVIDER) private readonly mapsProvider: IMapsProvider,
     private readonly fareService: FareService,
     private readonly stateMachine: StateMachineService,
+    private readonly dispatchService: DispatchService,
   ) {}
 
   async createRide(
@@ -72,6 +74,11 @@ export class RidesService {
 
     const ride = inserted[0]!;
     this.logger.log(`Ride created: ${ride.id}, fare: ${fare.totalFare} pesewas`);
+
+    // Trigger dispatch engine to find nearby drivers
+    this.dispatchService.dispatchRide(ride.id, data.pickupLongitude, data.pickupLatitude).catch((err) => {
+      this.logger.error(`Dispatch failed for ride ${ride.id}: ${err.message}`);
+    });
 
     return {
       ...ride,
