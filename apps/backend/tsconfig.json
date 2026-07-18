@@ -14,7 +14,15 @@
     "incremental": true,
     "composite": false,
     "skipLibCheck": true,
-    "paths": {}
+    "baseUrl": ".",
+    "paths": {
+      "@kansride/config": ["../../packages/shared-config/src/index.ts"],
+      "@kansride/config/*": ["../../packages/shared-config/src/*"],
+      "@kansride/db": ["../../packages/shared-db/src/index.ts"],
+      "@kansride/db/*": ["../../packages/shared-db/src/*"],
+      "drizzle-orm": ["../../node_modules/drizzle-orm"],
+      "drizzle-orm/*": ["../../node_modules/drizzle-orm/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

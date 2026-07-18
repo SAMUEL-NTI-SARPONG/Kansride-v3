@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, UseGuards, Req } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -11,31 +11,61 @@ export class DriversController {
 
   @Post('register')
   @RequirePermissions('driver:register')
-  register(@Body() body: { licenseNumber: string; vehicleRegistration: string }) {
-    return this.driversService.register(body);
+  register(
+    @Req() req: { user?: { sub?: string } },
+    @Body() body: { licenseNumber: string; vehicleRegistration: string; vehicleColour: string; vehicleMake?: string; vehicleModel?: string },
+  ) {
+    const userId = req.user?.sub;
+    if (!userId) throw new Error('User ID not found in request');
+    return this.driversService.register(userId, body);
   }
 
   @Post('go-online')
   @RequirePermissions('driver:go_online')
-  goOnline(@Body() body: { latitude: number; longitude: number }) {
-    return this.driversService.setOnlineStatus(true, body);
+  goOnline(
+    @Req() req: { user?: { sub?: string; driverId?: string } },
+    @Body() body: { latitude: number; longitude: number },
+  ) {
+    const driverId = req.user?.driverId;
+    if (!driverId) throw new Error('Driver ID not found in request');
+    return this.driversService.setOnlineStatus(driverId, true, body);
   }
 
   @Post('go-offline')
   @RequirePermissions('driver:go_online')
-  goOffline() {
-    return this.driversService.setOnlineStatus(false);
+  goOffline(@Req() req: { user?: { sub?: string; driverId?: string } }) {
+    const driverId = req.user?.driverId;
+    if (!driverId) throw new Error('Driver ID not found in request');
+    return this.driversService.setOnlineStatus(driverId, false);
+  }
+
+  @Patch('location')
+  @RequirePermissions('driver:go_online')
+  updateLocation(
+    @Req() req: { user?: { sub?: string; driverId?: string } },
+    @Body() body: { latitude: number; longitude: number },
+  ) {
+    const driverId = req.user?.driverId;
+    if (!driverId) throw new Error('Driver ID not found in request');
+    return this.driversService.updateLocation(driverId, body.latitude, body.longitude);
   }
 
   @Post('subscribe')
   @RequirePermissions('driver:subscribe')
-  subscribe(@Body() body: { paymentMethod: string }) {
-    return this.driversService.subscribe(body.paymentMethod);
+  subscribe(
+    @Req() req: { user?: { sub?: string; driverId?: string } },
+    @Body() body: { paymentMethod: string },
+  ) {
+    const driverId = req.user?.driverId;
+    if (!driverId) throw new Error('Driver ID not found in request');
+    return this.driversService.subscribe(driverId, body.paymentMethod);
   }
 
   @Get('earnings')
   @RequirePermissions('driver:view_earnings')
-  getEarnings() {
-    return this.driversService.getEarnings();
+  getEarnings(@Req() req: { user?: { sub?: string; driverId?: string } }) {
+    const driverId = req.user?.driverId;
+    if (!driverId) throw new Error('Driver ID not found in request');
+    return this.driversService.getEarnings(driverId);
   }
 }
