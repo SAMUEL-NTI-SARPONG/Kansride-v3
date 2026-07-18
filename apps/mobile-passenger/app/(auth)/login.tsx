@@ -1,16 +1,47 @@
-import { View, Text, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
+import { postPublic } from '../../src/api/client';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleGetOTP = () => {
-    router.push({ pathname: '/(auth)/verify-otp', params: { phone } });
+  const handleGetOTP = async () => {
+    const cleanPhone = phone.replace(/\s/g, '');
+    if (cleanPhone.length < 9) {
+      Alert.alert('Invalid Phone', 'Please enter a valid phone number');
+      return;
+    }
+
+    const fullPhone = `+233${cleanPhone}`;
+    setLoading(true);
+
+    try {
+      await postPublic('/auth/request-otp', { phone: fullPhone });
+      router.push({ pathname: '/(auth)/verify-otp', params: { phone: fullPhone } });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <View style={styles.header}>
         <Text style={styles.logo}>KansRide</Text>
         <Text style={styles.subtitle}>Safe tricycle rides in Sekondi-Takoradi</Text>
@@ -19,18 +50,30 @@ export default function LoginScreen() {
         <Text style={styles.label}>Phone Number</Text>
         <View style={styles.phoneInput}>
           <Text style={styles.prefix}>+233</Text>
-          <View style={styles.inputWrapper}>
-            {/* Placeholder for TextInput */}
-            <Text style={styles.placeholder}>Enter your phone number</Text>
-          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="24 XXX XXXX"
+            placeholderTextColor="#94A3B8"
+            keyboardType="phone-pad"
+            maxLength={10}
+            value={phone}
+            onChangeText={setPhone}
+            editable={!loading}
+          />
         </View>
-        <View style={styles.button}>
-          <Text style={styles.buttonText} onPress={handleGetOTP}>
-            Get OTP
-          </Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.button, loading && styles.buttonDisabled]}
+          onPress={handleGetOTP}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text style={styles.buttonText}>Get OTP</Text>
+          )}
+        </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -51,8 +94,7 @@ const styles = StyleSheet.create({
     height: 52,
   },
   prefix: { paddingHorizontal: 16, fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  inputWrapper: { flex: 1, paddingHorizontal: 8 },
-  placeholder: { color: '#94A3B8', fontSize: 16 },
+  input: { flex: 1, fontSize: 16, color: '#1A1A2E', paddingHorizontal: 8, height: '100%' },
   button: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,
@@ -61,5 +103,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 16,
   },
+  buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
 });

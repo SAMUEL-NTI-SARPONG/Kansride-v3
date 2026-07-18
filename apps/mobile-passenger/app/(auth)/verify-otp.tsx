@@ -1,36 +1,126 @@
-import { View, Text, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useAuthStore } from '../../src/stores/auth-store';
+import { postPublic } from '../../src/api/client';
 
 export default function VerifyOTPScreen() {
   const { phone } = useLocalSearchParams<{ phone: string }>();
-  const [otp, setOtp] = useState('');
-  const setAuthenticated = useAuthStore((s) => s.setAuthenticated);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
+  const [loading, setLoading] = useState(false);
+  const inputRefs = useRef<(TextInput | null)[]>([]);
+  const setTokens = useAuthStore((s) => s.setTokens);
 
-  const handleVerify = () => {
-    // TODO: Call API to verify OTP
-    setAuthenticated(true);
-    router.replace('/(main)/home');
+  const handleOtpChange = (value: string, index: number) => {
+    const newOtp = [...otp];
+    newOtp[index] = value;
+    setOtp(newOtp);
+
+    // Auto-focus next input
+    if (value && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+
+    // Auto-submit when all digits entered
+    if (index === 5 && value) {
+      const fullOtp = newOtp.join('');
+      if (fullOtp.length === 6) {
+        handleVerify(fullOtp);
+      }
+    }
+  };
+
+  const handleKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace' && !otp[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleVerify = async (code?: string) => {
+    const otpCode = code || otp.join('');
+    if (otpCode.length !== 6) {
+      Alert.alert('Invalid OTP', 'Please enter the complete 6-digit code');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await postPublic<{
+        accessToken: string;
+        refreshToken: string;
+        user: { id: string; phone: string; name?: string };
+      }>('/auth/verify-otp', { phone, code: otpCode });
+
+      await setTokens(response.accessToken, response.refreshToken);
+      useAuthStore.getState().setUser({
+        id: response.user.id,
+        phone: response.user.phone,
+        name: response.user.name,
+      });
+
+      router.replace('/(main)/home');
+    } catch (error: any) {
+      Alert.alert('Verification Failed', error.message || 'Invalid OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <Text style={styles.title}>Verify OTP</Text>
       <Text style={styles.subtitle}>Enter the 6-digit code sent to {phone}</Text>
       <View style={styles.otpRow}>
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <View key={i} style={styles.otpBox}>
-            <Text style={styles.otpDigit}>{otp[i] || ''}</Text>
-          </View>
+        {otp.map((digit, i) => (
+          <TextInput
+            key={i}
+            ref={(ref) => { inputRefs.current[i] = ref; }}
+            style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
+            value={digit}
+            onChangeText={(value) => handleOtpChange(value.slice(-1), i)}
+            onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+            keyboardType="number-pad"
+            maxLength={1}
+            editable={!loading}
+            autoFocus={i === 0}
+          />
         ))}
       </View>
-      <View style={styles.button}>
-        <Text style={styles.buttonText} onPress={handleVerify}>
-          Verify
-        </Text>
-      </View>
-    </View>
+      <TouchableOpacity
+        style={[styles.button, loading && styles.buttonDisabled]}
+        onPress={() => handleVerify()}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color="#FFF" />
+        ) : (
+          <Text style={styles.buttonText}>Verify</Text>
+        )}
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.resendBtn}
+        onPress={() => {
+          postPublic('/auth/request-otp', { phone }).catch(() => {});
+          Alert.alert('OTP Resent', 'A new code has been sent to your phone');
+        }}
+        disabled={loading}
+      >
+        <Text style={styles.resendText}>Resend Code</Text>
+      </TouchableOpacity>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -52,10 +142,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     backgroundColor: '#FFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1A1A2E',
   },
-  otpDigit: { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
+  otpBoxFilled: {
+    borderColor: '#1B8B4B',
+    backgroundColor: '#F0FDF4',
+  },
   button: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,
@@ -64,5 +159,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 32,
   },
+  buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  resendBtn: { alignItems: 'center', marginTop: 16 },
+  resendText: { color: '#1B8B4B', fontSize: 14, fontWeight: '600' },
 });

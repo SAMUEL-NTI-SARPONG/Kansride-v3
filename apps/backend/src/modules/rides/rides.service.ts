@@ -2,7 +2,7 @@ import { Injectable, Inject, BadRequestException, NotFoundException, Logger, for
 import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
-import { Database, rides } from '@kansride/db';
+import { Database, rides, drivers, users, vehicles } from '@kansride/db';
 import { eq, desc } from 'drizzle-orm';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
@@ -164,5 +164,77 @@ export class RidesService {
       .where(eq(rides.driverId, driverId))
       .orderBy(desc(rides.createdAt))
       .limit(limit);
+  }
+
+  async getTrackingData(id: string) {
+    const result = await this.db.select().from(rides).where(eq(rides.id, id)).limit(1);
+    if (!result[0]) throw new NotFoundException('Ride not found');
+
+    const ride = result[0];
+
+    let driverFirstName: string | null = null;
+    let vehicleColour: string | null = null;
+    let vehiclePlate: string | null = null;
+
+    if (ride.driverId) {
+      const driverResult = await this.db
+        .select({
+          userId: drivers.userId,
+          vehicleId: drivers.vehicleId,
+        })
+        .from(drivers)
+        .where(eq(drivers.id, ride.driverId))
+        .limit(1);
+
+      const driver = driverResult[0];
+      if (driver) {
+        // Get driver's first name
+        const userResult = await this.db
+          .select({ firstName: users.firstName })
+          .from(users)
+          .where(eq(users.id, driver.userId))
+          .limit(1);
+        driverFirstName = userResult[0]?.firstName || null;
+
+        // Get vehicle info
+        if (driver.vehicleId) {
+          const vehicleResult = await this.db
+            .select({
+              colour: vehicles.colour,
+              registrationNumber: vehicles.registrationNumber,
+            })
+            .from(vehicles)
+            .where(eq(vehicles.id, driver.vehicleId))
+            .limit(1);
+
+          if (vehicleResult[0]) {
+            vehicleColour = vehicleResult[0].colour;
+            // Mask plate partially for privacy (show first 3 and last 1)
+            const plate = vehicleResult[0].registrationNumber;
+            vehiclePlate = plate.length > 4
+              ? plate.slice(0, 3) + '***' + plate.slice(-1)
+              : plate;
+          }
+        }
+      }
+    }
+
+    return {
+      id: ride.id,
+      status: ride.status,
+      pickupLatitude: ride.pickupLatitude,
+      pickupLongitude: ride.pickupLongitude,
+      pickupAddress: ride.pickupAddress,
+      dropoffLatitude: ride.dropoffLatitude,
+      dropoffLongitude: ride.dropoffLongitude,
+      dropoffAddress: ride.dropoffAddress,
+      driverFirstName,
+      vehicleColour,
+      vehiclePlate,
+      estimatedFare: ride.estimatedFarePesewas,
+      estimatedDurationSeconds: ride.estimatedDurationSeconds,
+      rideType: ride.rideType,
+      createdAt: ride.createdAt,
+    };
   }
 }

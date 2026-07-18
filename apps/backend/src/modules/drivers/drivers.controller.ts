@@ -61,6 +61,13 @@ export class DriversController {
     return this.driversService.subscribe(driverId, body.paymentMethod);
   }
 
+  @Get('me')
+  getMe(@Req() req: { user?: { sub?: string; driverId?: string } }) {
+    const userId = req.user?.sub;
+    if (!userId) throw new Error('User ID not found in request');
+    return this.driversService.getDriverProfile(userId);
+  }
+
   @Get('earnings')
   @RequirePermissions('driver:view_earnings')
   getEarnings(@Req() req: { user?: { sub?: string; driverId?: string } }) {

@@ -27,6 +27,12 @@ export default function MainLayout() {
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>👤</Text>,
         }}
       />
+      <Tabs.Screen
+        name="ride/[id]"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

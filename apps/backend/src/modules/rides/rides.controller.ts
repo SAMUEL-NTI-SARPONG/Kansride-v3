@@ -2,12 +2,19 @@ import { Controller, Get, Post, Patch, Body, Param, UseGuards, Request } from '@
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import { Public } from '../../common/decorators/public.decorator';
 import { RidesService } from './rides.service';
 
 @Controller('rides')
 @UseGuards(AuthGuard, RolesGuard)
 export class RidesController {
   constructor(private readonly ridesService: RidesService) {}
+
+  @Get(':id/track')
+  @Public()
+  trackRide(@Param('id') id: string) {
+    return this.ridesService.getTrackingData(id);
+  }
 
   @Post()
   @RequirePermissions('ride:create')

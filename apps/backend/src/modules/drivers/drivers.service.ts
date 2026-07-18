@@ -20,6 +20,30 @@ export class DriversService {
     @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: IPaymentProvider,
   ) {}
 
+  async getDriverProfile(userId: string) {
+    const driverRecords = await this.db.select().from(drivers).where(eq(drivers.userId, userId)).limit(1);
+    const driver = driverRecords[0];
+    if (!driver) return { isDriver: false };
+
+    const vehicleRecords = driver.vehicleId
+      ? await this.db.select().from(vehicles).where(eq(vehicles.id, driver.vehicleId)).limit(1)
+      : [];
+
+    const hasSubscription = await this.hasActiveSubscription(driver.id);
+
+    return {
+      isDriver: true,
+      driverId: driver.id,
+      isOnline: driver.isOnline,
+      isActive: driver.isActive,
+      rating: driver.rating,
+      completedRides: driver.completedRides,
+      subscriptionActive: hasSubscription,
+      subscriptionExpiresAt: driver.subscriptionExpiresAt,
+      vehicle: vehicleRecords[0] || null,
+    };
+  }
+
   async register(userId: string, data: { licenseNumber: string; vehicleRegistration: string; vehicleColour: string; vehicleMake?: string; vehicleModel?: string }) {
     // Check if user already has a driver profile
     const existing = await this.db.select().from(drivers).where(eq(drivers.userId, userId)).limit(1);

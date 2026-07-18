@@ -8,6 +8,7 @@ import { DriversModule } from './modules/drivers/drivers.module';
 import { RidesModule } from './modules/rides/rides.module';
 import { HealthModule } from './modules/health/health.module';
 import { EventsModule } from './modules/events/events.module';
+import { AdminModule } from './modules/admin/admin.module';
 import { ProvidersModule } from './providers';
 import { RedisModule } from './redis';
 
@@ -24,6 +25,7 @@ import { RedisModule } from './redis';
     RidesModule,
     HealthModule,
     EventsModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

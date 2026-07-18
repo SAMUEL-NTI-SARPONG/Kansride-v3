@@ -1,42 +1,130 @@
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+} from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { get } from '../../src/api/client';
 
-const MOCK_RIDES = [
-  {
-    id: '1',
-    from: 'Kansawrodo Market',
-    to: 'UHAS Campus',
-    date: '2024-12-01',
-    fare: 'GHS 8.00',
-    status: 'completed',
-  },
-  {
-    id: '2',
-    from: 'Takoradi Station',
-    to: 'Airport Roundabout',
-    date: '2024-11-30',
-    fare: 'GHS 12.00',
-    status: 'completed',
-  },
-];
+interface RideHistoryItem {
+  id: string;
+  pickupAddress?: string;
+  dropoffAddress?: string;
+  pickupLatitude: number;
+  pickupLongitude: number;
+  dropoffLatitude: number;
+  dropoffLongitude: number;
+  fare?: number;
+  status: string;
+  createdAt: string;
+  rideType?: string;
+}
 
 export default function ActivityScreen() {
+  const [rides, setRides] = useState<RideHistoryItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchRides = async () => {
+    try {
+      const data = await get<RideHistoryItem[]>('/rides/my-rides');
+      setRides(data || []);
+    } catch (error) {
+      console.log('Failed to fetch rides:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchRides();
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchRides();
+  }, []);
+
+  const formatDate = (dateStr: string) => {
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-GB', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return '#1B8B4B';
+      case 'cancelled':
+        return '#EF4444';
+      case 'in_progress':
+        return '#F59E0B';
+      default:
+        return '#64748B';
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, styles.center]}>
+        <ActivityIndicator size="large" color="#1B8B4B" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Your Rides</Text>
       <FlatList
-        data={MOCK_RIDES}
+        data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <View style={styles.card}>
             <View style={styles.row}>
-              <Text style={styles.from}>{item.from}</Text>
-              <Text style={styles.fare}>{item.fare}</Text>
+              <Text style={styles.from}>
+                {item.pickupAddress || `${item.pickupLatitude.toFixed(3)}, ${item.pickupLongitude.toFixed(3)}`}
+              </Text>
+              <Text style={styles.fare}>
+                {item.fare ? `GHS ${item.fare.toFixed(2)}` : '--'}
+              </Text>
             </View>
-            <Text style={styles.to}>→ {item.to}</Text>
-            <Text style={styles.date}>{item.date}</Text>
+            <Text style={styles.to}>
+              {'\u2192'} {item.dropoffAddress || `${item.dropoffLatitude.toFixed(3)}, ${item.dropoffLongitude.toFixed(3)}`}
+            </Text>
+            <View style={styles.bottomRow}>
+              <Text style={styles.date}>{formatDate(item.createdAt)}</Text>
+              <Text style={[styles.status, { color: getStatusColor(item.status) }]}>
+                {item.status.replace(/_/g, ' ')}
+              </Text>
+            </View>
           </View>
         )}
-        contentContainerStyle={{ gap: 12 }}
+        contentContainerStyle={rides.length === 0 ? styles.center : { gap: 12, paddingBottom: 20 }}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>No rides yet</Text>
+            <Text style={styles.emptySubtext}>Your ride history will appear here</Text>
+          </View>
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#1B8B4B"
+            colors={['#1B8B4B']}
+          />
+        }
       />
     </View>
   );
@@ -44,6 +132,7 @@ export default function ActivityScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
+  center: { alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 16 },
   card: {
     backgroundColor: '#FFF',
@@ -53,8 +142,13 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
   },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
-  from: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
+  from: { fontSize: 16, fontWeight: '600', color: '#1A1A2E', flex: 1 },
   fare: { fontSize: 16, fontWeight: '700', color: '#1B8B4B' },
   to: { fontSize: 14, color: '#64748B', marginTop: 4 },
-  date: { fontSize: 12, color: '#94A3B8', marginTop: 8 },
+  bottomRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  date: { fontSize: 12, color: '#94A3B8' },
+  status: { fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
+  emptyState: { alignItems: 'center', paddingTop: 60 },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#64748B' },
+  emptySubtext: { fontSize: 14, color: '#94A3B8', marginTop: 4 },
 });

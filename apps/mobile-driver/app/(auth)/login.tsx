@@ -1,12 +1,30 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
+import { api } from '../../src/api/client';
 
 export default function DriverLoginScreen() {
   const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleGetOTP = () => {
-    router.push({ pathname: '/(auth)/verify-otp', params: { phone } });
+  const handleGetOTP = async () => {
+    const cleaned = phone.replace(/\s/g, '');
+    if (cleaned.length < 9) {
+      Alert.alert('Invalid Number', 'Please enter a valid Ghana phone number');
+      return;
+    }
+
+    const fullPhone = cleaned.startsWith('0') ? `+233${cleaned.slice(1)}` : `+233${cleaned}`;
+
+    setLoading(true);
+    try {
+      await api.postNoAuth('/auth/request-otp', { phoneNumber: fullPhone });
+      router.push({ pathname: '/(auth)/verify-otp', params: { phone: fullPhone } });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -20,15 +38,27 @@ export default function DriverLoginScreen() {
         <Text style={styles.label}>Phone Number</Text>
         <View style={styles.phoneInput}>
           <Text style={styles.prefix}>+233</Text>
-          <View style={styles.inputWrapper}>
-            <Text style={styles.placeholder}>Enter your phone number</Text>
-          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="24 XXX XXXX"
+            placeholderTextColor="#94A3B8"
+            keyboardType="phone-pad"
+            value={phone}
+            onChangeText={setPhone}
+            maxLength={10}
+          />
         </View>
-        <View style={styles.button}>
-          <Text style={styles.buttonText} onPress={handleGetOTP}>
-            Get OTP
-          </Text>
-        </View>
+        <TouchableOpacity
+          style={[styles.button, loading && styles.buttonDisabled]}
+          onPress={handleGetOTP}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text style={styles.buttonText}>Get OTP</Text>
+          )}
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -61,8 +91,7 @@ const styles = StyleSheet.create({
     height: 52,
   },
   prefix: { paddingHorizontal: 16, fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  inputWrapper: { flex: 1, paddingHorizontal: 8 },
-  placeholder: { color: '#94A3B8', fontSize: 16 },
+  input: { flex: 1, paddingHorizontal: 8, fontSize: 16, color: '#1A1A2E' },
   button: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,
@@ -71,5 +100,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 16,
   },
+  buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
 });
