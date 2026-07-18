@@ -13,7 +13,8 @@
     "sourceMap": true,
     "incremental": true,
     "composite": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {}
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]
