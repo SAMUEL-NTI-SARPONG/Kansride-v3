@@ -1,0 +1,27 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: en-US
+branch: master
+nodes_managed: true
+exported_at: "2026-07-18T14:32:06Z"
+modules:
+    "":
+        dir_name: KansRide Monorepo Root (npm Workspaces)
+        title: KansRide Monorepo Root (npm Workspaces)
+        scope:
+            - README.md
+            - .eslintrc.json
+            - .gitignore
+            - .prettierrc.json
+            - package.json
+            - package-lock.json
+            - tsconfig.base.json
+            - .github/workflows/ci.yml
+            - docs/
+            - packages/
+            - .env.example
+            - .nvmrc
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []

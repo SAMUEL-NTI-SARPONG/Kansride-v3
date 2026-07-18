@@ -1,0 +1,19 @@
+schema_version: 1
+module_path: ""
+title: KansRide Monorepo Root (npm Workspaces)
+scope:
+    - README.md
+    - .eslintrc.json
+    - .gitignore
+    - .prettierrc.json
+    - package.json
+    - package-lock.json
+    - tsconfig.base.json
+    - .github/workflows/ci.yml
+    - docs/
+    - packages/
+    - .env.example
+    - .nvmrc
+source_files: []
+depends_on: []
+related_to: []

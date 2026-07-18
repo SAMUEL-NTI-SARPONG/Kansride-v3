@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, integer, numeric, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, numeric, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
 import { passengers } from './passengers';
 import { drivers } from './drivers';
 
@@ -36,4 +36,8 @@ export const rides = pgTable('rides', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
-});
+}, (table) => ({
+  ridesStatusIdx: index('idx_rides_status_created').on(table.status, table.createdAt),
+  ridesPassengerIdx: index('idx_rides_passenger').on(table.passengerId, table.createdAt),
+  ridesDriverIdx: index('idx_rides_driver').on(table.driverId, table.createdAt),
+}));

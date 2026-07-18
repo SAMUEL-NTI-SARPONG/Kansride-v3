@@ -1,0 +1,1 @@
+Requires Node 24.x per `.nvmrc`; after `npm install`, run migrations before starting services: `npm run db:migrate --workspace=packages/shared-db`, then `npm run dev --workspace=apps/backend` (and separate terminals for `apps/admin-web`, `apps/mobile-passenger`). CI uses `postgis/postgis:16-3.4` and `redis:7-alpine` as GitHub Actions services with health checks.

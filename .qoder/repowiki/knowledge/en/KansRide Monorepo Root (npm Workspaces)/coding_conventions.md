@@ -1,0 +1,3 @@
+- Shared packages are published under the `@kansride/` scope and referenced via path aliases (`@kansride/types`, `@kansride/config`, `@kansride/db`, `@kansride/auth`, `@kansride/ui`) defined in the root `tsconfig.base.json` rather than relative imports.
+- Workspace scripts are invoked through the root `package.json` (`build`, `test`, `lint`, `clean`) which forwards to every workspace that defines the script, keeping top-level commands uniform.
+- CI follows a strict dependency-ordered build pipeline: lint/typecheck first, then build shared packages in layers (types → config → db → auth), followed by app builds that depend on those artifacts.

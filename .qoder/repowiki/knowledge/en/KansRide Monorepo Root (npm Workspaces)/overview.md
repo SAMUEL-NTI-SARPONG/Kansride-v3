@@ -1,0 +1,1 @@
+Root of the KansRide tricycle ride-hailing monorepo, wiring npm workspaces for shared packages (@kansride/*) and apps with shared TypeScript, linting, and CI configuration.

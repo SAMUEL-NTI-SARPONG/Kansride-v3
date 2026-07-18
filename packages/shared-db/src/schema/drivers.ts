@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, numeric, boolean, integer, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, numeric, boolean, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { users } from './users';
 import { vehicles } from './vehicles';
 
@@ -16,4 +16,6 @@ export const drivers = pgTable('drivers', {
   completedRides: integer('completed_rides').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  driversOnlineIdx: index('idx_drivers_online_location').on(table.isOnline, table.currentLatitude, table.currentLongitude),
+}));
