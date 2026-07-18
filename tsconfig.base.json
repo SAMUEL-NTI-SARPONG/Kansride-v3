@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@kansride/types": ["packages/shared-types/src/index.ts"],
+      "@kansride/config": ["packages/shared-config/src/index.ts"],
+      "@kansride/db": ["packages/shared-db/src/index.ts"],
+      "@kansride/auth": ["packages/shared-auth/src/index.ts"],
+      "@kansride/ui": ["packages/design-system/src/index.ts"]
+    }
+  }
+}
