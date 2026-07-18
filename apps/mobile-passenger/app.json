@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "KansRide",
+    "slug": "kansride-passenger",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "kansride",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#1B8B4B"
+    },
+    "ios": {
+      "bundleIdentifier": "com.kansride.passenger",
+      "supportsTablet": false
+    },
+    "android": {
+      "package": "com.kansride.passenger",
+      "adaptiveIcon": {
+        "backgroundColor": "#1B8B4B"
+      }
+    },
+    "plugins": ["expo-router", "expo-location"]
+  }
+}

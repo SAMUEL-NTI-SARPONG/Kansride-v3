@@ -1,0 +1,13 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@kansride/types": ["../../packages/shared-types/src"],
+      "@kansride/config": ["../../packages/shared-config/src"],
+      "@kansride/auth": ["../../packages/shared-auth/src"],
+      "@kansride/ui": ["../../packages/design-system/src"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+}

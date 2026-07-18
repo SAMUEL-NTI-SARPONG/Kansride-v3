@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "KansRide Driver",
+    "slug": "kansride-driver",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "kansride-driver",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#1B8B4B"
+    },
+    "ios": {
+      "bundleIdentifier": "com.kansride.driver",
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": ["location"]
+      }
+    },
+    "android": {
+      "package": "com.kansride.driver",
+      "adaptiveIcon": {
+        "backgroundColor": "#1B8B4B"
+      },
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION"]
+    },
+    "plugins": ["expo-router", "expo-location", "expo-task-manager"]
+  }
+}
