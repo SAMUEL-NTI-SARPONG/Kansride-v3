@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, integer, timestamp } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, integer, timestamp, index } from 'drizzle-orm/pg-core';
 
 export const otpRequests = pgTable('otp_requests', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -9,4 +9,6 @@ export const otpRequests = pgTable('otp_requests', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   verifiedAt: timestamp('verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => ({
+  otpPhoneExpiryIdx: index('idx_otp_phone_expiry').on(table.phoneNumber, table.expiresAt),
+}));
