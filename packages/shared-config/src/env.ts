@@ -24,7 +24,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().default('redis://localhost:6379'),
 
   // JWT
-  JWT_SECRET: z.string().min(1).default('change-this-to-a-strong-secret-in-production'),
+  JWT_ACCESS_SECRET: z.string().min(1).default('change-this-to-a-strong-secret-in-production'),
   JWT_REFRESH_SECRET: z
     .string()
     .min(1)
@@ -64,7 +64,7 @@ export function getEnv(): Env {
   // In production, require critical secrets to be explicitly set
   if (isProduction) {
     const requiredInProduction = [
-      'JWT_SECRET',
+      'JWT_ACCESS_SECRET',
       'JWT_REFRESH_SECRET',
       'DATABASE_URL',
       'DATABASE_PASSWORD',
@@ -81,8 +81,8 @@ export function getEnv(): Env {
     }
 
     // Reject default/insecure secrets in production
-    if (process.env['JWT_SECRET'] === 'change-this-to-a-strong-secret-in-production') {
-      throw new Error('[ENV] JWT_SECRET must be changed from default value in production');
+    if (process.env['JWT_ACCESS_SECRET'] === 'change-this-to-a-strong-secret-in-production') {
+      throw new Error('[ENV] JWT_ACCESS_SECRET must be changed from default value in production');
     }
     if (
       process.env['JWT_REFRESH_SECRET'] === 'change-this-refresh-secret-in-production'

@@ -197,3 +197,63 @@ task is 0b.
 ---
 
 *End of Task 0a entry.*
+
+## Task 0b — Align JWT environment variable names
+
+**Date:** 2026-07-20  
+**Branch:** recovery/phase-2-opencode  
+**Status:** Complete
+
+### Original issue
+
+The Phase 2 audit found that the backend reads `JWT_ACCESS_SECRET` and
+`JWT_REFRESH_SECRET`, while `.env.example` and
+`packages/shared-config/src/env.ts` defined `JWT_SECRET` and
+`JWT_REFRESH_SECRET`.
+
+The production validation in `packages/shared-config/src/env.ts` checked
+`JWT_SECRET`, although the backend does not read that variable. This could
+allow an incorrectly configured production deployment to pass validation while
+the backend falls back to the insecure development access-token secret.
+### Changes made
+
+All active configuration was standardized on:
+
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
+
+The following files were updated:
+
+| File | Change |
+|---|---|
+| `.env.example` | Renamed the access-token variable to `JWT_ACCESS_SECRET` |
+| `packages/shared-config/src/env.ts` | Updated the schema, production-required variables, and insecure-default validation |
+| `README.md` | Updated the JWT environment-variable table |
+| `docs/SETUP-WINDOWS.md` | Updated the Windows environment configuration example |
+| `docs/recovery/PHASE-2-RECOVERY-LOG.md` | Recorded completion of Task 0b |
+
+The backend JWT implementation was not changed because it already uses
+`JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`.
+
+### Validation
+
+The following commands completed successfully:
+
+- `npx tsc --noEmit -p packages/shared-config/tsconfig.json`
+- `npx tsc --noEmit -p apps/backend/tsconfig.json`
+- `npm run build --workspace @kansride/backend`
+
+A repository search confirmed that active configuration files no longer use
+the obsolete `JWT_SECRET` environment variable. Historical mentions remain in
+the Phase 2 audit and recovery documentation because they describe the original
+problem.
+
+### Git commit
+
+Planned commit message:
+
+`fix(config): align JWT environment variables`
+
+---
+
+*End of Task 0b entry.*

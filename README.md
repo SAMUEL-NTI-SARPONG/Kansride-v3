@@ -155,7 +155,7 @@ See [`.env.example`](.env.example) for the full list. Key variables:
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection string |
-| `JWT_SECRET` | Secret for access token signing |
+| `JWT_ACCESS_SECRET` | Secret for access token signing |
 | `JWT_REFRESH_SECRET` | Secret for refresh token signing |
 | `SMS_PROVIDER` | SMS gateway (`mock` for development) |
 | `MAPS_PROVIDER` | Maps service (default: `openstreetmap`) |

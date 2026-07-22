@@ -114,7 +114,7 @@ REDIS_PORT=6379
 REDIS_URL=redis://localhost:6379
 
 # JWT (change in production)
-JWT_SECRET=dev-secret-change-me
+JWT_ACCESS_SECRET=dev-secret-change-me
 JWT_REFRESH_SECRET=dev-refresh-secret-change-me
 
 # SMS (mock for local development)
