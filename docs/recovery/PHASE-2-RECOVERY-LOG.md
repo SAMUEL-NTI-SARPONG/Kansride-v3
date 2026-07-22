@@ -24,37 +24,43 @@ Phase 2 tasks A1, B1-B4, and C1, and for any frontend integration work.
 
 - Confirmed branch `recovery/phase-2-opencode`.
 - Confirmed working tree clean except expected untracked files
-  (`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`,
-  `docs/recovery/`).
+(`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`,
+`docs/recovery/`).
 - Read `packages/shared-db/drizzle.config.ts` (outputs to `./src/migrations`),
-  `packages/shared-db/src/migrate.ts` (reads from `./src/migrations`) — paths
-  align, no competing migration system.
+`packages/shared-db/src/migrate.ts` (reads from `./src/migrations`) — paths
+align, no competing migration system.
 - Read all 9 schema files (`users`, `vehicles`, `drivers`, `passengers`,
-  `rides`, `payments`, `subscriptions`, `audit-logs`, `otp-requests`) and
-  `db.ts` to catalog expected tables, enums, FKs, and indexes before
-  generation.
+`rides`, `payments`, `subscriptions`, `audit-logs`, `otp-requests`) and
+`db.ts` to catalog expected tables, enums, FKs, and indexes before
+generation.
+
+
 
 ### Files created
 
 - `packages/shared-db/src/migrations/0000_unusual_morlun.sql` — initial
-  migration SQL (210 lines after PostGIS addition).
+migration SQL (210 lines after PostGIS addition).
 - `packages/shared-db/src/migrations/meta/0000_snapshot.json` — Drizzle
-  schema snapshot (31360 bytes).
+schema snapshot (31360 bytes).
 - `packages/shared-db/src/migrations/meta/_journal.json` — migration
-  journal (1 entry, `0000_unusual_morlun`).
+journal (1 entry, `0000_unusual_morlun`).
+
+
 
 ### Files changed
 
 - `packages/shared-db/package.json` — `drizzle-kit` devDependency
-  `^0.28.0` → `^0.26.2` (compatibility fix; see "Dependency fix" below).
+`^0.28.0` → `^0.26.2` (compatibility fix; see "Dependency fix" below).
 - `package-lock.json` — resolved `drizzle-kit` 0.28.1 → 0.26.2; also
-  picked up a benign lock-sync for `@react-native-async-storage/async-storage`
-  (already declared in `apps/mobile-driver/package.json` but missing from
-  the committed lock).
+picked up a benign lock-sync for `@react-native-async-storage/async-storage`
+(already declared in `apps/mobile-driver/package.json` but missing from
+the committed lock).
 - `packages/shared-db/src/migrations/0000_unusual_morlun.sql` — manually
-  prepended `CREATE EXTENSION IF NOT EXISTS postgis;` (A1 spec requirement;
-  drizzle-kit cannot auto-generate this because the schema uses `numeric`
-  for coordinates rather than PostGIS types).
+prepended `CREATE EXTENSION IF NOT EXISTS postgis;` (A1 spec requirement;
+drizzle-kit cannot auto-generate this because the schema uses `numeric`
+for coordinates rather than PostGIS types).
+
+
 
 ### Dependency fix (required to unblock generation)
 
@@ -74,59 +80,50 @@ for 0.x packages the `^` operator does not cross the minor boundary.
 ### Commands run and exact results
 
 1. `npx tsc --noEmit -p packages\shared-db\tsconfig.json` (pre-generate)
-   → **PASS** (no output, exit 0).
+  → **PASS** (no output, exit 0).
 2. `npx drizzle-kit --version` → `drizzle-kit: v0.28.1`, `drizzle-orm: v0.35.3`.
 3. `node -e "const v=require('drizzle-orm/version'); ..."`
-   → `compatibilityVersion: 9`, `npmVersion: 0.35.3` (confirmed root cause).
+  → `compatibilityVersion: 9`, `npmVersion: 0.35.3` (confirmed root cause).
 4. `npm run db:generate --workspace @kansride/db` (drizzle-kit 0.28.1)
-   → **FAIL** — "This version of drizzle-kit requires newer version of
+  → **FAIL** — "This version of drizzle-kit requires newer version of
    drizzle-orm".
 5. Edited `packages/shared-db/package.json` (`drizzle-kit: ^0.26.2`),
-   removed stale lock entry, `npm install`
+  removed stale lock entry, `npm install`
    → `drizzle-kit@0.26.2` installed at root.
 6. `npm run db:generate --workspace @kansride/db` (drizzle-kit 0.26.2)
-   → **PASS**. Output:
-   ```
-   9 tables
-   audit_logs 9 columns 0 indexes 1 fks
-   drivers 13 columns 1 indexes 2 fks
-   users 11 columns 0 indexes 0 fks
-   vehicles 11 columns 0 indexes 1 fks
-   passengers 7 columns 0 indexes 1 fks
-   rides 23 columns 3 indexes 2 fks
-   payments 11 columns 0 indexes 2 fks
-   driver_subscriptions 8 columns 1 indexes 1 fks
-   otp_requests 8 columns 1 indexes 0 fks
-   [✓] Your SQL migration file ➜ src\migrations\0000_unusual_morlun.sql 🚀
-   ```
+  → **PASS**. Output:
 7. Manually prepended `CREATE EXTENSION IF NOT EXISTS postgis;` to the
-   generated SQL (A1 spec requirement).
+  generated SQL (A1 spec requirement).
 8. `npx tsc --noEmit -p packages\shared-db\tsconfig.json` (post-generate)
-   → **PASS** (exit 0).
+  → **PASS** (exit 0).
 9. `npm run db:migrate --workspace @kansride/db` against
-   `postgresql://postgres:postgres@localhost:5432/kansride`
+  `postgresql://postgres:postgres@localhost:5432/kansride`
    → **FAIL** — `error: password authentication failed for user "postgres"`
    (PostgreSQL SQLSTATE 28P01, FATAL, `auth.c:342`, server PostgreSQL 13.22).
    This is the known local-credential blocker; the DB is reachable (port
    5432 open) but the default password from `.env.example` does not match.
 10. Secret scan of generated files
-    (`Select-String -Pattern "password|secret|api_key|token|JWT_|PRIVATE_KEY"`)
+  (`Select-String -Pattern "password|secret|api_key|token|JWT_|PRIVATE_KEY"`)
     → no matches. Snapshot and journal JSON validated as parseable.
+
+
 
 ### Migration validation outcome
 
 The generated SQL (`0000_unusual_morlun.sql`) was inspected line-by-line
 against the A1 spec checklist:
 
-| Requirement | Present | Notes |
-|---|---|---|
-| `CREATE EXTENSION IF NOT EXISTS postgis;` | ✓ | Added manually (line 1); drizzle-kit cannot emit it because schema uses `numeric` for coords. |
-| 10 enums (user_role, user_status, vehicle_type, vehicle_status, ride_status, ride_type, payment_method, payment_status, payment_type, subscription_status) | ✓ | Lines 1-10 (after PostGIS). |
-| 9 tables (users, vehicles, drivers, passengers, rides, payments, driver_subscriptions, audit_logs, otp_requests) | ✓ | All `CREATE TABLE IF NOT EXISTS`, UUID PKs `DEFAULT gen_random_uuid()`, correct columns/defaults. |
-| All FKs (vehicles→users, drivers→users cascade, drivers→vehicles, passengers→users cascade, rides→passengers, rides→drivers, payments→rides, payments→users, driver_subscriptions→drivers cascade, audit_logs→users) | ✓ | 10 FKs, wrapped in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object` blocks. |
-| 6 indexes (idx_drivers_online_location, idx_rides_status_created, idx_rides_passenger, idx_rides_driver, idx_subs_driver_expiry, idx_otp_phone_expiry) | ✓ | All `CREATE INDEX IF NOT EXISTS`, btree. |
-| Unique constraints (phone_number, license_number, registration_number, drivers.user_id, passengers.user_id) | ✓ | |
-| Monetary amounts as integer pesewas | ✓ | `estimated_fare_pesewas`, `actual_fare_pesewas`, `amount_pesewas` all `integer`. |
+
+| Requirement                                                                                                                                                                                                          | Present | Notes                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| `CREATE EXTENSION IF NOT EXISTS postgis;`                                                                                                                                                                            | ✓       | Added manually (line 1); drizzle-kit cannot emit it because schema uses `numeric` for coords.     |
+| 10 enums (user_role, user_status, vehicle_type, vehicle_status, ride_status, ride_type, payment_method, payment_status, payment_type, subscription_status)                                                           | ✓       | Lines 1-10 (after PostGIS).                                                                       |
+| 9 tables (users, vehicles, drivers, passengers, rides, payments, driver_subscriptions, audit_logs, otp_requests)                                                                                                     | ✓       | All `CREATE TABLE IF NOT EXISTS`, UUID PKs `DEFAULT gen_random_uuid()`, correct columns/defaults. |
+| All FKs (vehicles→users, drivers→users cascade, drivers→vehicles, passengers→users cascade, rides→passengers, rides→drivers, payments→rides, payments→users, driver_subscriptions→drivers cascade, audit_logs→users) | ✓       | 10 FKs, wrapped in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object` blocks.                      |
+| 6 indexes (idx_drivers_online_location, idx_rides_status_created, idx_rides_passenger, idx_rides_driver, idx_subs_driver_expiry, idx_otp_phone_expiry)                                                               | ✓       | All `CREATE INDEX IF NOT EXISTS`, btree.                                                          |
+| Unique constraints (phone_number, license_number, registration_number, drivers.user_id, passengers.user_id)                                                                                                          | ✓       |                                                                                                   |
+| Monetary amounts as integer pesewas                                                                                                                                                                                  | ✓       | `estimated_fare_pesewas`, `actual_fare_pesewas`, `amount_pesewas` all `integer`.                  |
+
 
 **SQL inspection verdict: complete and correct.** The migration location
 (`./src/migrations`) matches the path used by `migrate.ts` and
@@ -138,41 +135,42 @@ against the A1 spec checklist:
 ### Unresolved issues
 
 1. **PostgreSQL credentials** — Local PostgreSQL 13.22 is running on
-   `localhost:5432` but rejects the default `postgres:postgres` credentials
-   from `.env.example` with `password authentication failed for user
-   "postgres"` (SQLSTATE 28P01). The migration could not be applied to a
+  `localhost:5432` but rejects the default `postgres:postgres` credentials
+   from `.env.example` with `password authentication failed for user  "postgres"` (SQLSTATE 28P01). The migration could not be applied to a
    live database. The user chose "Generate only, skip DB run". To run the
    migration, either (a) set the correct password for the `postgres` user,
    (b) create a `kansride` database + dedicated role with known credentials
    and supply them via `DATABASE_URL`, or (c) provide a working
    `DATABASE_URL` env var. This must be resolved before Task 0a can be
    considered fully verified and before any runtime recovery task can begin.
-
 2. **PostGIS availability** — The migration now requests
-   `CREATE EXTENSION IF NOT EXISTS postgis;`. When the migration is run,
+  `CREATE EXTENSION IF NOT EXISTS postgis;`. When the migration is run,
    the PostgreSQL instance must have PostGIS installed, and the connecting
    role must have `CREATE` privilege on the database (or PostGIS must
    already be installed). The audit noted the CI spec uses
    `postgis/postgis:16-3.4`; the local server is PostgreSQL 13.22, so
    PostGIS for PG13 is required. Whether PostGIS is installed locally is
    unknown (could not connect to check).
-
 3. **drizzle-kit version** — `drizzle-kit` is now pinned to `^0.26.2`
-   (down from `^0.28.0`). This is a dev-only tool; runtime `drizzle-orm`
+  (down from `^0.28.0`). This is a dev-only tool; runtime `drizzle-orm`
    is unchanged at `^0.35.0`. Future schema changes will use 0.26.2's
    `drizzle-kit generate`. If the project later upgrades `drizzle-orm`
    to ≥0.36.0 (compatibilityVersion 10), `drizzle-kit` should be
    re-upgraded to 0.27+ in lockstep.
-
 4. **PostgreSQL version mismatch** — Local server is 13.22; CI spec
-   targets PG16. Not a blocker for migrations (the SQL is
+  targets PG16. Not a blocker for migrations (the SQL is
    PG13-compatible), but worth noting for parity.
+
+
 
 ### Git commit
 
 One commit created on `recovery/phase-2-opencode`:
+
 - Message: `fix(db): generate initial Drizzle migrations`
 - Hash: recorded at commit time (see `git log -1`).
+
+
 
 ### Recommended next task
 
@@ -215,6 +213,7 @@ The production validation in `packages/shared-config/src/env.ts` checked
 `JWT_SECRET`, although the backend does not read that variable. This could
 allow an incorrectly configured production deployment to pass validation while
 the backend falls back to the insecure development access-token secret.
+
 ### Changes made
 
 All active configuration was standardized on:
@@ -224,13 +223,15 @@ All active configuration was standardized on:
 
 The following files were updated:
 
-| File | Change |
-|---|---|
-| `.env.example` | Renamed the access-token variable to `JWT_ACCESS_SECRET` |
-| `packages/shared-config/src/env.ts` | Updated the schema, production-required variables, and insecure-default validation |
-| `README.md` | Updated the JWT environment-variable table |
-| `docs/SETUP-WINDOWS.md` | Updated the Windows environment configuration example |
-| `docs/recovery/PHASE-2-RECOVERY-LOG.md` | Recorded completion of Task 0b |
+
+| File                                    | Change                                                                             |
+| --------------------------------------- | ---------------------------------------------------------------------------------- |
+| `.env.example`                          | Renamed the access-token variable to `JWT_ACCESS_SECRET`                           |
+| `packages/shared-config/src/env.ts`     | Updated the schema, production-required variables, and insecure-default validation |
+| `README.md`                             | Updated the JWT environment-variable table                                         |
+| `docs/SETUP-WINDOWS.md`                 | Updated the Windows environment configuration example                              |
+| `docs/recovery/PHASE-2-RECOVERY-LOG.md` | Recorded completion of Task 0b                                                     |
+
 
 The backend JWT implementation was not changed because it already uses
 `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`.
@@ -278,33 +279,37 @@ exists).
 ### Pre-implementation inspection
 
 - `apps/backend/src/modules/auth/auth.service.ts` (`verifyOTP`, lines 69-155):
-  find-or-creates `users` row (default role `passenger`), issues JWT
-  `{ userId, phoneNumber, role }`, returns `{ ...tokens, user: {...} }`.
-  No `passengers` row was created; no transaction was used.
+find-or-creates `users` row (default role `passenger`), issues JWT
+`{ userId, phoneNumber, role }`, returns `{ ...tokens, user: {...} }`.
+No `passengers` row was created; no transaction was used.
 - `packages/shared-db/src/schema/users.ts`, `passengers.ts`, `drivers.ts`,
-  `rides.ts`:
+`rides.ts`:
   - `users.id` uuid PK; `passengers.id` uuid PK (passenger's own id);
   - `passengers.userId` uuid, **unique** (`passengers_user_id_unique`),
-    FK → `users.id` ON DELETE cascade;
+  FK → `users.id` ON DELETE cascade;
   - `riders.passengerId` FK → `passengers.id` (not `users.id`);
   - `drivers.userId` also unique, and `drivers` requires `licenseNumber`.
 - `packages/shared-db/src/migrations/0000_unusual_morlun.sql:80` confirms
-  `CONSTRAINT "passengers_user_id_unique" UNIQUE("user_id")` is already
-  present — no schema change or new migration required.
+`CONSTRAINT "passengers_user_id_unique" UNIQUE("user_id")` is already
+present — no schema change or new migration required.
 - `packages/shared-db` `drizzle-orm@0.35.3` exports `NodePgTransaction`,
-  and the typed `Database` (`NodePgDatabase<typeof schema>`) supports
-  `db.transaction(async (tx) => ...)`. The current OTP flow did not use a
-  transaction.
+and the typed `Database` (`NodePgDatabase<typeof schema>`) supports
+`db.transaction(async (tx) => ...)`. The current OTP flow did not use a
+transaction.
 - Role behavior: first-time users are created with role `passenger`
-  (hardcoded at `auth.service.ts` original line 128). Passenger profiles are
-  therefore appropriate for `user.role === 'passenger'`. `driver_applicant`,
-  `driver`, and admin roles are not given a passenger profile automatically,
-  matching existing architecture (drivers require `licenseNumber`; admins
-  log in through a separate flow per Task 1c).
+(hardcoded at `auth.service.ts` original line 128). Passenger profiles are
+therefore appropriate for `user.role === 'passenger'`. `driver_applicant`,
+`driver`, and admin roles are not given a passenger profile automatically,
+matching existing architecture (drivers require `licenseNumber`; admins
+log in through a separate flow per Task 1c).
+
+
 
 ### Files changed
 
 - `apps/backend/src/modules/auth/auth.service.ts` (only file changed).
+
+
 
 ### Implementation summary
 
@@ -312,63 +317,70 @@ In `verifyOTP`, after OTP verification:
 
 1. Look up the `users` row by phone number.
 2. **New user** (not found): wrap `INSERT INTO users` and
-   `INSERT INTO passengers` in a single `db.transaction()` so user creation
+  `INSERT INTO passengers` in a single `db.transaction()` so user creation
    and passenger-profile creation succeed or fail atomically. The passenger
    insert uses `.onConflictDoNothing({ target: passengers.userId })` for
    safety against any race.
 3. **Existing user**: update `isVerified` if needed (unchanged behavior);
-   then, if `user.role === 'passenger'`, run a single idempotent
+  then, if `user.role === 'passenger'`, run a single idempotent
    `INSERT INTO passengers ... ON CONFLICT (user_id) DO NOTHING`.
 4. The JWT payload, JWT env vars (`JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`),
-   and the returned `user` response object are unchanged (backward
+  and the returned `user` response object are unchanged (backward
    compatible).
+
+
 
 ### Idempotency and concurrency
 
 - `passengers.userId` has a UNIQUE constraint at the DB level
-  (`passengers_user_id_unique`), so duplicate passenger rows for one user
-  are physically impossible.
+(`passengers_user_id_unique`), so duplicate passenger rows for one user
+are physically impossible.
 - `INSERT ... ON CONFLICT DO NOTHING` on that unique constraint means:
-  repeated OTP verification never creates a duplicate; an existing profile
-  is retained (not re-created, not updated).
-- Under concurrent OTP verification for the same phone, two transactions
-  racing to insert the same `passengers.userId` row are serialized by the
-  unique constraint at the PostgreSQL layer: one insert wins, the other
-  hits the conflict and is a no-op. No duplicate is produced and neither
-  request fails (no error surfaced to the caller).
+repeated OTP verification never creates a duplicate; an existing profile
+is retained (not re-created, not updated).
+- Concurrent passenger-profile creation for an existing user is safe because
+  the unique constraint on passengers.userId and ON CONFLICT DO NOTHING prevent
+  duplicate passenger profiles. Concurrent first-time verification requests may
+  still race while inserting the users row because Task 1a did not add conflict
+  handling to users.phoneNumber. That separate race condition was not changed or
+  runtime-tested by this task.
+
+
 
 ### Transaction usage
 
 - A transaction is used **only** for the new-user branch, because it
-  performs two dependent writes (create user, then create passenger
-  profile) that must be atomic (a crash between them would leave a user
-  with no profile).
+performs two dependent writes (create user, then create passenger
+profile) that must be atomic (a crash between them would leave a user
+with no profile).
 - The existing-user branch performs a single statement (the idempotent
-  passenger insert / conflict-no-op), so no transaction is needed there;
-  keeping it transaction-free avoids unnecessary lock scope and preserves
-  the existing code path's behavior.
+passenger insert / conflict-no-op), so no transaction is needed there;
+keeping it transaction-free avoids unnecessary lock scope and preserves
+the existing code path's behavior.
+
+
 
 ### Validation commands and results
 
 1. `npx tsc --noEmit -p packages/shared-db/tsconfig.json`
-   → **PASS** (no output, exit 0).
+  → **PASS** (no output, exit 0).
 2. `npx tsc --noEmit -p apps/backend/tsconfig.json`
-   → **PASS** (no output, exit 0). No `any`, no non-null assertions were
+  → **PASS** (no output, exit 0). No `any`, no non-null assertions were
    newly introduced (the existing `inserted[0]!` non-null pattern was kept
    unchanged inside the transaction).
 3. `npm run build --workspace @kansride/backend` (`nest build`)
-   → **PASS** (exit 0). Compiled `dist/modules/auth/auth.service.js` was
-   inspected and contains the two `onConflictDoNothing({ target:
-   passengers.userId })` calls (one inside the transaction, one in the
+  → **PASS** (exit 0). Compiled `dist/modules/auth/auth.service.js` was
+   inspected and contains the two `onConflictDoNothing({ target:  passengers.userId })` calls (one inside the transaction, one in the
    existing-user branch).
 4. `git diff --stat apps/backend/src/modules/auth/auth.service.ts`
-   → 44 insertions, 14 deletions; only that one file changed.
+  → 44 insertions, 14 deletions; only that one file changed.
+
+
 
 ### Runtime verification status
 
 **Not performed.** Local PostgreSQL (server running, port 5432) rejects the
-default `postgres:postgres` credentials with `28P01 password authentication
-failed for user "postgres"` — the same blocker recorded in Task 0a,
+default `postgres:postgres` credentials with `28P01 password authentication failed for user "postgres"` — the same blocker recorded in Task 0a,
 Unresolved issue #1. No destructive operation was attempted and no
 credentials were guessed. The following remain **statically verified but
 not runtime-verified**:
@@ -387,18 +399,20 @@ once the PostgreSQL credential blocker is resolved.
 ### Unresolved issues
 
 - PostgreSQL credentials blocker (carried over from Task 0a) — must be
-  resolved before runtime verification of Task 1a (and all subsequent
-  runtime tasks).
+resolved before runtime verification of Task 1a (and all subsequent
+runtime tasks).
 - The rides controller (`rides.controller.ts:30`) still passes
-  `req.user.userId` (which is `users.id`) as `passengerId` to
-  `createRide`, while `rides.passengerId` FK → `passengers.id`. Task 1a
-  ensures the `passengers` row exists, but the controller still uses the
-  wrong identifier; resolving the passenger-id source is the next task
-  (Task 1b / Step 2 territory) and is explicitly out of scope for 1a.
+`req.user.userId` (which is `users.id`) as `passengerId` to
+`createRide`, while `rides.passengerId` FK → `passengers.id`. Task 1a
+ensures the `passengers` row exists, but the controller still uses the
+wrong identifier; resolving the passenger-id source is the next task
+(Task 1b / Step 2 territory) and is explicitly out of scope for 1a.
+
+
 
 ### Recommended next task
 
-**Task 1b — Make `UsersService.getProfile` perform a real DB fetch**
+**Task 1b — Make** `UsersService.getProfile` **perform a real DB fetch**
 (returning `users` joined with `passengers`/`drivers` as appropriate), as
 specified in the audit §13 Step 1, to replace the hardcoded TODO data and
 unblock the mobile profile screens (downstream of Task 1a's passenger row).
