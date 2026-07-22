@@ -4,6 +4,11 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { RidesService } from './rides.service';
+import type { TokenPayload } from '@kansride/auth';
+
+interface AuthenticatedRequest extends Request {
+  user: TokenPayload & { iat: number; exp: number };
+}
 
 @Controller('rides')
 @UseGuards(AuthGuard, RolesGuard)
@@ -18,7 +23,7 @@ export class RidesController {
 
   @Post()
   @RequirePermissions('ride:create')
-  createRide(@Request() req: any, @Body() body: {
+  createRide(@Request() req: AuthenticatedRequest, @Body() body: {
     pickupLatitude: number;
     pickupLongitude: number;
     pickupAddress?: string;
@@ -38,7 +43,7 @@ export class RidesController {
 
   @Patch(':id/cancel')
   @RequirePermissions('ride:cancel')
-  cancelRide(@Param('id') id: string, @Request() req: any, @Body() body: { reason?: string }) {
+  cancelRide(@Param('id') id: string, @Request() req: AuthenticatedRequest, @Body() body: { reason?: string }) {
     return this.ridesService.cancelRide(id, req.user.userId, body.reason);
   }
 

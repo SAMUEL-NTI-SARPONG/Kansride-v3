@@ -420,3 +420,178 @@ unblock the mobile profile screens (downstream of Task 1a's passenger row).
 ---
 
 *End of Task 1a entry.*
+
+## Task 1b — Resolve the authenticated user's passenger profile ID before creating or querying passenger rides
+
+**Date:** 2026-07-22
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); runtime DB verification still blocked by local PostgreSQL credentials (Task 0a, Unresolved issue #1).
+
+### Original issue
+
+The JWT payload carries `userId` = `users.id`, but the `rides` table has
+`passengerId` foreign-keyed to `passengers.id` (a separate UUID primary key).
+`RidesController.createRide` passed `req.user.userId` (`users.id`) straight
+into `RidesService.createRide(..., passengerId)` and that value ended up in
+`rides.passengerId`. Even after Task 1a guarantees the `passengers` row
+exists, this would violate the FK constraint (`users.id` is not a row in
+`passengers`) or, at best, write the wrong identifier. Audit §8 row 12, §13
+Step 1 (task 1b), §14 Step 1.
+
+### Files inspected
+
+- `apps/backend/src/modules/rides/rides.controller.ts`
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `apps/backend/src/modules/rides/rides.module.ts`
+- `apps/backend/src/modules/auth/auth.service.ts` (Task 1a passenger-row guarantee)
+- `apps/backend/src/modules/users/users.service.ts`
+- `packages/shared-db/src/schema/{users,passengers,rides,drivers}.ts`
+- `packages/shared-auth/src/jwt.ts` (`TokenPayload` = `{ userId, phoneNumber, role }`)
+- `apps/backend/src/common/guards/{auth,roles}.guard.ts`
+- Backend-wide grep for `req.user`, `passengerId`, `getPassengerRides`,
+  `createRide` to find every mixing of `users.id` and `passengers.id`
+- `docs/recovery/PHASE-2-AUDIT.md` (route ownership) and
+  `docs/recovery/PHASE-2-RECOVERY-LOG.md`
+
+### Files changed
+
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `apps/backend/src/modules/rides/rides.controller.ts`
+
+### Implementation summary
+
+1. In `RidesService`, added a private `getPassengerProfileByUserId(authenticatedUserId)`:
+   - `SELECT * FROM passengers WHERE passengers.userId = authenticatedUserId LIMIT 1`.
+   - Throws `ForbiddenException('No passenger profile found for this account')` when no row.
+   - Returns the full typed passenger row (typed by Drizzle's inferred select type — no `any`, no new non-null assertion).
+2. Renamed `createRide`'s first parameter from `passengerId` → `authenticatedUserId` and resolved the real id internally: `const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);` then `insert(rides).values({ passengerId: passenger.id, ... })`. The service API now *cannot* be tricked into writing `users.id` into `rides.passengerId`.
+3. In `RidesController`, replaced the two `@Request() req: any` typings with a strict `AuthenticatedRequest extends Request { user: TokenPayload & { iat, exp } }` (imported `TokenPayload` from `@kansride/auth`), so `req.user.userId` is now typed, not `any`. The argument value passed to `createRide` is unchanged (`req.user.userId`); the controller still has no business knowing `passengers.id`.
+
+### Identity mapping
+
+```
+JWT.user.userId  (== users.id)
+   │
+   └─► RidesService.getPassengerProfileByUserId(authenticatedUserId)
+           │  SELECT passengers WHERE passengers.user_id = <userId>
+           ▼
+       passengers.id   (== passengers.user_id's owning row PK)
+           │
+           └─► rides.passenger_id  (FK → passengers.id)
+```
+
+The controller never sees or passes `passengerId`. The service accepts
+only `authenticatedUserId` and resolves the FK-compliant id itself. The
+existing `getPassengerRides(passengerId, ...)` service method keeps its
+`passengerId` parameter (it is correct as-is); whoever wires Task 2d's
+`my-rides` route must resolve the passenger id first (recommended pattern is
+in place to reuse `getPassengerProfileByUserId` — made private for now per
+Task 1b scope; can be exposed when Task 2d lands).
+
+### Affected routes
+
+- `POST /rides` — fixed: now resolves `passengerId` from the authenticated
+  user's `passengers` row before insert.
+
+Not changed (no `passengerId`/`users.id` confusion was present):
+
+- `GET /rides/:id` — keys on `rides.id` only.
+- `GET /rides/:id/track` — `@Public()`; keys on `rides.id` only.
+- `PATCH /rides/:id/status` — system/actor-agnostic; out of Task 1b scope.
+- `POST /rides/:id/rate` — keys on `rides.id` only.
+- `PATCH /rides/:id/cancel` — the `req.user.userId` is stored in the
+  free-form `cancelled_by` UUID column (not an FK to `passengers`). The
+  audit assigns the cancel-actor rework (hardcoded
+  `'cancelled_by_passenger'` and actor) to **Task 2b**, so `cancelRide`'s
+  actor behavior is intentionally untouched here.
+- `GET /rides/my-rides` — **not added.** Audit §13 and §14 assign the
+  my-rides route to **Task 2d**. Task 1b does not introduce it. The
+  service method `getPassengerRides(passengerId, limit)` is left intact and
+  correct for Task 2d to wire up.
+- `GET /users/me` — unchanged (audit Task 1b in *audit*-numbering is
+  `UsersService.getProfile`; this session's Task 1b is the
+  passenger-id-resolution slot, so `users.service.ts` is untouched here).
+
+### Error behavior
+
+- Authenticated user with no `passengers` profile (e.g., driver, admin,
+  dispatcher, or any role that should not create a passenger ride):
+  `createRide` throws `ForbiddenException` → HTTP `403
+  {"statusCode":403,"message":"No passenger profile found for this
+  account","error":"Forbidden"}`. This respects role separation and
+  does not silently create a passenger row inside ride creation.
+- Authenticated user with a `passengers` profile (the case Task 1a
+  guarantees for passenger-role OTP users): the existing profile is
+  reused (no duplicate creation, no duplicate select). Repeated rides
+  reuse the same `passengers.id`.
+- Unauthenticated request: `AuthGuard` already returns `401` before
+  the service is reached; unchanged.
+
+### Validation commands and exact results
+
+1. `npx tsc --noEmit -p packages/shared-db/tsconfig.json` → **PASS**
+   (no output, exit 0).
+2. `npx tsc --noEmit -p apps/backend/tsconfig.json` → **PASS**
+   (no output, exit 0). No `any`, no new non-null assertions introduced.
+   `TokenPayload` import is `import type`, so no runtime coupling.
+3. `npm run build --workspace @kansride/backend` (`nest build`)
+   → **PASS** (exit 0).
+4. Compiled-output inspection of `dist/modules/rides/rides.service.js`:
+   - `getPassengerProfileByUserId(authenticatedUserId)` present;
+   - `throw new common_1.ForbiddenException('No passenger profile found for this account')` present;
+   - insert line reads `passengerId: passenger.id` (the resolved FK-compliant
+     id), NOT `passengerId: authenticatedUserId`;
+   - log line `Ride created ... for passenger ${passenger.id}` present.
+5. `git diff --stat`: 2 files changed (+40 / −7).
+
+### Runtime verification status
+
+**Not performed.** Local PostgreSQL (server running, port 5432) still
+rejects the default `postgres:postgres` credentials with
+`28P01 password authentication failed for user "postgres"` — the same
+blocker recorded in Task 0a, Unresolved issue #1 (re-confirmed during this
+task: `DB UNREACHABLE: 28P01`). No destructive operation, no credential
+guessing, no reseed/truncate was attempted.
+
+The following properties are therefore **statically verified only**:
+
+- `users.id` resolves to the correct `passengers.id` (verified by code:
+  the lookup is `WHERE passengers.user_id = authenticatedUserId` against
+  the unique-constrained column; `passengers.user_id → users.id` FK is in
+  the migration SQL `0000_unusual_morlun.sql:170`).
+- ride creation stores `passengers.id` in `rides.passengerId` (verified
+  by compiled JS line `passengerId: passenger.id`).
+- a non-passenger user receives `403 Forbidden` (verified by the
+  `ForbiddenException` path; role separation is preserved because only
+  passenger-role users get a passenger row per Task 1a).
+- an absent passenger profile produces a clear, non-5xx error
+  (`ForbiddenException` with an explicit message).
+- repeated requests do not create passenger profiles (no insert is
+  performed by `getPassengerProfileByUserId`; only reads).
+- passenger ride history (`my-rides`) is not part of Task 1b, so no
+  behavior to verify here.
+
+### Unresolved issues
+
+- PostgreSQL credentials blocker (Task 0a #1, carried) — required for
+  any runtime verification of Task 1b and all subsequent runtime tasks.
+- `PATCH /rides/:id/cancel` actor handling (hardcoded
+  `'cancelled_by_passenger'` + `cancelledBy = req.user.userId` free-form
+  uuid) — explicitly out of Task 1b scope and reserved for Task 2b.
+- `GET /rides/my-rides` route — explicitly out of Task 1b scope; reserved
+  for Task 2d. `getPassengerRides(passengerId, limit)` is correct and
+  available for that task; when it is added, `@Get('my-rides')` must be
+  declared **before** `@Get(':id')` (route-order note recorded above).
+
+### Recommended next task
+
+**Task 1c — Decide the admin authentication model and add guards to
+`AdminController`**, per audit §13 Step 1, task 1c. (The audit's Task 1b,
+"Fix `UsersService.getProfile`", can also be done here — both are
+independent of Task 1b as scoped in this session's prompt.) Until the
+PostgreSQL credential blocker is resolved, runtime verification of any
+further backend changes remains static-only.
+
+---
+
+*End of Task 1b entry.*

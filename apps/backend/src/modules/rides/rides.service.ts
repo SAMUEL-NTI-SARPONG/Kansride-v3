@@ -1,8 +1,8 @@
-import { Injectable, Inject, BadRequestException, NotFoundException, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException, Logger, forwardRef } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
-import { Database, rides, drivers, users, vehicles } from '@kansride/db';
+import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
 import { eq, desc } from 'drizzle-orm';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
@@ -20,8 +20,32 @@ export class RidesService {
     private readonly dispatchService: DispatchService,
   ) {}
 
+  /**
+   * Resolves the passenger profile row for an authenticated user.
+   *
+   * The JWT carries `userId` = `users.id`, but `rides.passengerId` is a
+   * foreign key to `passengers.id`. This helper translates between the two
+   * identifiers. It does NOT create a passenger row (that is owned by the
+   * auth flow, Task 1a); it only reads the existing profile and refuses
+   * with a ForbiddenException when the authenticated user has none (e.g. a
+   * driver/admin/dispatcher role account) or when a pre-existing passenger
+   * user never received a profile for any reason.
+   */
+  private async getPassengerProfileByUserId(authenticatedUserId: string) {
+    const rows = await this.db
+      .select()
+      .from(passengers)
+      .where(eq(passengers.userId, authenticatedUserId))
+      .limit(1);
+    const passenger = rows[0];
+    if (!passenger) {
+      throw new ForbiddenException('No passenger profile found for this account');
+    }
+    return passenger;
+  }
+
   async createRide(
-    passengerId: string,
+    authenticatedUserId: string,
     data: {
       pickupLatitude: number;
       pickupLongitude: number;
@@ -34,6 +58,10 @@ export class RidesService {
       rideType?: string;
     },
   ) {
+    // Resolve the real passenger.id from the authenticated users.id.
+    // Never insert users.id into rides.passengerId (FK -> passengers.id).
+    const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);
+
     // Get distance estimate from maps provider
     const distance = await this.mapsProvider.getDistance(
       { latitude: data.pickupLatitude, longitude: data.pickupLongitude },
@@ -54,7 +82,7 @@ export class RidesService {
     const inserted = await this.db
       .insert(rides)
       .values({
-        passengerId,
+        passengerId: passenger.id,
         pickupLatitude: data.pickupLatitude.toString(),
         pickupLongitude: data.pickupLongitude.toString(),
         pickupAddress: data.pickupAddress,
@@ -73,7 +101,7 @@ export class RidesService {
       .returning();
 
     const ride = inserted[0]!;
-    this.logger.log(`Ride created: ${ride.id}, fare: ${fare.totalFare} pesewas`);
+    this.logger.log(`Ride created: ${ride.id} for passenger ${passenger.id}, fare: ${fare.totalFare} pesewas`);
 
     // Trigger dispatch engine to find nearby drivers
     this.dispatchService.dispatchRide(ride.id, data.pickupLongitude, data.pickupLatitude).catch((err) => {
