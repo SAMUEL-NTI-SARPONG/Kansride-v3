@@ -257,3 +257,152 @@ Planned commit message:
 ---
 
 *End of Task 0b entry.*
+
+## Task 1a — Create passenger profile row on first successful passenger login
+
+**Date:** 2026-07-22
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); runtime DB verification still blocked by local PostgreSQL credentials (see Task 0a, Unresolved issue #1).
+
+### Original issue
+
+The Phase 2 audit (§8 row 12; §13 Step 1, task 1a) found that the OTP
+verification flow (`auth.service.ts` `verifyOTP`) finds-or-creates a row in
+the `users` table but never creates a row in `passengers`. Because
+`rides.passengerId` has a foreign key to `passengers.id` (not `users.id`),
+and `passengers.userId` is a separate unique column referencing `users.id`, a
+newly authenticated passenger could authenticate successfully but then fail
+ride creation with a foreign-key / identity mismatch (no `passengers` row
+exists).
+
+### Pre-implementation inspection
+
+- `apps/backend/src/modules/auth/auth.service.ts` (`verifyOTP`, lines 69-155):
+  find-or-creates `users` row (default role `passenger`), issues JWT
+  `{ userId, phoneNumber, role }`, returns `{ ...tokens, user: {...} }`.
+  No `passengers` row was created; no transaction was used.
+- `packages/shared-db/src/schema/users.ts`, `passengers.ts`, `drivers.ts`,
+  `rides.ts`:
+  - `users.id` uuid PK; `passengers.id` uuid PK (passenger's own id);
+  - `passengers.userId` uuid, **unique** (`passengers_user_id_unique`),
+    FK → `users.id` ON DELETE cascade;
+  - `riders.passengerId` FK → `passengers.id` (not `users.id`);
+  - `drivers.userId` also unique, and `drivers` requires `licenseNumber`.
+- `packages/shared-db/src/migrations/0000_unusual_morlun.sql:80` confirms
+  `CONSTRAINT "passengers_user_id_unique" UNIQUE("user_id")` is already
+  present — no schema change or new migration required.
+- `packages/shared-db` `drizzle-orm@0.35.3` exports `NodePgTransaction`,
+  and the typed `Database` (`NodePgDatabase<typeof schema>`) supports
+  `db.transaction(async (tx) => ...)`. The current OTP flow did not use a
+  transaction.
+- Role behavior: first-time users are created with role `passenger`
+  (hardcoded at `auth.service.ts` original line 128). Passenger profiles are
+  therefore appropriate for `user.role === 'passenger'`. `driver_applicant`,
+  `driver`, and admin roles are not given a passenger profile automatically,
+  matching existing architecture (drivers require `licenseNumber`; admins
+  log in through a separate flow per Task 1c).
+
+### Files changed
+
+- `apps/backend/src/modules/auth/auth.service.ts` (only file changed).
+
+### Implementation summary
+
+In `verifyOTP`, after OTP verification:
+
+1. Look up the `users` row by phone number.
+2. **New user** (not found): wrap `INSERT INTO users` and
+   `INSERT INTO passengers` in a single `db.transaction()` so user creation
+   and passenger-profile creation succeed or fail atomically. The passenger
+   insert uses `.onConflictDoNothing({ target: passengers.userId })` for
+   safety against any race.
+3. **Existing user**: update `isVerified` if needed (unchanged behavior);
+   then, if `user.role === 'passenger'`, run a single idempotent
+   `INSERT INTO passengers ... ON CONFLICT (user_id) DO NOTHING`.
+4. The JWT payload, JWT env vars (`JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`),
+   and the returned `user` response object are unchanged (backward
+   compatible).
+
+### Idempotency and concurrency
+
+- `passengers.userId` has a UNIQUE constraint at the DB level
+  (`passengers_user_id_unique`), so duplicate passenger rows for one user
+  are physically impossible.
+- `INSERT ... ON CONFLICT DO NOTHING` on that unique constraint means:
+  repeated OTP verification never creates a duplicate; an existing profile
+  is retained (not re-created, not updated).
+- Under concurrent OTP verification for the same phone, two transactions
+  racing to insert the same `passengers.userId` row are serialized by the
+  unique constraint at the PostgreSQL layer: one insert wins, the other
+  hits the conflict and is a no-op. No duplicate is produced and neither
+  request fails (no error surfaced to the caller).
+
+### Transaction usage
+
+- A transaction is used **only** for the new-user branch, because it
+  performs two dependent writes (create user, then create passenger
+  profile) that must be atomic (a crash between them would leave a user
+  with no profile).
+- The existing-user branch performs a single statement (the idempotent
+  passenger insert / conflict-no-op), so no transaction is needed there;
+  keeping it transaction-free avoids unnecessary lock scope and preserves
+  the existing code path's behavior.
+
+### Validation commands and results
+
+1. `npx tsc --noEmit -p packages/shared-db/tsconfig.json`
+   → **PASS** (no output, exit 0).
+2. `npx tsc --noEmit -p apps/backend/tsconfig.json`
+   → **PASS** (no output, exit 0). No `any`, no non-null assertions were
+   newly introduced (the existing `inserted[0]!` non-null pattern was kept
+   unchanged inside the transaction).
+3. `npm run build --workspace @kansride/backend` (`nest build`)
+   → **PASS** (exit 0). Compiled `dist/modules/auth/auth.service.js` was
+   inspected and contains the two `onConflictDoNothing({ target:
+   passengers.userId })` calls (one inside the transaction, one in the
+   existing-user branch).
+4. `git diff --stat apps/backend/src/modules/auth/auth.service.ts`
+   → 44 insertions, 14 deletions; only that one file changed.
+
+### Runtime verification status
+
+**Not performed.** Local PostgreSQL (server running, port 5432) rejects the
+default `postgres:postgres` credentials with `28P01 password authentication
+failed for user "postgres"` — the same blocker recorded in Task 0a,
+Unresolved issue #1. No destructive operation was attempted and no
+credentials were guessed. The following remain **statically verified but
+not runtime-verified**:
+
+- a new eligible user receives exactly one passenger profile;
+- verifying again does not create a second passenger profile;
+- `passengers.userId` points to `users.id`;
+- the passenger profile has its own `passengers.id`;
+- existing users and profiles are not damaged.
+
+Static verification confirms the SQL shape (single insert + unique
+constraint + ON CONFLICT DO NOTHING) and the schema guarantee these
+properties, but a real database run is still required for final confirmation
+once the PostgreSQL credential blocker is resolved.
+
+### Unresolved issues
+
+- PostgreSQL credentials blocker (carried over from Task 0a) — must be
+  resolved before runtime verification of Task 1a (and all subsequent
+  runtime tasks).
+- The rides controller (`rides.controller.ts:30`) still passes
+  `req.user.userId` (which is `users.id`) as `passengerId` to
+  `createRide`, while `rides.passengerId` FK → `passengers.id`. Task 1a
+  ensures the `passengers` row exists, but the controller still uses the
+  wrong identifier; resolving the passenger-id source is the next task
+  (Task 1b / Step 2 territory) and is explicitly out of scope for 1a.
+
+### Recommended next task
+
+**Task 1b — Make `UsersService.getProfile` perform a real DB fetch**
+(returning `users` joined with `passengers`/`drivers` as appropriate), as
+specified in the audit §13 Step 1, to replace the hardcoded TODO data and
+unblock the mobile profile screens (downstream of Task 1a's passenger row).
+
+---
+
+*End of Task 1a entry.*

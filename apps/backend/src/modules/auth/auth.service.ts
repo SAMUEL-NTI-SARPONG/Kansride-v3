@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, BadRequestException, Inject, Logger 
 import { DATABASE_TOKEN } from '../../database';
 import { SMS_PROVIDER } from '../../providers';
 import { ISMSProvider } from '../../providers/sms/sms.interface';
-import { Database, users, otpRequests } from '@kansride/db';
+import { Database, users, otpRequests, passengers } from '@kansride/db';
 import { JWTService, OTPService, normalizeGhanaPhone, validateGhanaPhone } from '@kansride/auth';
 import { eq, and, gt, desc, count } from 'drizzle-orm';
 
@@ -112,7 +112,12 @@ export class AuthService {
       .set({ verifiedAt: new Date() })
       .where(eq(otpRequests.id, otpRecord.id));
 
-    // Find or create user
+    // Find or create user, and ensure a passenger profile exists for
+    // passenger-role users. New-user creation and its passenger-profile
+    // creation are wrapped in a single transaction so they succeed or
+    // fail atomically. For an existing passenger user, the passenger
+    // profile is ensured via an idempotent lookup-or-insert: the unique
+    // constraint on passengers.userId serializes concurrent attempts.
     let user = await this.db
       .select()
       .from(users)
@@ -121,18 +126,43 @@ export class AuthService {
       .then((rows) => rows[0]);
 
     if (!user) {
-      const inserted = await this.db
-        .insert(users)
-        .values({
-          phoneNumber: normalized,
-          role: 'passenger',
-          isVerified: true,
-        })
-        .returning();
-      user = inserted[0]!;
-      this.logger.log(`New user created: ${user.id} (${normalized})`);
-    } else if (!user.isVerified) {
-      await this.db.update(users).set({ isVerified: true }).where(eq(users.id, user.id));
+      user = await this.db.transaction(async (tx) => {
+        const inserted = await tx
+          .insert(users)
+          .values({
+            phoneNumber: normalized,
+            role: 'passenger',
+            isVerified: true,
+          })
+          .returning();
+        const newUser = inserted[0]!;
+        this.logger.log(`New user created: ${newUser.id} (${normalized})`);
+
+        if (newUser.role === 'passenger') {
+          await tx
+            .insert(passengers)
+            .values({ userId: newUser.id })
+            .onConflictDoNothing({ target: passengers.userId });
+          this.logger.log(`Passenger profile ensured for user ${newUser.id}`);
+        }
+        return newUser;
+      });
+    } else {
+      if (!user.isVerified) {
+        await this.db.update(users).set({ isVerified: true }).where(eq(users.id, user.id));
+      }
+
+      // Ensure a passenger profile exists for an existing passenger-role
+      // user. This is idempotent: ON CONFLICT DO NOTHING on the unique
+      // passengers.userId constraint means repeated verification never
+      // creates a duplicate row, and a concurrent insert by another
+      // request is serialized by the unique constraint at the DB layer.
+      if (user.role === 'passenger') {
+        await this.db
+          .insert(passengers)
+          .values({ userId: user.id })
+          .onConflictDoNothing({ target: passengers.userId });
+      }
     }
 
     // Generate tokens
