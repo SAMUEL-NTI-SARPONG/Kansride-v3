@@ -732,3 +732,176 @@ This remains **unstarted** and is recorded here so it is not lost. It is indepen
 ### Recommended next task
 
 **Task 2a — Fix driver-controller JWT field reads** (per audit §13 Step 2, task 2a): `drivers.controller.ts` reads `req.user.sub` and `req.user.driverId`, neither of which exist on the JWT payload (`{ userId, phoneNumber, role }`). Every `/drivers/`* endpoint throws at runtime. Change to `req.user.userId` and resolve `driverId` via `DriversService.getDriverProfile(userId)`. This unblocks the entire driver app and is the next-highest blast-radius item after the admin security hole. (Alternatively, the audit's Task 1b `UsersService.getProfile` real DB fetch can be done first — it is independent and small.)
+
+
+## Task 2a — Correct driver-controller JWT identity handling
+
+**Date:** 2026-07-23
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); runtime DB verification still blocked by local PostgreSQL credentials (Task 0a, Unresolved issue #1).
+
+### Root cause
+
+The JWT access token payload is fixed at `{ userId, phoneNumber, role }` (`packages/shared-auth/src/jwt.ts:10-14`) — it contains **no** `sub` and **no** `driverId` field. `DriversController` nonetheless read `req.user?.sub` (in `/register` and `/me`) and `req.user?.driverId` (in `/go-online`, `/go-offline`, `/location`, `/subscribe`, `/earnings`). Both reads resolved to `undefined` at runtime, so:
+
+- `/register` and `/me` received `userId = undefined` and either threw a generic `Error('User ID not found in request')` (uncaught 500) or passed `undefined` into the service.
+- `/go-online`, `/go-offline`, `/location`, `/subscribe`, `/earnings` all threw `Error('Driver ID not found in request')` (uncaught 500) before reaching the service.
+
+Every authenticated driver endpoint was therefore broken regardless of role or JWT validity. Additionally the controller annotation `{ user?: { sub?: string; driverId?: string } }` was an `any`-ish ad-hoc shape unrelated to the actual verified payload, hiding the type error from tsc.
+
+The deeper underlying issue: the JWT carries `users.id` (as `userId`), but driver-domain service methods (`setOnlineStatus`, `updateLocation`, `subscribe`, `getEarnings`) take `drivers.id`. These are two different UUIDs linked through `users.id ↔ drivers.userId` and `drivers.id` (a separate primary key). The controller had no way to convert one to the other, so it invented a `driverId` field on the JWT that the issuer never populates.
+
+### Files inspected
+
+- `apps/backend/src/modules/drivers/drivers.controller.ts`
+- `apps/backend/src/modules/drivers/drivers.service.ts`
+- `apps/backend/src/modules/drivers/drivers.module.ts`
+- `apps/backend/src/modules/auth/auth.service.ts`
+- `apps/backend/src/common/guards/auth.guard.ts` (sets `request.user = payload`, a `TokenPayload & { iat; exp }`)
+- `apps/backend/src/common/guards/roles.guard.ts`
+- `apps/backend/src/common/decorators/permissions.decorator.ts`, `public.decorator.ts`
+- `packages/shared-auth/src/jwt.ts` (TokenPayload declaration)
+- `packages/shared-auth/src/rbac.ts` (driver_applicant / driver permission sets)
+- `packages/shared-db/src/schema/drivers.ts` (`drivers.userId → users.id` unique FK; `drivers.id` separate PK)
+- `packages/shared-db/src/schema/users.ts`, `packages/shared-db/src/schema/rides.ts` (`rides.driverId → drivers.id`)
+- `apps/backend/src/modules/rides/{rides.controller,rides.service}.ts` (uses `req.user.userId` correctly; unaffected)
+- `apps/backend/src/modules/users/users.controller.ts` (uses `req.user.userId` correctly; unaffected)
+- `apps/backend/src/modules/admin/admin.service.ts`, `apps/backend/src/modules/events/events.gateway.ts`, `apps/backend/src/modules/rides/dispatch.service.ts` (all use `drivers.id`/`drivers.userId` correctly from DB rows; unaffected)
+- Repository glob for `driver-locations*` (no such schema file)
+- Backend-wide grep for `req.user.sub`, `req.user.driverId`, `req.user.userId`, `getDriverProfile`, `drivers.userId`, `driverId` to enumerate all affected sites.
+- `docs/recovery/PHASE-2-AUDIT.md`, `docs/recovery/PHASE-2-RECOVERY-LOG.md`
+
+### Files changed
+
+- `apps/backend/src/modules/drivers/drivers.controller.ts` (+64/−28)
+- `apps/backend/src/modules/drivers/drivers.service.ts` (+70)
+
+No other backend module, frontend app, schema, or migration was modified.
+
+### Affected routes
+
+All seven endpoints in `DriversController` were affected by the incorrect JWT field reads. Each is corrected below.
+
+| Route | Method | Guard | @RequirePermissions | Original incorrect read | Corrected read |
+|---|---|---|---|---|---|
+| `/drivers/register`    | POST  | AuthGuard+RolesGuard | `driver:register`     | `req.user?.sub` (→ users.id expected)         | `req.user.userId` (users.id) |
+| `/drivers/go-online`   | POST  | AuthGuard+RolesGuard | `driver:go_online`    | `req.user?.driverId` (→ drivers.id expected)  | `req.user.userId` → service resolves drivers.id |
+| `/drivers/go-offline`  | POST  | AuthGuard+RolesGuard | `driver:go_online`    | `req.user?.driverId`                          | `req.user.userId` → service resolves drivers.id |
+| `/drivers/location`    | PATCH | AuthGuard+RolesGuard | `driver:go_online`    | `req.user?.driverId`                          | `req.user.userId` → service resolves drivers.id |
+| `/drivers/subscribe`   | POST  | AuthGuard+RolesGuard | `driver:subscribe`    | `req.user?.driverId`                          | `req.user.userId` → service resolves drivers.id |
+| `/drivers/me`          | GET   | AuthGuard+RolesGuard | (none)               | `req.user?.sub` (→ users.id expected)         | `req.user.userId` (users.id) |
+| `/drivers/earnings`    | GET   | AuthGuard+RolesGuard | `driver:view_earnings`| `req.user?.driverId`                          | `req.user.userId` → service resolves drivers.id |
+
+### Original incorrect JWT fields
+
+- `req.user.sub` — never present in the JWT payload; the issuer (`auth.service.ts` `generateTokenPair` → `JWTService.generateAccessToken`) signs only `{ userId, phoneNumber, role }`.
+- `req.user.driverId` — never present in the JWT payload; there is no field by that name in `TokenPayload`. The `drivers.id` is a separate DB-side primary key obtainable only by a `drivers.userId = users.id` lookup.
+
+### Identity-resolution mapping
+
+```
+JWT.userId  ==  users.id
+              -> drivers.userId  (unique FK, drivers.userId → users.id)
+                 -> drivers.id   (separate uuid PK; required by setOnlineStatus,
+                                  updateLocation, subscribe, getEarnings, and by
+                                  rides.driverId / subscriptions.driverId FKs)
+```
+
+The controller now ALWAYS supplies `req.user.userId` (== `users.id`) to the service. For methods that need `drivers.id`, the service performs the lookup internally via the new private `resolveDriverByUserId(authenticatedUserId)` helper, then uses the resolved `drivers.id` for the underlying DB/Redis operations. Controllers stay thin and cannot mix identifier types (requirement #5).
+
+### Route/service identifier requirements
+
+Category A — expects `users.id` (use `req.user.userId` directly):
+- `POST /drivers/register` → `DriversService.register(authenticatedUserId, data)`. The service inserts a new `drivers` row keyed on `userId`, and updates `users.role` to `'driver_applicant'`. No drivers.id lookup needed (it's a creation).
+- `GET /drivers/me` → `DriversService.getDriverProfile(authenticatedUserId)`. The service already looks up by `drivers.userId` and returns `{ isDriver: false }` for users with no driver row. The `/me` contract is intentionally a soft-fail read (does not throw on missing driver profile) so that a just-registered `driver_applicant` (or even a passenger) can call `/me` and learn their status; this contract is preserved unchanged.
+
+Category B — expects `drivers.id` (resolve via `resolveDriverByUserId(authenticatedUserId)` first, then pass `driver.id`):
+- `POST /drivers/go-online`  → `setOnlineStatus(driver.id, true, location)`  (DB update + Redis geoAdd)
+- `POST /drivers/go-offline` → `setOnlineStatus(driver.id, false)`          (DB update + Redis geoRemove)
+- `PATCH /drivers/location`  → `updateLocation(driver.id, lat, lng)`        (Redis geoAdd + DB update)
+- `POST /drivers/subscribe`  → `subscribe(driver.id, paymentMethod)`        (subscription insert + driver update; also looks up `users.phoneNumber` from `driver.userId`)
+- `GET /drivers/earnings`    → `getEarnings(driver.id)`                     (rides query on `rides.driverId = drivers.id`)
+
+Category C — neither; logging/audit only: not applicable — all reads are A or B above.
+
+No column or service method documented to require `drivers.id` is supplied `users.id`, and vice versa.
+
+### Missing-profile behavior
+
+`DriversService.resolveDriverByUserId(authenticatedUserId)`:
+- Queries `drivers` on `drivers.userId = authenticatedUserId`, `limit(1)`.
+- If no row: throws `new NotFoundException(\`Driver profile not found for user ${authenticatedUserId}\`)`.
+
+This applies to all five Category B endpoints. A user without a `drivers` row (passenger, `driver_applicant` whose registration has not completed, or any non-driver role that happens to pass RolesGuard — see "Role and permission behavior" below) receives **HTTP 404** with a clear message identifying the missing user. The choice of `NotFoundException` matches the existing convention in `setOnlineStatus` (`throw new NotFoundException('Driver not found')`) and `subscribe` (`throw new NotFoundException('User not found')`). `ForbiddenException` was considered but rejected: it would be misleading because the role/permission check has already passed by the time we look up the driver row; the missing-row condition is a resource-existence problem, not an authorization one.
+
+`GET /drivers/me` is intentionally exempt from the NotFoundException change — its existing documented behavior is `{ isDriver: false }` for users with no driver row, and changing that to a 404 would break the `/me` contract relied on by driver_applicants who have no row yet. Soft-fail-on-`/me` is preserved.
+
+### Role and permission behavior
+
+Roles/permissions are enforced entirely by the existing `AuthGuard` (401 on missing/invalid/expired token) + `RolesGuard` (403 on missing permission), unchanged.
+
+| Endpoint | Required permission | Roles that have it (per `ROLE_PERMISSIONS`) |
+|---|---|---|
+| `/drivers/register`    | `driver:register`      | `driver_applicant`, `driver`, `super_admin` |
+| `/drivers/go-online`   | `driver:go_online`     | `driver`, `super_admin` |
+| `/drivers/go-offline`  | `driver:go_online`     | `driver`, `super_admin` |
+| `/drivers/location`    | `driver:go_online`     | `driver`, `super_admin` |
+| `/drivers/subscribe`   | `driver:subscribe`     | `driver`, `super_admin` |
+| `/drivers/me`          | (none — only AuthGuard)| any authenticated JWT |
+| `/drivers/earnings`    | `driver:view_earnings` | `driver`, `super_admin` |
+
+Consequences:
+- **passenger token**: 403 on every endpoint EXCEPT `/me` (no permission metadata → RolesGuard passes). `/me` returns `{ isDriver: false }` (no driver row). No driver row is ever created for a passenger (requirement #10 preserved — `register` requires `'driver:register'` permission which passenger lacks).
+- **driver_applicant token**: can call `/register` (only allowed role-specific permission besides super_admin) and `/me`. CANNOT call go-online/go-offline/location/subscribe/earnings (no `driver:go_online` / `driver:subscribe` / `driver:view_earnings`). Per audit instructions, driver_applicant is NOT treated as a fully approved driver (requirement #12 preserved); role mappings were not modified.
+- **driver token**: passes RolesGuard on all driver endpoints. Each Category B endpoint resolves `drivers.id` via `drivers.userId = req.user.userId`; if for some reason the driver row was deleted after token issuance, the user gets 404 (`NotFoundException`) rather than a silent failure or a 500.
+- **dispatcher, support_agent, finance_officer, safety_officer, ops_admin, system_admin, auditor**: each lacks the relevant driver permissions → 403 on all Category B endpoints. `system_admin` and `super_admin` were compared: `super_admin` has every permission and can hit any driver endpoint (intended RBAC); `system_admin` lacks driver permissions in `ROLE_PERMISSIONS` (lines 74-80) and therefore 403s — this is the existing mapping and was NOT changed.
+- `@Public` is not present anywhere in `DriversController`; `@UseGuards(AuthGuard, RolesGuard)` remains at class level and is untouched.
+
+### Validation commands and exact results
+
+1. `npx tsc --noEmit -p packages/shared-auth/tsconfig.json` → **PASS** (no output, exit 0).
+2. `npx tsc --noEmit -p packages/shared-db/tsconfig.json` → **PASS** (no output, exit 0).
+3. `npx tsc --noEmit -p apps/backend/tsconfig.json` → **PASS** (no output, exit 0). Strict typing preserved: the ad-hoc `{ user?: { sub?: string; driverId?: string } }` annotation was replaced with a typed `AuthenticatedRequest = Request & { user: TokenPayload & { iat: number; exp: number } }`. No `any`, no new non-null assertions (requirement #18 / #19 satisfied — `req.user` is now non-optional because AuthGuard guarantees it).
+4. `npm run build --workspace @kansride/backend` (`nest build`) → **PASS** (exit 0).
+
+Static verification (focused):
+- `grep` for `req.user?.sub` and `req.user?.driverId` in `src/modules/drivers` → **0 matches** (was 7 originally).
+- `grep` for `req.user.userId` in `src/modules/drivers/drivers.controller.ts` → **7 matches** (one per endpoint), plus 1 in JSDoc.
+- `grep` for `user.sub` and `user.driverId` in `dist/modules/drivers/*.js` (compiled) → **0 matches**.
+- `grep` for `user.userId` in `dist/modules/drivers/drivers.controller.js` → **7 matches**.
+- Backend-wide grep for `req.user?.sub` / `req.user?.driverId` → **0 matches**. No other controller was reading either field.
+- Compiled `dist/modules/drivers/drivers.service.js` confirms the new `resolveDriverByUserId`, `goOnlineByUserId`, `goOfflineByUserId`, `updateLocationByUserId`, `subscribeByUserId`, `getEarningsByUserId` methods exist; each calls `resolveDriverByUserId(authenticatedUserId)` then delegates to the existing `drivers.id`-keyed method. The 404 throw (`NotFoundException('Driver profile not found for user ${authenticatedUserId}')`) is present (line 43 of compiled JS).
+- Remaining `.driverId` references in the backend are all legitimate DB-column reads (`rides.driverId`, `subscriptions.driverId`, `ride.driverId` from joined rows) or local variables in unrelated modules — none read `req.user.driverId`.
+- Diff scan for hardcoded credentials (`password|secret|api_key|admin_token|JWT_|PRIVATE_KEY`) → **0 matches**.
+- `git status --short` confirms only `drivers.controller.ts` and `drivers.service.ts` were modified; no frontend, schema, or migration file touched; the three pre-existing untracked files (`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`, `repository-tree.txt`) were not created or modified by this task.
+
+No unit-test framework exists in the repository (no `*.spec.ts`, no `jest`/`vitest` configured in `apps/backend`), so no focused tests were added (per the "consistent with current repository patterns" instruction).
+
+### Runtime verification status
+
+**Not performed.** Local PostgreSQL still rejects the default `postgres:postgres` credentials with `28P01 password authentication failed for user "postgres"` (re-confirmed during Task 2a — same blocker as Task 0a Unresolved issue #1, Task 1c). No pre-provisioned driver account is available to test against either. No driver was created or promoted for testing (no credentials, no destructive DB operations — requirement #15/#16). All checklist items below are therefore **statically verified only**:
+
+- an approved driver's `users.id` resolves to the correct `drivers.id` — *static*: `resolveDriverByUserId` queries `drivers.userId = authenticatedUserId`; the schema confirms `drivers.userId` is a unique FK to `users.id` (so the lookup is 1:1 and deterministic).
+- driver profile endpoint returns the correct driver — *static*: `/me` calls `getDriverProfile(req.user.userId)`, which queries `drivers.userId` and returns the row's `id`/`isOnline`/`isActive`/`rating`/`completedRides`/`subscriptionExpiresAt`/`vehicle`.
+- Category B update endpoints modify only that driver — *static*: `goOnlineByUserId`/`goOfflineByUserId`/`updateLocationByUserId`/`subscribeByUserId` each resolve the row then call the underlying method with `driver.id`; all underlying methods scope their `db.update(drivers).where(eq(drivers.id, driverId))` to the resolved `drivers.id`.
+- missing driver profile produces the intended error — *static*: `resolveDriverByUserId` throws `NotFoundException('Driver profile not found for user ${authenticatedUserId}')`; NestJS maps it to HTTP 404.
+- passenger token receives 403 — *static*: passenger does not have any of `driver:go_online`, `driver:subscribe`, `driver:view_earnings`, `driver:register`; RolesGuard throws `ForbiddenException('Insufficient permissions')`. `/me` returns `{ isDriver: false }` (403-free by design).
+- no operation creates an unintended driver row — *static*: only `register` inserts into `drivers`, and it is gated on `'driver:register'` permission (passenger/dispatcher/etc. cannot call it); no Category B method inserts into `drivers`.
+
+These remain runtime-unverified pending the PostgreSQL credential blocker and out-of-band-provisioned driver/admin accounts.
+
+### Unresolved issues
+
+1. **PostgreSQL `28P01` password authentication blocker** (Task 0a, Unresolved issue #1) — persists; all runtime verification of every backend task remains unavailable until resolved.
+2. **`GET /drivers/me` soft-fail contract**: an unauthenticated-shape response (`{ isDriver: false }`) is intentional for non-driver roles. Some product designs would prefer a 403 (driver-only endpoint), but changing that would alter a public API contract and possibly break callers (driver-app login flow checks `/me`) — out of scope for Task 2a. The endpoint keeps its current "any authenticated role may call" behavior.
+3. **`support_agent` / `safety_officer` having `admin:manage_users`** and `dispatcher`/`support_agent`/`safety_officer` having `ride:view_all` — preexisting `ROLE_PERMISSIONS` quirks surfaced in Task 1c, NOT changed here. These roles do NOT have any driver permission and therefore still 403 on every Category B `/drivers/*` endpoint, so Task 2a introduces no new least-privilege regression.
+
+### Outstanding recovery item — the audit's official Task 1b
+
+Still outstanding (NOT actioned in Task 2a): the audit's actual Task 1b is **`Fix UsersService.getProfile`** — replace the TODO with a real DB fetch joining `users` + `passengers` (`totalRides`) or `drivers` (`apps/backend/src/modules/users/users.service.ts`). A previous session reused the label "Task 1b" for the passenger-id-resolution work; the audit's Task 1b remained unstarted through Tasks 1c and 2a and remains unstarted here. It is small and independent and can be done at any time.
+
+### Recommended next task
+
+**Task 2b — Fix ride-cancellation actor handling** (per audit §13 Step 2, task 2b): `PATCH /rides/:id/cancel` currently hardcodes the cancellation reason as `'cancelled_by_passenger'` and writes `cancelledBy = req.user.userId` (a `users.id`) into `rides.cancelledBy`, which the schema documents as a free-form UUID but the audit wants resolved to the right actor class and a real reason. Tighten the cancellation reason/actor and ensure driver-initiated cancellation writes the correct enum/status and the correct driver-side metadata. Independent of Task 2a.
+
+(Alternatively, the audit's Task 1b `UsersService.getProfile` real DB fetch can be done next — small and independent.)

@@ -20,6 +20,29 @@ export class DriversService {
     @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: IPaymentProvider,
   ) {}
 
+  /**
+   * Resolve the `drivers` row for an authenticated user by their `users.id`.
+   * Throws NotFoundException when no driver profile exists for that user.
+   * Used by every controller method that needs `drivers.id` (go-online,
+   * go-offline, location update, subscribe, earnings) so that the controller
+   * never has to know how the JWT `userId` maps to `drivers.id`.
+   *
+   * Identity flow:
+   *   JWT.userId  ==  users.id  ->  drivers.userId  ->  drivers.id
+   */
+  private async resolveDriverByUserId(authenticatedUserId: string) {
+    const driverRecords = await this.db
+      .select()
+      .from(drivers)
+      .where(eq(drivers.userId, authenticatedUserId))
+      .limit(1);
+    const driver = driverRecords[0];
+    if (!driver) {
+      throw new NotFoundException(`Driver profile not found for user ${authenticatedUserId}`);
+    }
+    return driver;
+  }
+
   async getDriverProfile(userId: string) {
     const driverRecords = await this.db.select().from(drivers).where(eq(drivers.userId, userId)).limit(1);
     const driver = driverRecords[0];
@@ -42,6 +65,53 @@ export class DriversService {
       subscriptionExpiresAt: driver.subscriptionExpiresAt,
       vehicle: vehicleRecords[0] || null,
     };
+  }
+
+  /**
+   * Go online for an authenticated user. Resolves `drivers.id` from the
+   * JWT's `userId` (== users.id) via `drivers.userId`, then delegates to
+   * setOnlineStatus. Throws NotFoundException when the user has no driver
+   * profile (e.g. passenger / driver_applicant with no row yet).
+   */
+  async goOnlineByUserId(authenticatedUserId: string, location: { latitude: number; longitude: number }) {
+    const driver = await this.resolveDriverByUserId(authenticatedUserId);
+    return this.setOnlineStatus(driver.id, true, location);
+  }
+
+  /**
+   * Go offline for an authenticated user. See goOnlineByUserId for the
+   * identity resolution contract.
+   */
+  async goOfflineByUserId(authenticatedUserId: string) {
+    const driver = await this.resolveDriverByUserId(authenticatedUserId);
+    return this.setOnlineStatus(driver.id, false);
+  }
+
+  /**
+   * Update the authenticated driver's current location. Resolves
+   * `drivers.id` from the JWT's `userId` and delegates to updateLocation.
+   */
+  async updateLocationByUserId(authenticatedUserId: string, latitude: number, longitude: number) {
+    const driver = await this.resolveDriverByUserId(authenticatedUserId);
+    return this.updateLocation(driver.id, latitude, longitude);
+  }
+
+  /**
+   * Subscribe for an authenticated driver. Resolves `drivers.id` from the
+   * JWT's `userId` and delegates to subscribe.
+   */
+  async subscribeByUserId(authenticatedUserId: string, paymentMethod: string) {
+    const driver = await this.resolveDriverByUserId(authenticatedUserId);
+    return this.subscribe(driver.id, paymentMethod);
+  }
+
+  /**
+   * Get earnings for an authenticated driver. Resolves `drivers.id` from
+   * the JWT's `userId` and delegates to getEarnings.
+   */
+  async getEarningsByUserId(authenticatedUserId: string) {
+    const driver = await this.resolveDriverByUserId(authenticatedUserId);
+    return this.getEarnings(driver.id);
   }
 
   async register(userId: string, data: { licenseNumber: string; vehicleRegistration: string; vehicleColour: string; vehicleMake?: string; vehicleModel?: string }) {
