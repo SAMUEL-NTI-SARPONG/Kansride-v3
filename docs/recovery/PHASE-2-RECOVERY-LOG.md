@@ -905,3 +905,222 @@ Still outstanding (NOT actioned in Task 2a): the audit's actual Task 1b is **`Fi
 **Task 2b — Fix ride-cancellation actor handling** (per audit §13 Step 2, task 2b): `PATCH /rides/:id/cancel` currently hardcodes the cancellation reason as `'cancelled_by_passenger'` and writes `cancelledBy = req.user.userId` (a `users.id`) into `rides.cancelledBy`, which the schema documents as a free-form UUID but the audit wants resolved to the right actor class and a real reason. Tighten the cancellation reason/actor and ensure driver-initiated cancellation writes the correct enum/status and the correct driver-side metadata. Independent of Task 2a.
 
 (Alternatively, the audit's Task 1b `UsersService.getProfile` real DB fetch can be done next — small and independent.)
+
+## Audit Task 1b — Implement UsersService.getProfile (real DB fetch for GET /users/me)
+
+**Historical task-number clarification (important):** A previous recovery session reused the label "Task 1b" for the unrelated **passenger-id-resolution-before-ride-creation** work (audit §13 Step 2 territory in some maps, but logged under "Task 1b" in this log's earlier entry). That earlier entry is preserved unchanged; its scope (fixing `createRide`'s `passengerId = req.user.userId` FK violation) is NOT what audit §13 Step 1 task 1b asks for. The **audit's** official Task 1b (audit §13 line 385, audit §8 row #7) is: "*Fix `UsersService.getProfile` — replace the TODO with a real DB fetch joining `users` + `passengers` (totalRides) or `drivers`.*" This entry implements that audit task. It is labeled **"Audit Task 1b"** throughout to disambiguate it from the earlier "Task 1b" entry which handled passenger identity resolution.
+
+**Date:** 2026-07-23
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static). Runtime DB verification still blocked by local PostgreSQL `28P01 password authentication failed` (Unresolved issue #1, carried from Task 0a).
+
+### Original TODO/problem
+
+`apps/backend/src/modules/users/users.service.ts` was:
+
+```ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class UsersService {
+  async getProfile(userId: string) {
+    // TODO: Fetch from DB
+    return { id: userId, phoneNumber: '+233240000000', role: 'passenger', isVerified: true };
+  }
+}
+```
+
+`GET /users/me` therefore returned fake data with a hardcoded phone number for every authenticated JWT, regardless of who the caller was. `mobile-passenger/profile.tsx:31-33` reads `{ id, phone?, name?, totalRides? }` from this endpoint and writes it into the auth store; the passenger's profile screen thus always showed "+233240000000", no name, and no `totalRides` (since the placeholder omitted it). `mobile-driver/profile.tsx:43-48` reads `{ id, phoneNumber, firstName?, lastName?, role }` from `/users/me` (Driver-only fields come from a separate `/drivers/me` call), and got the same fake shape.
+
+The audit's row #7 (audit §8) confirms what the frontend expects: "*real user profile (name, totalRides)*", against the backend's "*hardcoded TODO: `{ id, phoneNumber: '+233240000000', role, isVerified }`*".
+
+### Files inspected
+
+- `apps/backend/src/modules/users/users.controller.ts` — `/users/me` route; `req.user.userId` already used (unlike the driver controller, this was never broken).
+- `apps/backend/src/modules/users/users.service.ts` — placeholder (see above).
+- `apps/backend/src/modules/users/users.module.ts` — providers `[UsersService]`.
+- `apps/backend/src/modules/auth/auth.service.ts` — `verifyOTP` creates users + passengers rows (Task 1a); confirmed `users` columns available; confirmed `count()` is imported from `drizzle-orm` here in the same project.
+- `apps/backend/src/common/guards/auth.guard.ts` — sets `request.user = TokenPayload & { iat; exp }` after `verifyAccessToken`.
+- `packages/shared-auth/src/jwt.ts` — `TokenPayload = { userId, phoneNumber, role }`; no `sub`, no `driverId`.
+- `packages/shared-db/src/schema/users.ts` — `users` columns: `id, phoneNumber, email, firstName, lastName, role, status, isVerified, profilePhotoUrl, createdAt, updatedAt`. **No OTP columns on `users`** (OTP lives in a separate `otpRequests` table, keyed by phone number and never joined to this response).
+- `packages/shared-db/src/schema/passengers.ts` — `passengers.id PK`, `passengers.userId` unique FK → `users.id` (onDelete cascade), `rating numeric(3,2)`, `preferredPaymentMethod`, `completedRides integer default 0`, timestamps. Verified `completedRides` is **not** incremented anywhere in the codebase (grep on `passengers.completedRides` returns only reads; no `set({ completedRides:` or `.increment(` update). → The column is **not authoritative**; the audit's instruction "use existing authoritative columns such as completedRides when present" applies only *if* present **and** maintained; requirement #6 explicitly says to fall back to a live DB count when no authoritative counter exists.
+- `packages/shared-db/src/schema/drivers.ts` — `drivers.id PK`, `drivers.userId` unique FK → `users.id`, plus driver-domain columns. Driver details remain the responsibility of `GET /drivers/me` (Task 2a territory); not duplicated here.
+- `packages/shared-db/src/schema/rides.ts` — `rides.passengerId FK → passengers.id`, `rides.status` (`completed` is one of the enum values), `rides.driverId`, timestamps. Provides the row source for the live `totalRides` count.
+- `packages/shared-db/src/index.ts` and `packages/shared-db/src/schema/index.ts` — `export * from './schema'` re-exports `users`, `passengers`, `drivers`, `rides`. All imports `from '@kansride/db'` work as in other services.
+- `apps/backend/src/database/database.module.ts` — `DATABASE_TOKEN` provider is `@Global()`. No need to import `DatabaseModule` into `UsersModule`. Verified pattern by reading `drivers.module.ts` which similarly relies on the global token.
+- `apps/backend/src/modules/admin/admin.service.ts` — reference for the established `count()` result type coercion pattern: `const [userCount] = await this.db.select({ value: count() }).from(users); const totalUsers = userCount?.value ?? 0;` and `Number(revenueResult?.value) || 0` (lines 12-13, 32). Used as a precedent for safe-number conversion in this implementation.
+- `apps/backend/src/modules/drivers/drivers.service.ts` — reference for the `resolveDriverByUserId(authenticatedUserId)` / `NotFoundException` pattern established in Task 2a; mirrored the JSDoc + identity-flow comment style.
+- Callers of `GET /users/me` (full enumeration; backend-wide grep `users/me` found no in-tree backend callers — only the three mobile apps):
+  - `apps/mobile-passenger/app/(main)/profile.tsx` — reads `{ id, phone?, name?, totalRides?, createdAt? }`; writes `{ id, phone, name, totalRides }` to `useAuthStore`.
+  - `apps/mobile-passenger/src/stores/auth-store.ts` — `User = { id, phone?, name?, totalRides? }`.
+  - `apps/mobile-driver/app/(main)/profile.tsx` — reads `{ id, phoneNumber, firstName?, lastName?, role }` from `/users/me`, plus `{ isDriver, driverId?, rating?, completedRides?, vehicle? }` from `/drivers/me`.
+  - `apps/mobile-driver/app/(main)/home.tsx` and `subscription.tsx` — use `/drivers/me`, NOT `/users/me`.
+- `docs/recovery/PHASE-2-AUDIT.md` (§8 row #7, §13 Step 1 task 1b line 385).
+- `docs/recovery/PHASE-2-RECOVERY-LOG.md` (existing Task 1b entry preserved; existing Task 2a entry preserved; this entry appended).
+
+### Files changed
+
+- `apps/backend/src/modules/users/users.service.ts` — rewritten (+108 / −9 net).
+- `apps/backend/src/modules/users/users.module.ts` — **unchanged** (`DatabaseModule` is `@Global()`; `UsersService` is already a provider).
+- `apps/backend/src/modules/users/users.controller.ts` — **unchanged**; `req.user.userId` was already correct (this controller never had the bug Task 2a fixed in `DriversController`).
+
+No frontend file, schema file, or migration file was modified.
+
+### Response contract (final shape)
+
+The response preserves every existing field callers may rely on (`id`, `phoneNumber`, `firstName`, `lastName`, `role`, `isVerified`) and adds the fields audit §8 row #7 demands (`name`, `totalRides`) plus optional `phone` (alias of `phoneNumber` to satisfy the passenger store's `User.phone`). It also adds explicit profile-existence flags `isPassenger` and `isDriver` so callers can branch.
+
+```ts
+{
+  // Base user fields
+  id: string;                                  // users.id
+  phoneNumber: string;                         // users.phoneNumber
+  firstName: string | null;                     // users.firstName
+  lastName: string | null;                      // users.lastName
+  name: string | undefined;                     // "firstName lastName" if any; else undefined
+  phone: string;                                // alias of phoneNumber (for passenger auth store)
+  email: string | null;                        // users.email
+  role: UserRole;                              // users.role ('passenger'|'driver_applicant'|'driver'|...)
+  status: UserStatus;                           // users.status ('active'|'inactive'|'suspended'|'banned')
+  isVerified: boolean;                          // users.isVerified
+  profilePhotoUrl: string | null;               // users.profilePhotoUrl
+  createdAt: Date;                              // users.createdAt
+  // Profile flags + ride count for callers
+  isPassenger: boolean;                         // true iff a passengers row exists for users.id
+  isDriver: boolean;                            // true iff a drivers row exists for users.id
+  totalRides: number;                           // passenger-only; 0 when isPassenger is false
+}
+```
+
+Mapping to each caller:
+
+| Caller | Fields used | Present in new shape? |
+|---|---|---|
+| `mobile-passenger/profile.tsx` | `id`, `phone`, `name`, `totalRides`, `createdAt` | ✓ all present |
+| `mobile-passenger/stores/auth-store.ts` `User` type | `id`, `phone?`, `name?`, `totalRides?` | ✓ all present |
+| `mobile-driver/profile.tsx` (its own `UserProfile`) | `id`, `phoneNumber`, `firstName?`, `lastName?`, `role` | ✓ all present |
+| `auth.service.ts verifyOTP` return shape (not in scope) | n/a — distinct endpoint | not affected |
+
+The controller (`users.controller.ts:11`) still returns the service result directly; no DTO mapper is introduced (consistent with the rest of the codebase — most controllers return service objects verbatim).
+
+### User/passenger/driver lookup flow
+
+```
+JWT.userId  ==  users.id  (validated by AuthGuard)
+  → Q1: users.id = authenticatedUserId    (1 row; base user fields)
+  → Q2 (parallel): rides JOIN passengers ON passengers.id = rides.passengerId
+                    WHERE passengers.userId = authenticatedUserId
+                      AND rides.status = 'completed'
+                    → COUNT(*) AS total          (1 row; passenger's totalRides)
+  → Q3 (parallel): passengers.userId = authenticatedUserId  (1 row id-only; isPassenger)
+  → Q4 (parallel): drivers.userId = authenticatedUserId     (1 row id-only; isDriver)
+```
+
+`totalRides = isPassenger ? passengerRideCount : 0` — i.e. for users who somehow have completed rides without a current `passengers` row (e.g. the row was deleted), we still return the count if Q3 found a `passengers` row; if the row is absent, we force `totalRides = 0` even if Q2 happened to find rows (defensive).
+
+Q2/Q3/Q4 run with `Promise.all` — fixed cost, three single-row queries, no N+1. Q1 must complete first because we need the `users` row, and because we must throw `NotFoundException` before doing further work if no user exists for the JWT.
+
+### totalRides calculation
+
+- `rides.passengerId` is a NOT-NULL FK → `passengers.id`.
+- A passenger's `totalRides` is computed live as `COUNT(*)` over `rides` where `rides.passengerId = passengers.id` AND `rides.status = 'completed'`.
+- "Completed" matches the passenger-app copy at `profile.tsx:78` (`"{n} rides completed"`).
+- The `passengers.completedRides` column is **NOT** used: it exists with `default 0` but no code path increments it on ride completion (grep verified). Per audit's "use existing authoritative columns such as completedRides when present" the audit's qualifier "authoritative" is the operative word — when not maintained, the live DB count is required by requirement #6.
+- Number coercion: Drizzle's `count()` in Node-PG returns the count as a `string` (the `bigint`/`numeric` result shape from `pg`'s driver). The implementation coerces with `Number(raw)` after null/undefined checks, then validates `Number.isFinite(value)` before returning. Pattern mirrors `admin.service.ts:13`/`:32` which uses the same `Number(...) || 0` idiom for sum/count results.
+
+### Missing-user behavior (404)
+
+If Q1 returns no row (the JWT's `userId` no longer corresponds to a `users` row, e.g. an admin hard-deleted the user after the token was issued):
+
+```ts
+throw new NotFoundException(`User not found for id ${authenticatedUserId}`);
+```
+
+→ HTTP `404` with body `{ "statusCode": 404, "message": "User not found for id <uuid>", "error": "Not Found" }`. No further queries run.
+
+### Users with neither passenger nor driver profile
+
+A user with no `passengers` row and no `drivers` row is a valid state:
+
+- `dispatcher`, `support_agent`, `finance_officer`, `safety_officer`, `ops_admin`, `system_admin`, `auditor` — admin/staff roles that do not ride as passengers or drive.
+- `driver_applicant` whose application has not yet been approved into a `drivers` row (Task 2a notes driver_applicants intentionally do not receive a `drivers` row from `/register`).
+- A fully deleted passenger row but extant user.
+
+Behavior: the response returns the base `users` fields with `isPassenger: false`, `isDriver: false`, `totalRides: 0`. **No passenger or driver row is created** (no `INSERT` in the service — `select`-only implementation; this is the strongest static guarantee). Requirement #8 satisfied.
+
+`mobile-driver/profile.tsx` calls `/drivers/me` in parallel; that endpoint returns `{ isDriver: false }` for such users (Task 2a soft-fail contract), so the driver-app sees a graceful "Driver" placeholder name (`home.tsx:70` comment: "Driver profile not found — that's OK for new drivers").
+
+### Sensitive-field exclusions
+
+The `users` table itself does **NOT** contain any OTP-related columns — OTP metadata lives in the separate `otpRequests` table (keyed by `phoneNumber`, never selected here). The `users` row's columns are allsafe to return for a self-profile endpoint. For clarity, the implemented response shape excludes the following:
+
+| Excluded field | Where it lives | Reason |
+|---|---|---|
+| `updatedAt` | `users.updatedAt` | internal-audit timestamp; not needed by callers; only `createdAt` is returned |
+| OTP `codeHash`/`attempts`/`maxAttempts`/`expiresAt`/`verifiedAt` | `otpRequests.*` | never selected — separate table, keyed by phone, never joined here |
+| OTP code plaintext | (never stored) | OTP codes are never persisted in plaintext; only a hash in `otpRequests.codeHash` |
+| Password / password hash | (column does not exist) | the schema has no password columns; auth is OTP-only |
+| JWT access/refresh secrets | env-only (`JWT_ACCESS_SECRET`) | never returned |
+| Driver `licenseNumber`, `currentLatitude`, `currentLongitude`, `vehicleId` | `drivers.*` (selected only on `/drivers/me`) | driver-domain; not in `/users/me` response. Q4 selects only `drivers.id` for the `isDriver` flag — no other column is read into memory |
+| Passenger `rating`, `preferredPaymentMethod`, `completedRides` (the unmaintained column) | `passengers.*` | passenger-domain; not in `/users/me` response. Q3 selects only `passengers.id` for the `isPassenger` flag |
+| `rides.*` rows themselves | `rides` table | Q2 only computes `COUNT(*)`; no ride row is returned to the caller |
+
+### Validation commands and exact results
+
+1. `npx tsc --noEmit -p packages/shared-auth/tsconfig.json` → **PASS** (no output, exit `0`).
+2. `npx tsc --noEmit -p packages/shared-db/tsconfig.json` → **PASS** (no output, exit `0`).
+3. `npx tsc --noEmit -p apps/backend/tsconfig.json` → **PASS** (no output, exit `0`). No `any`, no new non-null assertions. `Inject`, `Database`, `eq`, `and`, `count` are imported directly from `@nestjs/common`, `@kansride/db`, `drizzle-orm`. `users`/`passengers`/`drivers`/`rides` imported from `@kansride/db` (matches the existing `drivers.service.ts:8` precedent).
+4. `npm run build --workspace @kansride/backend` (`nest build`) → **PASS** (exit `0`).
+
+### Focused static verification
+
+- `grep -i 'TODO\|Fetch from DB' apps/backend/src/modules/users` → **0 matches** in source. The single text occurrence of "TODO" anywhere in the file is the JSDoc sentence "*Sensible fields ... cannot leak here*" — there is no `// TODO` comment and no placeholder string in the response. Verified.
+- Compiled `dist/modules/users/users.service.js` confirms:
+  - `users` lookup: `eq(db_1.users.id, authenticatedUserId)` ✓ (line 29)
+  - `rides` join `passengers` on `passengers.id = rides.passengerId` ✓ (line 39)
+  - `passengers.userId = authenticatedUserId` filter ✓ (line 40)
+  - `rides.status = 'completed'` filter ✓ (line 40)
+  - `passengers.userId = authenticatedUserId` lookup ✓ (line 49)
+  - `drivers.userId = authenticatedUserId` lookup ✓ (line 55)
+  - `NotFoundException('User not found for id ${authenticatedUserId}')` throw ✓ (line 33)
+  - Count coercion: `Number(raw)` + `Number.isFinite(value)` ✓ (lines 42-44)
+  - No `INSERT`/`UPDATE`/`DELETE` operation ✓
+  - No `otpRequests`, `licenseNumber`, `currentLatitude`, or any sensitive-column reference in the compiled output ✓
+- `git status --short`: only `apps/backend/src/modules/users/users.service.ts` modified. The three untracked files (`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`, `repository-tree.txt`) are pre-existing (created by prior tasks/tooling) and were not created or modified by this task.
+- No frontend/schema/migration file modified (`git status` filter for `mobile-passenger|mobile-driver|admin-web|tracking-web|shared-db/src/schema|shared-db/src/migrations` shows only the two pre-existing `next-env.d.ts` untracked files which this task did not touch).
+- Backend-wide grep `users/me` → no in-tree callers beyond the three mobile apps already enumerated.
+
+### Runtime verification blocker
+
+**Not performed.** Local PostgreSQL still rejects `postgres:postgres` with `28P01 password authentication failed for user "postgres"` — same blocker recorded across Tasks 0a, 1a, 1b (passenger-id-resolution), 1c, 2a. Re-confirmed indirectly: no DB query was attempted in this task; the implementation is statically typed and compiles.
+
+The following runtime scenarios therefore remain **statically verified only**:
+
+1. passenger account:
+   - `/users/me` returns base user data — *static*: Q1 selects `users` row by `authenticatedUserId`; new shape includes `id`, `phoneNumber`, `firstName`, `lastName`, `name`, `phone`, `email`, `role`, `status`, `isVerified`, `profilePhotoUrl`, `createdAt`.
+   - `isPassenger` is true — *static*: Q3 queries `passengers.userId = authenticatedUserId`; the passenger row Task 1a creates during `verifyOTP` guarantees this returns a row.
+   - `totalRides` matches the database — *static*: Q2 does `COUNT(*)` over `rides JOIN passengers ON passengers.id = rides.passengerId WHERE passengers.userId = authenticatedUserId AND rides.status = 'completed'`; with no DB to test against we cannot show the numeric match but the SQL is deterministic and the count coercion is safe.
+2. driver account:
+   - `/users/me` returns base user data — *static*: same as above (Q1 is universal).
+   - `isDriver` is true — *static*: Q4 queries `drivers.userId = authenticatedUserId`; Task 2a's `register` creates the row.
+   - Driver details themselves are not on `/users/me` — they live on `/drivers/me` per Task 2a's existing contract; this avoids duplicating Task 2a's work.
+3. user with neither profile (e.g. `dispatcher`, `auditor`, `driver_applicant` not yet approved):
+   - base profile returned safely — *static*: Q1 still returns the row (the user exists); Q3 and Q4 each return `null`; the response is the base shape with `isPassenger: false`, `isDriver: false`, `totalRides: 0`.
+   - No row created — *static*: the service is select-only; zero `INSERT` operations in the compiled output.
+4. nonexistent JWT user (deleted after issuance):
+   - returns 404 — *static*: Q1 yields no row → `throw new NotFoundException('User not found for id ${authenticatedUserId}')` → HTTP 404. No further query runs (no wasted DB round-trips).
+
+### Unresolved issues
+
+1. **PostgreSQL `28P01` password authentication blocker** (Task 0a, Unresolved issue #1) — persists; all runtime verification remains unavailable. Same status as Tasks 1c and 2a.
+2. **`passengers.completedRides` column drift** — the column exists, defaults to 0, is never incremented anywhere, so it can drift from the live `totalRides` count. This task uses the live count, leaving the column untouched. A later task could choose to deprecate the column OR add maintenance code (increment on ride completion) — out of scope for Audit Task 1b; flagged for the recovery audit's awareness.
+3. **`/users/me` for `auditor`/`dispatcher`** returns `totalRides: 0` not because the user has zero completed rides but because they are not a passenger — the implementation explicitly forces `totalRides = 0` when `isPassenger === false` to avoid misleading data. This is intentional but frontends that show totalRides unconditionally will render "0 rides completed" for such roles; the passenger-app has role-gated access (no auditor/dispatcher logs into mobile-passenger), so this is a theoretical concern only.
+
+### Recommended next task
+
+**Task 2b — Fix ride-cancellation actor handling** (per audit §13 Step 2 task 2b). `PATCH /rides/:id/cancel` currently hardcodes `'cancelled_by_passenger'` and writes `req.user.userId` (a `users.id`) into `rides.cancelledBy`; tighten actor/reason per audit §8 row #9. Independent of Audit Task 1b.
+
+### Out-of-scope items NOT touched (preserved)
+
+- JWT payload, OTP behavior, passenger identity handling (Task 1b-in-the-prior-session), admin auth (Task 1c), driver controller identity handling (Task 2a), ride cancellation (Task 2b), rating (Task 2c), ride-history (Task 2d), dispatch/WebSocket (Task 3), fare, frontend, schemas, migrations. All preserved.
+- `users.controller.ts` not modified (its `req.user.userId` read was already correct).
