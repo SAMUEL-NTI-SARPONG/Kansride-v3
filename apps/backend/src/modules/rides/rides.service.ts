@@ -4,9 +4,19 @@ import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
 import { eq, desc } from 'drizzle-orm';
+import type { UserRole, RideStatus } from '@kansride/types';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
 import { DispatchService } from './dispatch.service';
+import { EventsGateway } from '../events/events.gateway';
+
+/** Authorization mapping: which roles may cancel a ride. */
+const CANCELLATION_ROLES = {
+  passenger: { actor: 'passenger', cancelStatus: 'cancelled_by_passenger' as RideStatus },
+  driver:    { actor: 'driver',    cancelStatus: 'cancelled_by_driver' as RideStatus },
+  super_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
+} as const satisfies Record<'passenger' | 'driver' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
+
 
 @Injectable()
 export class RidesService {
@@ -18,6 +28,7 @@ export class RidesService {
     private readonly fareService: FareService,
     private readonly stateMachine: StateMachineService,
     private readonly dispatchService: DispatchService,
+    @Inject(forwardRef(() => EventsGateway)) private readonly eventsGateway: EventsGateway,
   ) {}
 
   /**
@@ -138,22 +149,55 @@ export class RidesService {
     return { id, previousStatus: ride.status, newStatus };
   }
 
-  async cancelRide(id: string, cancelledBy: string, reason?: string) {
+  async cancelRide(id: string, cancelledBy: string, role: UserRole, reason?: string) {
     const ride = await this.getRide(id);
 
-    // Determine cancellation status based on actor
-    const cancelStatus = 'cancelled_by_passenger';
-    this.stateMachine.validateTransition(ride.status, cancelStatus, 'passenger');
+    // Resolve state-machine actor and target status from the authenticated role.
+    // Only the explicitly-mapped roles below may cancel; anything else is an
+    // authorization failure (the @RequirePermissions('ride:cancel') guard on
+    // the controller has already filtered for possession of the permission,
+    // but the role→actor map is the authoritative list of supported callers).
+    const mapping = CANCELLATION_ROLES[role as keyof typeof CANCELLATION_ROLES];
+    if (!mapping) {
+      throw new ForbiddenException(`Role "${role}" is not permitted to cancel rides`);
+    }
+    const { actor, cancelStatus } = mapping;
 
+    // The state machine is the single source of truth for transition validity
+    // and acts as the duplicate-cancellation guard: terminal states (including
+    // all cancelled_* states) have an empty transition array and are rejected
+    // here with a precise BadRequestException.
+    this.stateMachine.validateTransition(ride.status, cancelStatus, actor);
+
+    const updatedAt = new Date();
     await this.db
       .update(rides)
       .set({
         status: cancelStatus as any,
         cancelledBy,
         cancellationReason: reason,
-        updatedAt: new Date(),
+        updatedAt,
       })
       .where(eq(rides.id, id));
+
+    this.logger.log(`Ride ${id}: ${ride.status} → ${cancelStatus} by ${actor} (user ${cancelledBy})`);
+
+    // Broadcast only after the DB update has committed. The cancelledBy column
+    // stores users.id for every actor type (passenger/driver/super_admin) —
+    // this is an intentional invariant; no passengers.id/drivers.id resolution
+    // is performed and the column remains a free UUID with no FK.
+    const payload = {
+      rideId: id,
+      status: cancelStatus,
+      cancelledBy,
+      cancelledByRole: role,
+      reason,
+      cancelledAt: updatedAt.toISOString(),
+    };
+    this.eventsGateway.emitRideUpdate(id, payload);
+    if (ride.driverId) {
+      this.eventsGateway.emitToDriver(ride.driverId, 'ride:cancelled', payload);
+    }
 
     return { id, status: cancelStatus, cancelledBy, reason };
   }

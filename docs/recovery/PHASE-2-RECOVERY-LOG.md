@@ -1124,3 +1124,163 @@ The following runtime scenarios therefore remain **statically verified only**:
 
 - JWT payload, OTP behavior, passenger identity handling (Task 1b-in-the-prior-session), admin auth (Task 1c), driver controller identity handling (Task 2a), ride cancellation (Task 2b), rating (Task 2c), ride-history (Task 2d), dispatch/WebSocket (Task 3), fare, frontend, schemas, migrations. All preserved.
 - `users.controller.ts` not modified (its `req.user.userId` read was already correct).
+
+## Task 2b — Fix ride-cancellation actor handling
+
+**Date:** 2026-07-24
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static). Runtime DB verification still blocked by local PostgreSQL `28P01 password authentication failed` (Unresolved issue #1, carried from Task 0a).
+
+### Original problem
+
+`PATCH /rides/:id/cancel` had four coupled defects:
+
+1. **Hardcoded cancellation status** (`rides.service.ts` old line 145): `const cancelStatus = 'cancelled_by_passenger'` regardless of who called. A `super_admin` cancelling a ride in `emergency_hold` (where only `cancelled_by_admin` is allowed, per `ride-transitions.ts:74-77`) would be rejected by the state machine's actor check, and a driver could never trigger `cancelled_by_driver`.
+2. **Hardcoded actor** (old line 146): `this.stateMachine.validateTransition(ride.status, cancelStatus, 'passenger')` — the actor string `'passenger'` was fixed, so even if the target status had been `cancelled_by_admin`, the state machine's `allowedActors.includes('passenger')` check would reject it for the `cancelled_by_admin` transition (allowedActors: `['admin']`).
+3. **Authorization gap for drivers**: `rbac.ts` granted `ride:cancel` only to `passenger` and `super_admin`. The state machine defines `cancelled_by_driver` transitions (lines 37, 44 of `ride-transitions.ts`) with `allowedActors: ['driver']`, but a driver calling `PATCH /rides/:id/cancel` got HTTP 403 from `RolesGuard` before the service ran — the `cancelled_by_driver` branch was unreachable over HTTP.
+4. **No WebSocket broadcast on cancellation**: the mobile-driver client subscribes to a `ride:cancelled` socket event (`apps/mobile-driver/src/api/socket.ts:113-117`, consumed at `apps/mobile-driver/app/(main)/home.tsx:93`), and the mobile-passenger `ride-store.ts:73-81` maps an incoming `cancelled` status via `ride:update`. The backend `EventsGateway` exposes `emitRideUpdate`/`emitToDriver` public methods (`events.gateway.ts:262-294`) but **no code path emitted `ride:cancelled`** — a backend-wide grep for `ride:cancelled` in `apps/backend/src/modules` returned only the consumer-side method names, never an emitter. Drivers learned of passenger cancellations only via polling.
+
+A secondary observation (B2 in the design report): `rides.cancelledBy` is a free `uuid('cancelled_by')` column with **no FK** (`packages/shared-db/src/schema/rides.ts:34`). The controller passed `req.user.userId` (a `users.id`) into it. The column thus stores a `users.id` for every actor type. This is preserved as an intentional invariant (see "cancelledBy invariant" below).
+
+### Files changed
+
+| File | Change | Lines (net) |
+|---|---|---|
+| `apps/backend/src/modules/rides/rides.controller.ts` | Import `UserRole` from `@kansride/types`; pass `req.user.role as UserRole` into `cancelRide`. | +1 / −1 |
+| `apps/backend/src/modules/rides/rides.service.ts` | Rewrite `cancelRide`: role→{actor, cancelStatus} map; `ForbiddenException` on unsupported role; state-machine validation retained as terminal/duplicate guard; `await` DB update before broadcasting; emit `ride:cancelled` via existing `EventsGateway` public methods. Inject `EventsGateway` via `forwardRef`. Add `CANCELLATION_ROLES` constant. | +53 / −8 |
+| `apps/backend/src/modules/rides/rides.module.ts` | Import `EventsModule` via `forwardRef(() => EventsModule)` to resolve the `EventsGateway` injection (circular with `EventsModule`'s existing `forwardRef(() => RidesModule)`). | +3 / −1 |
+| `packages/shared-auth/src/rbac.ts` | Add `'ride:cancel'` to the `driver` role's permission array. Single-token addition inside the existing `driver: [...]` literal. | +1 / −1 |
+
+No frontend, schema, migration, payment, subscription, config, or Task 2c (rating) file was modified. `git diff --stat -- packages/shared-db/src/schema apps/mobile-passenger apps/mobile-driver apps/admin-web apps/tracking-web packages/shared-config` returned empty. The three pre-existing untracked files (`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`, `repository-tree.txt`) were not created or modified by this task.
+
+### Role-to-actor mapping (authoritative)
+
+`CANCELLATION_ROLES` (`rides.service.ts:14-18`, `as const satisfies`):
+
+| JWT role (`UserRole`) | State-machine actor | Target `RideStatus` | RBAC permission gate (`@RequirePermissions('ride:cancel')`) |
+|---|---|---|---|
+| `passenger` | `'passenger'` | `cancelled_by_passenger` | ✓ existing (rbac.ts:46) |
+| `driver` | `'driver'` | `cancelled_by_driver` | ✓ added this task (rbac.ts:49) |
+| `super_admin` | `'admin'` | `cancelled_by_admin` | ✓ existing (rbac.ts:82) |
+| any other role | — | — | `ForbiddenException('Role "<role>" is not permitted to cancel rides')` thrown at the service layer (line 161) regardless of whether RolesGuard admitted the caller |
+
+The map keys exactly match the three roles currently granted `ride:cancel` in `rbac.ts` (passenger, driver, super_admin). No default/catch-all branch maps unknown roles to admin — explicit mapping only, as required. The `as keyof typeof CANCELLATION_ROLES` narrowing makes the lookup return `{ actor, cancelStatus } | undefined`; the `if (!mapping)` branch throws `ForbiddenException` before any further work.
+
+Per the state machine (`ride-transitions.ts`):
+- `cancelled_by_passenger` is reachable from `requested`, `searching`, `driver_assigned`, `driver_en_route`, `waiting_for_passenger` (allowedActors `['passenger']`).
+- `cancelled_by_driver` is reachable from `driver_assigned`, `driver_en_route` (allowedActors `['driver']`).
+- `cancelled_by_admin` is reachable from `driver_assigned`, `emergency_hold` (allowedActors `['admin']`).
+- All three `cancelled_by_*` states are **terminal** (`VALID_RIDE_TRANSITIONS['cancelled_by_*'] === []`, lines 80-82) — a second cancellation attempt throws `BadRequestException('Ride in terminal state "<status>" cannot transition to any other state')` from `state-machine.service.ts:14-17`. No additional duplicate-cancellation guard was added; the state machine remains the sole authority, as required.
+
+### cancelledBy invariant (B2 resolution)
+
+`rides.cancelledBy` stores `req.user.userId` (a `users.id`) for **every** actor type — passenger, driver, and super_admin. No resolution to `passengers.id` or `drivers.id` is performed. Rationale and invariants:
+
+- The column is a free `uuid` with **no FK** constraint (`schema/rides.ts:34`), so storing `users.id` is type-safe at the DB level.
+- `users.id` is the single canonical identifier carried in the JWT (`TokenPayload.userId`, `jwt.ts:11`) and is therefore the one identifier the controller can pass without additional DB lookups.
+- Resolution to `passengers.id`/`drivers.id` would require extra `SELECT` queries per cancellation and would lose the ability to attribute admin cancellations (super_admin has neither a `passengers` nor `drivers` row).
+- Downstream consumers do not JOIN on `cancelledBy`: `admin.service.ts:120` filters rides by `status IN ('cancelled_by_passenger','cancelled_by_driver','cancelled_by_admin')` and never references `cancelledBy` in a JOIN. No audit-log viewer in the current codebase resolves `cancelledBy` to a name.
+- The event payload (see below) includes both `cancelledBy` (users.id) and `cancelledByRole` (the JWT role string), so consumers that wish to display "Cancelled by <role>" can do so without a JOIN.
+
+This invariant is documented in the source comment at `rides.service.ts:184-187`.
+
+### Event payload
+
+Broadcast only after the DB `update` has `await`ed successfully (no try/catch wraps the update — a failure rethrows before the emit calls at lines 196-198):
+
+```ts
+{
+  rideId: id,
+  status: cancelStatus,            // 'cancelled_by_passenger' | 'cancelled_by_driver' | 'cancelled_by_admin'
+  cancelledBy,                     // users.id (string)
+  cancelledByRole: role,           // UserRole string from the JWT
+  reason,                           // string | undefined
+  cancelledAt: updatedAt.toISOString(),
+}
+```
+
+Two emissions per cancellation:
+- `eventsGateway.emitRideUpdate(id, payload)` → emits `ride:update` to all sockets in the `ride:<id>` room (existing method, `events.gateway.ts:262`). Consumed by `apps/mobile-passenger/src/api/socket.ts` `onRideUpdate` → `ride-store.ts:73-81` (`statusMap` includes `'cancelled'`).
+
+  Note: the passenger `statusMap` keys on the bare string `'cancelled'`, but the backend emits the specific `cancelled_by_*` status. The passenger-side `statusMap[data.status] || currentRide.status` fallback (ride-store.ts:83) means an unrecognized `cancelled_by_passenger` value leaves the local status unchanged — the passenger app already sets `rideStatus='cancelled'` locally via `setRideStatus('cancelled')` immediately after its own `POST /rides/:id/cancel` succeeds (`ride/[id].tsx:99`), so the passenger sees the cancelled state regardless. This is a pre-existing frontend simplification (the type lists `cancelled` as a single status, `ride-store.ts:13`), unchanged by this task and out of scope per the "no frontend" constraint.
+
+- `eventsGateway.emitToDriver(ride.driverId, 'ride:cancelled', payload)` → if the ride has a `driverId`, looks up the driver's `userId` and emits `ride:cancelled` to all of that user's connected sockets (`events.gateway.ts:279-294`). Consumed by `apps/mobile-driver/src/api/socket.ts:113-117` (`onRideCancelled`) and `apps/mobile-driver/app/(main)/home.tsx:93`. This resolves B3: drivers now receive realtime cancellation notifications.
+
+`EventsGateway` itself was **not modified** — only called via its existing public API. The `EventsModule` already exported `EventsGateway` (events.module.ts:8) and already imported `RidesModule` via `forwardRef` (events.module.ts:6); adding the symmetric `forwardRef(() => EventsModule)` to `RidesModule` (rides.module.ts:10) closes the Nest circular-dependency pair so DI can resolve `EventsGateway` inside `RidesService`. This is module wiring only; no gateway behavior changed.
+
+### Roles/permissions after the change
+
+| Endpoint | Required permission | Roles that have it (post-change) |
+|---|---|---|
+| `PATCH /rides/:id/cancel` | `ride:cancel` | `passenger`, `driver`, `super_admin` |
+
+- Before: `passenger`, `super_admin` only (2 roles).
+- After: `passenger`, `driver`, `super_admin` (3 roles). The single addition is `'ride:cancel'` inserted as the second element of the `driver: [...]` array (rbac.ts:49). No other role's permissions were touched; no other permission was added or removed from `driver`.
+
+Consequences:
+- **passenger token**: cancels with actor `'passenger'` → status `cancelled_by_passenger`. Unchanged behavior, now correct via explicit map (previously worked by accident because the hardcoded values happened to match the passenger path).
+- **driver token**: previously 403 at the RolesGuard; now passes the guard and cancels with actor `'driver''` → status `cancelled_by_driver`. State-machine still enforces that `cancelled_by_driver` is only reachable from `driver_assigned` or `driver_en_route` (ride-transitions.ts:37,44); a driver attempting to cancel from `requested`/`searching`/`waiting_for_passenger`/`in_progress`/`completed` will receive `BadRequestException` from `validateTransition` (no such transition is defined for actor `driver`). The `in_progress` → `emergency_hold` path remains the only in-trip interruption available to the driver (`ride-transitions.ts:63`), and that is a separate status, not a cancellation.
+- **super_admin token**: cancels with actor `'admin'` → status `cancelled_by_admin`. Now works from `driver_assigned` and `emergency_hold` (the two states with an `admin`-actor `cancelled_by_admin` transition). A super_admin cancelling from `requested`/`searching` — where only the passenger actor is allowed to cancel — will be rejected by `validateTransition` with `Actor "admin" is not allowed to transition from "requested" to "cancelled_by_admin"` (state-machine.service.ts:28-32). This is correct: those pre-driver states are the passenger's exclusive cancellation domain.
+- **all other roles** (`driver_applicant`, `dispatcher`, `support_agent`, `finance_officer`, `safety_officer`, `ops_admin`, `system_admin`, `auditor`): none has `ride:cancel` (rbac.ts unchanged for these), so `RolesGuard` returns 403 before the service runs. As a defense-in-depth measure, the service's `CANCELLATION_ROLES[role]` lookup would throw `ForbiddenException` for any of these roles if they somehow passed the guard (e.g. via a future RBAC edit that adds `ride:cancel` to a staff role without updating the service map).
+
+### Validation commands and exact results
+
+1. `npx tsc --noEmit -p apps/backend/tsconfig.json` → **PASS** (no output, exit `0`).
+2. `npx tsc --noEmit -p packages/shared-auth/tsconfig.json` → **PASS** (no output, exit `0`).
+3. `npx tsc --noEmit -p packages/shared-types/tsconfig.json` → **PASS** (no output, exit `0`).
+4. `npx nest build` (from `apps/backend`) → **PASS** (no output, exit `0`).
+
+`tsconfig.base.json` has `strict: true` and `noUncheckedIndexedAccess: true`. The `CANCELLATION_ROLES[role as keyof typeof CANCELLATION_ROLES]` lookup correctly types as `{ actor: string; cancelStatus: RideStatus } | undefined`; the `if (!mapping)` narrow makes the subsequent destructure safe without a non-null assertion. No `any` was introduced (the existing `cancelStatus as any` cast inside `db.update(rides).set({...})` is pre-existing and required by Drizzle's generated row type; same pattern as `dispatch.service.ts:61/74/101/124` and the pre-change `rides.service.ts`).
+
+### Focused static verification
+
+- `git diff --name-only` → exactly 4 files: `rides.controller.ts`, `rides.module.ts`, `rides.service.ts`, `rbac.ts`. No other repository path touched.
+- `git diff --stat -- packages/shared-db/src/schema apps/mobile-passenger apps/mobile-driver apps/admin-web apps/tracking-web packages/shared-config` → empty (no frontend, schema, migration, or config change).
+- `git diff -- packages/shared-db/src/migrations` → empty (no migration change).
+- `rides.controller.ts:48` passes `req.user.role as UserRole` — confirms requirement (1). The cast is justified: `TokenPayload.role` is typed `string` (jwt.ts:13, because `@kansride/auth` does not import `@kansride/types` to avoid a workspace cycle), but `JWTService.verifyAccessToken` returns the JWT payload verbatim and the JWT is issued only by `auth.service.ts` which constructs it from `users.role` (a `UserRole`). The cast is the established pattern from Task 2a's `drivers.controller.ts` `AuthenticatedRequest`.
+- `CANCELLATION_ROLES` keys (`rides.service.ts:14-18`) are exactly `passenger`, `driver`, `super_admin` — confirms requirement (2): explicit mapping of supported roles only, no default branch.
+- `if (!mapping) throw new ForbiddenException(...)` (rides.service.ts:160-161) — confirms requirement (3).
+- `cancelRide(id, cancelledBy, role, reason)` signature: `cancelledBy` is passed `req.user.userId` from the controller (controller:48), flows unmodified into `db.update(rides).set({ cancelledBy })` (service:176) — confirms requirement (4): `cancelledBy` remains `users.id`.
+- `await this.db.update(rides)...` (service:172-180) precedes `this.eventsGateway.emitRideUpdate`/`emitToDriver` (service:196-198), with no `try/catch` around the update — confirms requirements (5) and (6): DB update before WebSocket emission; no broadcast if the update fails (the `await` rejection propagates up the call stack before the emit lines are reached).
+- `rbac.ts:49` adds `'ride:cancel'` to the `driver` array; diff is `+1/-1` on that single line; `passenger` (line 46) and `super_admin` (line 82) arrays unchanged — confirms requirement (7): `ride:cancel` added only to the `driver` role.
+- `this.stateMachine.validateTransition(ride.status, cancelStatus, actor)` (service:169) is the only transition validity check; no redundant terminal-state pre-check was added — confirms requirement (8): existing state-machine validation remains the duplicate/terminal-state guard.
+- `events.gateway.ts` is **unchanged** (not in `git diff --name-only`). `EventsModule` exports `EventsGateway` (events.module.ts:8) and `RidesModule` now imports `EventsModule` via `forwardRef` (rides.module.ts:10), closing the symmetric circular-DI pair — no gateway protocol change, no new event method, only callers of the existing `emitRideUpdate`/`emitToDriver` public API.
+- `ride:cancelled` emitter count in `apps/backend/src/modules`: was 0 before this task; now 1 call site (`rides.service.ts:198`). The corresponding `ride:cancelled` event name on the wire matches the one the mobile-driver client already listens for (`socket.ts:115`).
+- Diff scan for hardcoded credentials (`password|secret|api_key|admin_token|JWT_|PRIVATE_KEY`) → **0 matches** in the diff.
+
+No unit-test framework exists in the repository (no `*.spec.ts`, no `jest`/`vitest` configured in `apps/backend`, confirmed in Task 2a's log entry), so no focused tests were added — consistent with the current repository patterns.
+
+### Runtime verification blocker
+
+**Not performed.** Local PostgreSQL still rejects the default `postgres:postgres` credentials with `28P01 password authentication failed for user "postgres"` (same blocker recorded in Tasks 0a, 1a, 1b, 1c, 2a, Audit Task 1b). No pre-provisioned passenger/driver/admin account is available to exercise the cancellation path against a real DB. No data was created or mutated for testing (no credentials, no destructive DB operations — requirements #15/#16 carried from prior tasks). All checklist items below are therefore **statically verified only**:
+
+- passenger cancels a `searching` ride → `cancelled_by_passenger`, `cancelledBy = passenger's users.id`, `ride:cancelled` emitted to ride room (no `driverId` yet, so no `emitToDriver`) — *static*: `CANCELLATION_ROLES.passenger` → `{ actor: 'passenger', cancelStatus: 'cancelled_by_passenger' }`; state machine allows `searching` → `cancelled_by_passenger` for actor `passenger` (ride-transitions.ts:26); `ride.driverId` is null at this state (no driver assigned), so the `if (ride.driverId)` branch (service:197) skips the driver emit.
+- driver cancels a `driver_assigned` ride → `cancelled_by_driver`, `ride:cancelled` emitted to both ride room and the driver's own sockets — *static*: `CANCELLATION_ROLES.driver` → `{ actor: 'driver', cancelStatus: 'cancelled_by_driver' }`; state machine allows `driver_assigned` → `cancelled_by_driver` for actor `driver` (ride-transitions.ts:37); `ride.driverId` is non-null, so `emitToDriver` fires.
+- driver attempts cancellation from `requested` (pre-dispatch) → `BadRequestException('Actor "driver" is not allowed to transition from "requested" to "cancelled_by_driver". Allowed: passenger')` — *static*: `requested` transitions (ride-transitions.ts:18-21) only include `cancelled_by_passenger` for actor `passenger`; `validateTransition` finds the matching `nextStates: ['cancelled_by_passenger']` entry, sees `cancelStatus = 'cancelled_by_driver'` is not in it, and falls through to the `Invalid transition` error (state-machine.service.ts:22-26). The 'Allowed:' suffix in the actor-mismatch path is not reached for this case; the user-facing error is the more precise `Invalid transition from "requested" to "cancelled_by_driver"`.
+- super_admin cancels a ride in `emergency_hold` → `cancelled_by_admin`, actor `'admin'` — *static*: `CANCELLATION_ROLES.super_admin` → `{ actor: 'admin', cancelStatus: 'cancelled_by_admin' }`; `emergency_hold` → `cancelled_by_admin` allowedActors `['admin']` (ride-transitions.ts:76).
+- passenger attempts to cancel an already-cancelled ride → `BadRequestException('Ride in terminal state "cancelled_by_passenger" cannot transition to any other state')` — *static*: `VALID_RIDE_TRANSITIONS['cancelled_by_passenger'] === []` (ride-transitions.ts:80); `validateTransition` short-circuits at state-machine.service.ts:14-17.
+- driver_applicant / dispatcher / support_agent / safety_officer / ops_admin / system_admin / auditor token hits `PATCH /rides/:id/cancel` → HTTP 403 from `RolesGuard` (none has `ride:cancel`) before `RidesService.cancelRide` is entered — *static*: rbac.ts scans for `'ride:cancel'` yields only the three allowed roles; `RolesGuard` throws `ForbiddenException('Insufficient permissions')` for the others.
+
+These remain runtime-unverified pending the PostgreSQL credential blocker and out-of-band-provisioned passenger/driver/admin accounts.
+
+### Unresolved issues
+
+1. **PostgreSQL `28P01` password authentication blocker** (Task 0a, Unresolved issue #1) — persists; all runtime verification of every backend task remains unavailable until resolved.
+2. **No schema FK on `cancelledBy`** — the column remains a free `uuid`. A future audit may want to add an FK to `users.id` (or a polymorphic FK pattern if `passengers.id`/`drivers.id` attribution is later required). This is out of scope for Task 2b (explicitly forbidden: "Do NOT modify: schemas, migrations"), and the `users.id`-for-every-actor invariant makes a future single-target FK viable without schema work in this task.
+3. **No broadcasted `ride:cancelled` for driverless rides (pre-dispatch cancellations)** — when a passenger cancels from `requested`/`searching` (no `driverId` assigned), only `emitRideUpdate` fires to the ride room; no `emitToDriver` is attempted. This is correct (no driver to notify), but it means the `apps/mobile-driver/app/(main)/home.tsx:93` `ride:cancelled` listener is only exercised for post-driver-assignment cancellations. Pre-dispatch passenger cancellations are invisible to drivers, which is the desired behavior (no driver was ever assigned).
+4. **Frontend `ride-store.ts` status map** still lists only `'cancelled'` (not `'cancelled_by_passenger'`/`'cancelled_by_driver'`/`'cancelled_by_admin'`); passenger-side local state update on cancellation relies on the optimistic `setRideStatus('cancelled')` call in `ride/[id].tsx:99`, not on the socket payload. This is a pre-existing frontend simplification, unchanged here per the "no frontend" constraint.
+
+### Out-of-scope items NOT touched (preserved)
+
+- JWT payload, OTP behavior, passenger identity handling (Task 1b-in-the-prior-session), admin auth (Task 1c), driver controller identity handling (Task 2a), Audit Task 1b (`UsersService.getProfile`), ride rating (Task 2c), ride-history (Task 2d), dispatch/WebSocket (Task 3), fare, frontend (mobile-passenger / mobile-driver / admin-web / tracking-web), schemas, migrations, payment, subscription. All preserved.
+- `events.gateway.ts` not modified (only called via its existing public `emitRideUpdate`/`emitToDriver` API).
+- `state-machine.service.ts` not modified (only called).
+- `ride-transitions.ts`, `ride.types.ts` not modified.
+- `rides.controller.ts` `updateStatus`/`rateRide`/`getRide`/`trackRide`/`createRide` methods unchanged.
+
+### Recommended next task
+
+**Task 2c — Fix ride-rating handling** (per audit §13 Step 2 task 2c): `POST /rides/:id/rate` currently logs the rating but does not persist it (rides.service.ts:204-219). The ride must be in `completed` status to be rateable; the driver's `drivers.rating` and `drivers.completedRides` columns exist but are not updated. Tighten the rating flow to persist the rating and update the driver's aggregate. Independent of Task 2b.
+
+(Note: per instruction, Task 2c is NOT to be begun here. This recommendation is for the next session.)
+

@@ -5,6 +5,7 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { Public } from '../../common/decorators/public.decorator';
 import { RidesService } from './rides.service';
 import type { TokenPayload } from '@kansride/auth';
+import type { UserRole } from '@kansride/types';
 
 interface AuthenticatedRequest extends Request {
   user: TokenPayload & { iat: number; exp: number };
@@ -44,7 +45,7 @@ export class RidesController {
   @Patch(':id/cancel')
   @RequirePermissions('ride:cancel')
   cancelRide(@Param('id') id: string, @Request() req: AuthenticatedRequest, @Body() body: { reason?: string }) {
-    return this.ridesService.cancelRide(id, req.user.userId, body.reason);
+    return this.ridesService.cancelRide(id, req.user.userId, req.user.role as UserRole, body.reason);
   }
 
   @Patch(':id/status')

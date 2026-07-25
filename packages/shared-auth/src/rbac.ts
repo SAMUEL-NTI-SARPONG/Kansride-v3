@@ -46,7 +46,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   passenger: ['ride:create', 'ride:view', 'ride:cancel'],
   driver_applicant: ['driver:register'],
   driver: [
-    'ride:view', 'ride:update_status', 'driver:go_online',
+    'ride:view', 'ride:cancel', 'ride:update_status', 'driver:go_online',
     'driver:subscribe', 'driver:view_earnings', 'driver:accept_ride',
   ],
   dispatcher: [
