@@ -1284,3 +1284,193 @@ These remain runtime-unverified pending the PostgreSQL credential blocker and ou
 
 (Note: per instruction, Task 2c is NOT to be begun here. This recommendation is for the next session.)
 
+## Task 2c — Fix ride-rating persistence
+
+**Date:** 2026-07-25
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static). Runtime DB verification still blocked by the local PostgreSQL `28P01 password authentication failed` (Unresolved issue #1, carried from Task 0a / 2b).
+
+### Original problem
+
+`POST /rides/:id/rate` had five coupled defects:
+
+1. **Nothing persisted.** `rides.service.ts` (old lines 204-219) only validated `1 ≤ rating ≤ 5`, validated `ride.status !== 'completed'`, and then issued `this.logger.log(...)` — no `UPDATE` was ever issued against `rides`, so the rating was discarded on every request. The response `{ id, rating, comment }` was a fiction.
+2. **Authorization gap.** `rides.controller.ts` (old lines 57-60) had `@Post(':id/rate')` with **no `@RequirePermissions`** decorator. Any authenticated role (passenger, driver, dispatcher, super_admin, auditor, etc.) could rate any ride. `req.user` was never forwarded to the service, so the service had no way to identify the rater.
+3. **No duplicate-rating prevention.** With no persistence, there was no mutation on a second call, but the endpoint always returned 200. Once persisted, a duplicate call would overwrite the prior rating silently — there was no guard.
+4. **Fractional ratings accepted.** `if (rating < 1 || rating > 5)` admits `4.5`, `Math.PI`, etc. The frontend (`apps/mobile-passenger/app/(main)/ride/[id].tsx:113-123`) sends an integer 1-5, but the API contract did not enforce integer-only.
+5. **`drivers.rating` never recomputed.** The schema declares `drivers.rating numeric(3,2) default '5.00'` (`packages/shared-db/src/schema/drivers.ts:10`) but no code path ever recomputed it after a rating submission. A driver's aggregate rating stayed at the default `5.00` regardless of how many rides were rated. `drivers.completedRides` (`drivers.ts:16`) was similarly never incremented anywhere (confirmed by grep) — D2 decision: do not use it.
+
+A secondary observation (D1 in the design report): no `ratings` table exists, and the audit-recommended approach (Option B1) is to add the rating columns directly to `rides` (one rider rates one ride, exactly once). Decision recorded in the task plan: no `ratings` table; columns on `rides` are `rating integer`, `rating_comment text`, `rated_at timestamptz`, `rated_by uuid → users.id`, all nullable.
+
+### Files changed
+
+| File | Change | Lines (net) |
+|---|---|---|
+| `packages/shared-db/src/schema/rides.ts` | Import `users`. Add four nullable columns to the `rides` table: `rating` (integer), `ratingComment` (text), `ratedAt` (timestamptz), `ratedBy` (uuid → `users.id` FK). | +6 / 0 |
+| `packages/shared-db/src/migrations/0001_ride_rating_columns.sql` (new) | Hand-written migration (per Task 0a convention — `drizzle-kit@0.26.2` cannot auto-generate for this schema's `numeric` columns): `ALTER TABLE rides ADD COLUMN` ×4, then `ADD CONSTRAINT rides_rated_by_users_id_fk FOREIGN KEY (rated_by) REFERENCES users(id)`. Uses `--> statement-breakpoint` separators. | +5 / 0 |
+| `packages/shared-db/src/migrations/meta/_journal.json` | Append `idx: 1` entry tagging `0001_ride_rating_columns` (version 7, breakpoints true). | +6 / 0 |
+| `packages/shared-db/src/migrations/meta/0001_snapshot.json` (new) | Copy of `0000_snapshot.json` with `id`/`prevId` chain updated (`prevId` = 0000's `id`), four new columns added to the `public.rides.columns` block, and `rides_rated_by_users_id_fk` added to `public.rides.foreignKeys`. | new file |
+| `packages/shared-auth/src/rbac.ts` | Add `'ride:rate'` to the `Permission` union type. Add `'ride:rate'` to the `passenger` role array. Add `'ride:rate'` to the `super_admin` role array (defense-in-depth: super_admin bypasses the passenger-only check below via role escalation, but the column invariant — only one rating per ride — still holds). | +3 / −1 |
+| `apps/backend/src/modules/rides/rides.controller.ts` | Add `@RequirePermissions('ride:rate')` on `rateRide`. Pass `req.user.userId` and `req.user.role as UserRole` into the service. | +1 / −1 |
+| `apps/backend/src/modules/rides/rides.service.ts` | Rewrite `rateRide(id, authenticatedUserId, role, rating, comment?)`: integer-only validation; `completed`-status check; passenger-role check; passenger-ownership check (resolves `passengers.id` via the reused `getPassengerProfileByUserId` helper); friendly `ConflictException` pre-check on `ride.ratedBy !== null`; **atomic transaction** wrapping three queries on `tx`: (a) conditional `UPDATE rides SET ... WHERE id = ? AND rated_by IS NULL` with `.returning({ id })` — `ConflictException` if 0 rows (concurrent-duplicate guard); (b) `AVG(rides.rating)` over `WHERE driverId = ride.driverId AND rating IS NOT NULL`; (c) `UPDATE drivers.rating` with the parsed/formatted value. Imports `ConflictException` from `@nestjs/common`; imports `avg, and, isNull, isNotNull` from `drizzle-orm`. | +95 / −10 +2 imports |
+
+No frontend, payment, subscription, config, `events.gateway.ts`, `state-machine.service.ts`, `ride-transitions.ts`, or `ride.types.ts` file was modified. `git diff --stat -- apps/mobile-passenger apps/mobile-driver apps/admin-web apps/tracking-web packages/shared-config` returns empty. The three pre-existing untracked files (`apps/admin-web/next-env.d.ts`, `apps/tracking-web/next-env.d.ts`, `repository-tree.txt`) were not created or modified by this task.
+
+### Authorization model (authoritative)
+
+Two-layer authorization, defense-in-depth:
+
+1. **RBAC layer (controller):** `@RequirePermissions('ride:rate')` is enforced by `RolesGuard`. Per `rbac.ts`, only `passenger` and `super_admin` carry `'ride:rate'`. All other roles (driver, dispatcher, support_agent, finance_officer, safety_officer, ops_admin, system_admin, auditor, driver_applicant) get HTTP 403 from the guard.
+2. **Service layer (`rateRide`):**
+   - `role !== 'passenger'` → `ForbiddenException('Only passengers may rate rides')`. This rejects a `super_admin` who passed RBAC. (Rationale: an admin rating a driver on a passenger's behalf is an admin support workflow, not the rating endpoint — it belongs in a future admin-override flow if ever needed.)
+   - Resolve `passengers.id` from `authenticatedUserId` via `getPassengerProfileByUserId` (reused from Task 1b). If no passenger profile exists → `ForbiddenException('No passenger profile found for this account')`.
+   - `ride.passengerId !== passenger.id` → `ForbiddenException('You can only rate your own rides')`.
+
+RBAC alone is insufficient: `'ride:rate'` membership does not encode *which* ride a passenger may rate. The `ride.passengerId === passenger.id` check is the authoritative ownership boundary.
+
+### Rating persistence & driver aggregate recomputation
+
+All three database operations execute inside a single `this.db.transaction(async (tx) => { ... })` block. Every query inside uses `tx` — verified by static check that no `this.db.` reference appears inside the transaction block apart from the opening `this.db.transaction(...)` call. A failure of the AVG recomputation or the `drivers.rating` write rolls back the conditional ride UPDATE, so the ride rating is never persisted without the driver aggregate reflecting it (and vice versa).
+
+Inside the transaction:
+
+(a) Conditional UPDATE — authoritative concurrent-duplicate guard:
+```ts
+const updated = await tx
+  .update(rides)
+  .set({ rating, ratingComment: comment, ratedAt, ratedBy: authenticatedUserId, updatedAt: ratedAt })
+  .where(and(eq(rides.id, id), isNull(rides.ratedBy)))
+  .returning({ id: rides.id });
+// 0 rows updated  → concurrent loser → throw ConflictException (rolls back the no-op)
+// 1 row updated   → winner, proceed
+```
+
+(b) Driver aggregate recomputation (D2 — no `drivers.completedRides`, no running-average algorithm):
+```ts
+const [avgRow] = await tx
+  .select({ value: avg(rides.rating) })
+  .from(rides)
+  .where(and(eq(rides.driverId, driverIdForLog), isNotNull(rides.rating)));
+```
+`avg()` over a Postgres `integer` column returns `numeric`, which the `node-postgres` driver surfaces as a **JavaScript string** (e.g. `"4.5000000000000000"`). The value is never a JS `number`. The conversion to a `numeric(3,2)`-safe string is explicit:
+```ts
+const avgString = avgRow?.value;                                  // string | null | undefined
+if (typeof avgString === 'string' && avgString.length > 0) {
+  const parsed = parseFloat(avgString);                           // number | NaN
+  if (Number.isFinite(parsed)) {                                  // rejects NaN, Infinity
+    const driverRatingValue = parsed.toFixed(2);                  // "5.00", "4.50", "3.33"
+    await tx.update(drivers).set({ rating: driverRatingValue })
+      .where(eq(drivers.id, driverIdForLog));
+  } else {
+    this.logger.warn(`AVG returned non-numeric for driver ${driverIdForLog}: ${JSON.stringify(avgString)}`);
+  }
+} else {
+  this.logger.warn(`AVG null/empty for driver ${driverIdForLog} (unreachable after rating apply)`);
+}
+```
+Explicit handling for each Postgres return shape:
+- **Normal path** (`"4.500000..."`): `parseFloat` → `4.5`; `Number.isFinite` → true; `toFixed(2)` → `"4.50"` (matches `numeric(3,2)` formatting; Postgres accepts the string and rounds/fits to scale).
+- **NaN path** (unparseable string): `parseFloat` returns `NaN`; `Number.isFinite(NaN)` is `false`; warn + skip driver write (the ride UPDATE still commits inside the tx — but practically, this path is unreachable because Postgres `AVG(integer)` over at least one non-null row cannot yield a non-numeric string).
+- **Null path** (`avgRow?.value == null`): `AVG` returns SQL `NULL` only if every `rides.rating` for the driver is `NULL` — impossible immediately after the conditional UPDATE just set one. Logged defensively as "unreachable".
+- **Empty-string path** (`""`): `length > 0` guard rejects; logged. Defensive only — Postgres `numeric` is never returned as `""` by the driver.
+
+`Number.isFinite` (rather than `!Number.isNaN`) is used because it rejects both `NaN` and `Infinity` in one check, and is the standard guard for "writable finite number" ahead of a DB write. `toFixed(2)` deliberately produces a 2-decimal-place string so Postgres does not need to perform scale coercion on input (it would anyway, but this matches the `numeric(3,2)` column scale exactly, eliminating any rounding ambiguity).
+
+This re-aggregates from **every** rated ride for that driver on every submission — O(n) in the driver's rated-ride count, but simple, correct, and avoids the running-average bookkeeping bugs that motivated D2.
+
+### Duplicate-rating guard (two layers)
+
+**Layer 1 — friendly pre-check (outside transaction):** `ride.ratedBy !== null` → `ConflictException('This ride has already been rated')`. Provided for the common case so a second rating attempt on a ride the caller already rated (with no concurrency) returns fast without entering a transaction at all.
+
+**Layer 2 — authoritative conditional UPDATE (inside transaction):** the ride mutation is `UPDATE rides SET ... WHERE id = ? AND rated_by IS NULL` with `.returning({ id })`. Two concurrent requests cannot both match this predicate:
+
+- Request A wins: row mutation occurs, `rated_by` is set to A's `authenticatedUserId`. `.returning()` yields 1 row.
+- Request B's UPDATE happens after A has committed (snapshot isolation) or even races on the row lock: the `rated_by IS NULL` predicate no longer matches the same row; `.returning()` yields **0 rows**. B throws `ConflictException('This ride has already been rated')` from inside the transaction, so its no-op UPDATE rolls back.
+
+The conditional UPDATE is the **authoritative** guard because the read-then-check of `ride.ratedBy` in Layer 1 is a TOCTOU race — between the `getRide(id)` read and a non-conditional UPDATE, two requests could both observe `ratedBy === null` and both reach the UPDATE. Layer 2 turns the mutation itself into the predicate evaluation, which Postgres serializes at the row level. Layer 1 is preserved only because it produces a friendlier fast-path for the overwhelmingly common non-concurrent case.
+
+`ConflictException` (not `BadRequestException`) is chosen because the request itself is well-formed; it is the *resource state* that conflicts — a rating already exists for this ride. `ConflictException` was previously unused in the backend (grep for `ConflictException` returned 0 hits in `apps/backend/src`); it is available from `@nestjs/common` (same package as the existing `BadRequestException`).
+
+The `ratedBy` column is set once and never cleared (no un-rate endpoint). `rated_by IS NULL` is therefore a stable idempotency sentinel.
+
+### Frontend contract compatibility
+
+`apps/mobile-passenger/app/(main)/ride/[id].tsx:113-123` calls `await post('/rides/${id}/rate', { rating })`. The request body shape is unchanged (`{ rating: number }`, optional `comment`). The successful response shape is unchanged: `{ id, rating, comment }`. No frontend modification required.
+
+`apps/mobile-driver` has no rating UI (grep confirmed) and is unaffected.
+
+### Validation performed
+
+Five commands, re-run after the second-pass revisions; all four `tsc --noEmit` returns explicit exit code 0 and `nest build` returns explicit exit 0 (verified via `$LastExitCode`):
+
+1. `npx tsc --noEmit -p packages/shared-db/tsconfig.json` → **exit 0** (validates new schema columns, new migration SQL/journal/snapshot consistency via schema re-export).
+2. `npx tsc --noEmit -p packages/shared-auth/tsconfig.json` → **exit 0** (validates the new `'ride:rate'` token against the `Permission` union and the role arrays).
+3. `npx tsc --noEmit -p packages/shared-types/tsconfig.json` → **exit 0** (unchanged; included for completeness as Task 2a pattern).
+4. `npx tsc --noEmit -p apps/backend/tsconfig.json` → **exit 0** (validates the second-pass transaction body: `db.transaction(async (tx) => ...)`, conditional `UPDATE ... WHERE id = ? AND rated_by IS NULL .returning({ id })`, the 0-rows- ConflictException throw inside the transaction, transaction-scoped `tx.update(drivers)`, `isNaN`/`Number.isFinite` AVG-guarded write, and the `isNull`/`isNotNull` imports).
+5. `npm run build --workspace apps/backend` (`nest build`) → **exit 0** (artifact build succeeds — runtime AST is well-formed).
+
+### Static verification performed
+
+- Confirmed `ConflictException` is exported by `@nestjs/common` and was previously unused in `apps/backend/src` (grep baseline).
+- Confirmed `avg`, `and`, `isNull`, `isNotNull`, `sql` are all exported by `drizzle-orm` (runtime check via `node -e`).
+- Confirmed `_journal.json` parses as JSON and the new entry is present at `idx: 1`; `prevId` chain (`0001.prevId` = `0000.id`) is valid; `version: 7`, `dialect: postgresql` are consistent across snapshots.
+- Confirmed `0001_snapshot.json` parses as JSON; the `public.rides.columns` block contains the four new columns in order (`rating`, `rating_comment`, `rated_at`, `rated_by`); `public.rides.foreignKeys` contains `rides_rated_by_users_id_fk`.
+- Confirmed the hand-written `0001_ride_rating_columns.sql` follows 0000 conventions: `ALTER TABLE "rides" ADD COLUMN` ×4 with quoted identifiers, `--> statement-breakpoint` separators, `ADD CONSTRAINT rides_rated_by_users_id_fk FOREIGN KEY ("rated_by") REFERENCES "users"("id") ON DELETE no action ON UPDATE no action` matching the FK naming pattern used in 0000 (e.g. `drivers_user_id_users_id_fk`).
+- Confirmed `users.ts` does not import `rides`/`passengers`/`drivers` — no schema import cycle introduced by adding `import { users }` to `rides.ts`.
+- Confirmed the transaction body uses `tx` exclusively — a static check across the `db.transaction(async (tx) => { ... })` block (lines 247–311) shows zero occurrences of `this.db.` other than the opening `db.transaction(...)` call. Atomicity is structurally enforced.
+- Confirmed the conditional UPDATE uses `and(eq(rides.id, id), isNull(rides.ratedBy))` — exactly one row can match (the PK constraint ensures uniqueness on `id`).
+- Confirmed the AVG numeric handling rejects NaN/Infinity/empty/null explicitly via `typeof avgString === 'string' && avgString.length > 0` and `Number.isFinite(parsed)`; the value written to `drivers.rating` is a 2-decimal-place string from `toFixed(2)`, matching `numeric(3,2)` scale exactly.
+- Confirmed `getPassengerProfileByUserId` (reused from Task 1b) is called outside the transaction — it has no DB writes and would not be affected by the transaction's commit/rollback boundary.
+
+### Runtime verification not performed
+
+Per the standing blocker (Task 0a issue #1), local PostgreSQL refuses connections (`28P01 password authentication failed for user "postgres"`). The following runtime checks are deferred until DB is available:
+
+- Submitting a rating for a `completed` ride → expect `200 { id, rating, comment }` and a row-update verifying `rating`, `rating_comment`, `rated_at`, `rated_by` are non-null in `rides`.
+- Submitting a second rating for the same ride (serial, not concurrent) → expect `409 Conflict {"message":"This ride has already been rated"}`. The Layer 1 pre-check fires first; no transaction is entered; **no row mutation**.
+- **Concurrent duplicate (Layer 2 path):** issue two `POST /rides/:id/rate` requests simultaneously against the same unrated completed ride. Exactly one should succeed with `200`; the other should receive `409 {"message":"This ride has already been rated"}` from inside the transaction. The ride row should have exactly one `rated_by` value, not the second caller's. Verifies the conditional-UPDATE race guard.
+- Submitting a rating with `rating: 4.5` → expect `400 {"message":"Rating must be an integer between 1 and 5"}`.
+- Submitting a rating for a ride whose `passengerId ≠ passengers.id resolved from req.user.userId` → expect `403 {"message":"You can only rate your own rides"}`.
+- Driver aggregate: submit ratings of 4 → 5 → 3 for a driver's three completed rides; expect `drivers.rating` to converge to `4.00` (numeric(3,2) scale verified by `toFixed(2)` write path).
+- Driver aggregate isolation: submit one rating for driver A and another for driver B; expect `drivers.rating` updates to apply only to each driver's column (the `WHERE driverId = ?` predicate is parameter-bound; no cross-contamination).
+- Transaction rollback: artificially force the `drivers.rating` UPDATE to fail (e.g. by temporarily changing the column write to a too-large value or by removing the `CALLED ON NULL INPUT` setting). The conditional ride UPDATE must roll back — verify no `rating`/`rated_by` values persisted on the ride row.
+- RBAC: a `driver`-role token hitting `POST /rides/:id/rate` → expect `403` from `RolesGuard` before the service runs.
+
+### Schema decisions recap (D1-D5)
+
+- **D1 (approved):** Rating columns on `rides`, no `ratings` table. ✓ Implemented.
+- **D2 (approved):** Live `AVG()` recomputation, no `drivers.completedRides` use, no running-average algorithm. ✓ Implemented.
+- **D3 (approved):** `'ride:rate'` permission added to `passenger` (RBAC) and `super_admin` (RBAC); service still enforces passenger-only + ownership. ✓ Implemented.
+- **D4 (approved):** Integer-only ratings, reject fractional via `Number.isInteger(rating)`. ✓ Implemented.
+- **D5 (approved):** New migration `0001_ride_rating_columns.sql` with journal + snapshot entries; `drizzle-kit` not run (per Task 0a). ✓ Implemented.
+- **Duplicate rating:** `ConflictException` (not `BadRequestException`). ✓ Implemented.
+
+### Files NOT changed (intentional)
+
+- `apps/mobile-passenger/app/(main)/ride/[id].tsx` — request/response contract preserved; no frontend change required.
+- `apps/mobile-driver/**` — no rating UI exists; unaffected.
+- `packages/shared-db/src/schema/drivers.ts` — `drivers.rating` and `drivers.completedRides` columns unchanged; `rating` is overwritten via `UPDATE`, `completedRides` is left at its default per D2.
+- `packages/shared-db/src/schema/passengers.ts` — `passengers.rating` is unrelated (passenger self-rating, not in scope); unchanged.
+- `packages/shared-types/src/ride.types.ts` — `RideStatus` unchanged; rating is not a status transition.
+- `apps/backend/src/modules/rides/state-machine.service.ts`, `ride-transitions.ts` — rating is not a state transition; state machine untouched.
+- `apps/backend/src/modules/events/events.gateway.ts` — rating does not broadcast in this task (the passenger who rates already knows their own rating; the driver receives no real-time event for ratings — could be a future enhancement if driver push notifications are added).
+
+### Revisions (second-pass corrections applied before commit)
+
+Three correctness gaps were identified in the first-pass implementation and corrected before any commit:
+
+1. **Concurrent-duplicate prevention (race condition).** The first pass read `ride.ratedBy`, checked `is null`, then ran an unconditional `UPDATE rides SET ... WHERE id = ?`. Two concurrent requests could both observe `ratedBy === null` and both commit a row mutation, with the second silently overwriting the first's `rating`/`ratedBy`/`ratedAt` values. **Fix:** kept the friendly pre-check on `ride.ratedBy !== null` (fast-path for the common case) but made the **authoritative** guard the conditional UPDATE itself: `WHERE id = ? AND rated_by IS NULL .returning({ id })`, run inside the transaction. If `.returning()` yields 0 rows, throw `ConflictException('This ride has already been rated')` from inside the transaction so Postgres rolls back the no-op and Nest's exception filter surfaces the 409.
+2. **Atomicity of persistence + aggregate recomputation.** The first pass ran the ride UPDATE, then a separate SELECT for `AVG(rides.rating)`, then a separate UPDATE of `drivers.rating` — three independent statements on `this.db`. A failure of the AVG or the drivers UPDATE would leave the ride already-rated state committed without a matching driver aggregate (or, in the converse direction, a driver rating recomputation from a race-loser that the ride row's `rated_by` no longer reflects — though this is prevented by Layer 2's conditional UPDATE). **Fix:** wrapped all three statements in `this.db.transaction(async (tx) => { ... })`. Every query inside uses `tx`; the only `this.db.` reference in the block is the opening `this.db.transaction(...)` call (verified statically). A failure of the AVG recomputation or the driver UPDATE rolls back the conditional ride UPDATE, so a ride is never persisted as already-rated without a corresponding driver aggregate write.
+3. **AVG numeric conversion safety.** The first pass cast the AVG result with `Number(avgRow.value)` and wrote `newDriverRating.toString()`. Two failure modes were possible:
+   - `AVG(integer)` over Postgres returns `numeric`; the `node-postgres` driver serializes `numeric` as a **JS string** (e.g. `"4.5000000000000000"`), not a `number`. `Number("4.5000...")` happens to be `4.5`, so the value was correct, but the type system inferred `number` for what is actually `string | null`, masking future regressions.
+   - `Number("") === 0` and `Number(null) === 0` (the latter via duck-typed coercion in some enclosing expressions); a future bug that produces empty/null/NaN could write `0` to a `numeric(3,2)` column whose minimum valid value is `1.00`, silently corrupting the driver's aggregate.
+   **Fix:** explicit per-shape handling — `typeof avgString === 'string' && avgString.length > 0` rejects null/undefined/empty; `parseFloat(avgString)` rejects malformed strings; `Number.isFinite(parsed)` rejects `NaN` and `Infinity`; `parsed.toFixed(2)` produces a 2-decimal-place string that matches the `numeric(3,2)` column scale exactly, eliminating any Postgres-side scale coercion ambiguity. Each path logs distinctly.
+
+All five validation commands were re-run after the revisions; all returned explicit exit 0 (see "Validation performed" above).
+
+### Recommended next task
+
+**Task 2d — Ride-history endpoints** (per audit §13 Step 2 task 2d): the `getPassengerRides`/`getDriverRides` service methods exist (`rides.service.ts:222-238`) but no controller routes expose them, and no RBAC `ride:view_own` or analogous permission covers "list my own rides" (current `ride:view` is broad/ambiguous). Independent of Task 2c.
+
+(Note: per instruction, Task 2d is NOT to be begun here. This recommendation is for the next session.)
+

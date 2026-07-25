@@ -1,6 +1,7 @@
 import { pgTable, uuid, varchar, text, integer, numeric, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
 import { passengers } from './passengers';
 import { drivers } from './drivers';
+import { users } from './users';
 
 export const rideStatusEnum = pgEnum('ride_status', [
   'draft', 'requested', 'searching', 'driver_offered', 'driver_assigned',
@@ -36,6 +37,10 @@ export const rides = pgTable('rides', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  rating: integer('rating'),
+  ratingComment: text('rating_comment'),
+  ratedAt: timestamp('rated_at', { withTimezone: true }),
+  ratedBy: uuid('rated_by').references(() => users.id),
 }, (table) => ({
   ridesStatusIdx: index('idx_rides_status_created').on(table.status, table.createdAt),
   ridesPassengerIdx: index('idx_rides_passenger').on(table.passengerId, table.createdAt),

@@ -8,6 +8,13 @@
       "when": 1784400396763,
       "tag": "0000_unusual_morlun",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784400696763,
+      "tag": "0001_ride_rating_columns",
+      "breakpoints": true
     }
   ]
 }

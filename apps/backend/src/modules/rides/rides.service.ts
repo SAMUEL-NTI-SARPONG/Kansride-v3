@@ -1,9 +1,9 @@
-import { Injectable, Inject, BadRequestException, NotFoundException, ForbiddenException, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ConflictException, NotFoundException, ForbiddenException, Logger, forwardRef } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
-import { eq, desc } from 'drizzle-orm';
+import { eq, desc, avg, and, isNull, isNotNull } from 'drizzle-orm';
 import type { UserRole, RideStatus } from '@kansride/types';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
@@ -16,7 +16,6 @@ const CANCELLATION_ROLES = {
   driver:    { actor: 'driver',    cancelStatus: 'cancelled_by_driver' as RideStatus },
   super_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
 } as const satisfies Record<'passenger' | 'driver' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
-
 
 @Injectable()
 export class RidesService {
@@ -202,20 +201,116 @@ export class RidesService {
     return { id, status: cancelStatus, cancelledBy, reason };
   }
 
-  async rateRide(id: string, rating: number, comment?: string) {
-    if (rating < 1 || rating > 5) {
-      throw new BadRequestException('Rating must be between 1 and 5');
+  async rateRide(id: string, authenticatedUserId: string, role: UserRole, rating: number, comment?: string) {
+    // D4: Integer ratings only, 1..5. Reject fractional values up-front so we
+    // never persist a non-integer into the integer column (which would error
+    // at the DB layer with an opaque message).
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new BadRequestException('Rating must be an integer between 1 and 5');
     }
 
     const ride = await this.getRide(id);
+
+    // Only completed rides may be rated (in_progress / cancelled / draft, etc. are rejected).
     if (ride.status !== 'completed') {
       throw new BadRequestException('Can only rate completed rides');
     }
 
-    // Update driver rating (simple average for now)
-    if (ride.driverId) {
-      this.logger.log(`Ride ${id} rated: ${rating}/5 for driver ${ride.driverId}`);
+    // Defense-in-depth: RBAC already restricts the route to roles carrying
+    // 'ride:rate', but only the passenger who owns the ride may rate it.
+    if (role !== 'passenger') {
+      throw new ForbiddenException('Only passengers may rate rides');
     }
+
+    // Resolve passengers.id from the authenticated users.id.
+    const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);
+    if (ride.passengerId !== passenger.id) {
+      throw new ForbiddenException('You can only rate your own rides');
+    }
+
+    // Friendly duplicate-rating pre-check: if ratedBy is already set, refuse
+    // fast without entering the transaction. This is purely an optimization
+    // (the authoritative guard is the conditional UPDATE below); it remains
+    // correct because ratedBy is set once and never cleared.
+    if (ride.ratedBy !== null) {
+      throw new ConflictException('This ride has already been rated');
+    }
+
+    // Persistence + driver-aggregate recomputation execute in a single
+    // transaction so that a failure of either rolls back both. The conditional
+    // UPDATE (WHERE rated_by IS NULL) is the authoritative concurrent-duplicate
+    // guard: two concurrent requests cannot both commit row mutations — one
+    // will observe zero rows updated and we throw ConflictException.
+    const ratedAt = new Date();
+    const driverIdForLog: string | null = ride.driverId;
+
+    await this.db.transaction(async (tx) => {
+      // Conditional UPDATE: only mutates the row if no one has rated it yet.
+      // .returning() lets us distinguish "0 rows updated" (concurrent loser)
+      // from "1 row updated" (winner) without a second round-trip.
+      const updated = await tx
+        .update(rides)
+        .set({
+          rating,
+          ratingComment: comment,
+          ratedAt,
+          ratedBy: authenticatedUserId,
+          updatedAt: ratedAt,
+        })
+        .where(and(eq(rides.id, id), isNull(rides.ratedBy)))
+        .returning({ id: rides.id });
+
+      if (updated.length === 0) {
+        // Zero rows updated means another request won the race between our
+        // pre-check and this UPDATE. The ride now has a rating; throw inside
+        // the transaction so Postgres rolls back the (no-op) UPDATE and
+        // Nest's exception filter surfaces the 409 to the client.
+        throw new ConflictException('This ride has already been rated');
+      }
+
+      // D2: Recompute the driver's aggregate rating as a live AVG() over
+      // every rated ride for that driver. We do not maintain
+      // drivers.completedRides (it is unmaintained per inspection) and we do
+      // not run a running-average algorithm — the database re-aggregates
+      // from the persisted per-ride ratings on every submission, using the
+      // transaction-scoped view that already reflects our UPDATE above.
+      // drivers.rating is numeric(3,2); the column accepts string input.
+      if (driverIdForLog) {
+        const [avgRow] = await tx
+          .select({ value: avg(rides.rating) })
+          .from(rides)
+          .where(and(eq(rides.driverId, driverIdForLog), isNotNull(rides.rating)));
+        const avgString = avgRow?.value;
+        if (typeof avgString === 'string' && avgString.length > 0) {
+          const parsed = parseFloat(avgString);
+          // parseFloat returns NaN for unparseable strings; Number.isFinite
+          // also rejects Infinity. We guard so we never write NaN/Infinity
+          // to a numeric(3,2) column (Postgres would reject, but the error
+          // would be opaque). Given the just-applied integer rating, this
+          // is a defensive check, not an expected path.
+          if (Number.isFinite(parsed)) {
+            // Format with exactly 2 decimal places to match numeric(3,2)
+            // representation (e.g. "5.00", "4.50", "3.33"). toFixed rounds
+            // half-away-from-zero which matches Postgres numeric behavior.
+            const driverRatingValue = parsed.toFixed(2);
+            await tx
+              .update(drivers)
+              .set({ rating: driverRatingValue })
+              .where(eq(drivers.id, driverIdForLog));
+            this.logger.log(`Driver ${driverIdForLog} rating recomputed to ${driverRatingValue}`);
+          } else {
+            this.logger.warn(`AVG(rides.rating) returned non-numeric value for driver ${driverIdForLog}: ${JSON.stringify(avgString)}`);
+          }
+        } else {
+          // avg() returns NULL only if every rides.rating for this driver
+          // is NULL — impossible right after our conditional UPDATE set one.
+          // This branch is unreachable in practice; log defensively.
+          this.logger.warn(`AVG(rides.rating) returned null/empty for driver ${driverIdForLog} (unexpected after rating)`);
+        }
+      }
+    });
+
+    this.logger.log(`Ride ${id} rated ${rating}/5 by passenger ${passenger.id} (user ${authenticatedUserId})`);
 
     return { id, rating, comment };
   }

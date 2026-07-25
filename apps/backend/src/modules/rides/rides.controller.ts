@@ -55,7 +55,8 @@ export class RidesController {
   }
 
   @Post(':id/rate')
-  rateRide(@Param('id') id: string, @Body() body: { rating: number; comment?: string }) {
-    return this.ridesService.rateRide(id, body.rating, body.comment);
+  @RequirePermissions('ride:rate')
+  rateRide(@Param('id') id: string, @Request() req: AuthenticatedRequest, @Body() body: { rating: number; comment?: string }) {
+    return this.ridesService.rateRide(id, req.user.userId, req.user.role as UserRole, body.rating, body.comment);
   }
 }

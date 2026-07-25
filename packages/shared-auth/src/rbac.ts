@@ -4,6 +4,7 @@ export type Permission =
   | 'ride:view_all'
   | 'ride:cancel'
   | 'ride:update_status'
+  | 'ride:rate'
   | 'driver:register'
   | 'driver:go_online'
   | 'driver:subscribe'
@@ -43,7 +44,7 @@ type UserRole =
   | 'auditor';
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  passenger: ['ride:create', 'ride:view', 'ride:cancel'],
+  passenger: ['ride:create', 'ride:view', 'ride:cancel', 'ride:rate'],
   driver_applicant: ['driver:register'],
   driver: [
     'ride:view', 'ride:cancel', 'ride:update_status', 'driver:go_online',
@@ -80,6 +81,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
   super_admin: [
     'ride:create', 'ride:view', 'ride:view_all', 'ride:cancel', 'ride:update_status',
+    'ride:rate',
     'driver:register', 'driver:go_online', 'driver:subscribe', 'driver:view_earnings',
     'driver:accept_ride', 'admin:manage_users', 'admin:manage_drivers',
     'admin:manage_vehicles', 'admin:manage_subscriptions', 'admin:manage_fares',
