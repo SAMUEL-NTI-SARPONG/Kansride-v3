@@ -1886,3 +1886,36 @@ No database-backed REST or live Redis/Socket.IO browser flow ran because Postgre
 
 No runtime admin session/API flow was claimed. The separate unwired admin login and route-session design remains documented for integration recovery.
 
+## Autonomous Section E — Runtime configuration and service startup
+
+**Date:** 2026-07-26
+**Status:** Repository corrections implemented and validated; PostgreSQL/Redis integration externally blocked.
+**Implementation commit:** `4dc613a` (`fix(config): align local runtime service configuration`)
+
+### Defects and implementation
+
+- **E1 — High:** no code loaded the documented root `.env`; backend/Drizzle silently guessed a PostgreSQL password while migration required an already-exported URL. Root/workspace commands now load the ignored root file, all database paths use canonical `DATABASE_URL`, and missing configuration fails before authentication.
+- **E2 — High:** DB/config/auth package exports pointed Node 24 at TypeScript source and failed on a directory import. They now build CommonJS and expose `dist` runtime entrypoints.
+- **E3 — Medium:** backend default/template port 3001 conflicted with admin web and the documented `dev` script was absent. Backend now defaults to 3000 and supplies the alias.
+- JWT guard/service/socket construction now uses the same validated access/refresh secrets.
+- Templates contain only `change-me` placeholders; Windows setup explains local URL encoding and prohibits committing `.env`.
+
+### Sanitized local evidence
+
+- No root `.env` and no relevant process variables were present.
+- PostgreSQL 13 is running and accepts TCP on 127.0.0.1:5432; PostgreSQL 16 is installed but stopped.
+- Valid PostgreSQL authentication/database/PostGIS status could not be checked without local credential input.
+- No Redis-compatible service/CLI was found; 127.0.0.1:6379 is closed.
+
+### Validation
+
+- Shared config, DB, auth, and backend builds — PASS.
+- CommonJS package runtime-entrypoint require probe — PASS.
+- Backend and migration missing-URL probes — PASS by failing early with a configuration message rather than SQLSTATE `28P01`.
+- Built backend health smoke on port 3100 — PASS using an intentionally invalid test DB identity and the in-memory Redis fallback; no database query was made.
+- Temporary probes/artifacts removed; `git diff --check` — PASS.
+
+### Human action required
+
+Locally create the ignored root `.env` from `.env.example`, select/start PostgreSQL 16 (or explicitly reconcile the supported version), enter the real password only in that file/native prompt with URL encoding, provision `kansride` and PostGIS if needed, and make Redis 7 or a compatible service available. No password was requested, printed, changed, or committed.
+

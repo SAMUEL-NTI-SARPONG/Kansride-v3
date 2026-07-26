@@ -1,9 +1,9 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section D
+**Operational status:** Autonomous recovery in progress; repository runtime configuration is recovered through Section E, with external services blocked
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Section D at commit `d6d9d44`
+**Latest recovery implementation:** Section E at commit `4dc613a`
 **Latest tagged checkpoint:** tag `phase3-task3a-complete` at commit `4189034`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `4dc613a` | Root environment loading, fail-fast database URL, aligned JWT/database config, runtime package entrypoints, and startup docs |
 | `d6d9d44` | Admin dashboard hook imports restored through the configured alias; TypeScript and production build pass |
 | `8ed1962` | Expiring passenger-authorized public tracking tokens, minimized REST/events, and dedicated public socket rooms |
 | `9b89f47` | Profile-derived private ride-room authorization, admin permission gate, UUID validation, and reconnect resubscription |
@@ -157,11 +158,11 @@ Confirmed in current code and recovery history:
 
 ### Runtime blocker
 
-`PHASE-2-RECOVERY-LOG.md` repeatedly records PostgreSQL SQLSTATE `28P01` (“password authentication failed” for the local `postgres` user). Database migrations and backend flows have therefore not been verified against the local PostgreSQL runtime after the recovery changes. Do not change tracked credentials or configuration as an incidental workaround; valid local database access must be supplied and approved separately.
+The local machine has no root `.env` and no database/Redis process variables. PostgreSQL 13 currently owns port 5432 while the documented PostgreSQL 16 service is stopped; the server accepts TCP, but valid local authentication is unavailable. Redis is not listening on 6379. Database migrations and backend flows therefore remain runtime-unverified. The repository now fails fast on a missing `DATABASE_URL` instead of silently using a guessed password.
 
 ### Confirmed incomplete or broken areas
 
-- The current recovery section is Section E: runtime configuration and service startup.
+- The current recovery section is Section F: migrations and runtime smoke validation.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
@@ -193,11 +194,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Section D is complete at implementation commit `d6d9d44`. The current autonomous boundary is Section E runtime configuration and service startup, followed by Sections F–H.
+Section E repository work is complete at implementation commit `4dc613a`. Section F migration/runtime validation is externally blocked by local PostgreSQL credentials/version selection and Redis availability; independent static Section G reconciliation can continue.
 
 ## Planned Work
 
-The autonomous run continues with runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
+The autonomous run continues with the safely available portions of migrations/runtime validation, end-to-end contract validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
 
 ## Validation Practices
 

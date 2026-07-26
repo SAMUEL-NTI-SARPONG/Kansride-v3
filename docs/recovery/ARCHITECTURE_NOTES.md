@@ -335,11 +335,13 @@ Admin ride lists use `farePesewas` and `totalRevenuePesewas`; driver offer/state
 
 ## Environment Validation
 
-`packages/shared-config/src/env.ts` uses Zod and caches the parsed result. In production it requires explicit JWT access/refresh secrets, database URL, and database password, and rejects the documented default JWT secrets.
+`packages/shared-config/src/env.ts` uses Zod and caches the parsed result. It loads the ignored repository-root `.env` for root or workspace commands without overwriting already supplied process/CI variables. `DATABASE_URL` is required in every environment. Production additionally requires explicit JWT access/refresh secrets and rejects documented defaults.
 
 `apps/backend/src/main.ts` calls `getEnv()` before `NestFactory.create()` and uses validated `APP_PORT`. This provides shared startup validation.
 
-Some backend modules still read `process.env` directly and contain development fallbacks for database/JWT/provider selection. Startup parsing establishes valid environment shape, but those direct reads and fallback consistency should be reviewed before production deployment.
+Database and JWT consumers use the same cached validated environment. Drizzle/migration tooling independently loads the same root file and requires the same `DATABASE_URL`; no component guesses a database password. Redis uses `REDIS_URL` when explicitly loaded and intentionally selects the in-memory development fallback when it is absent.
+
+Backend runtime dependencies `@kansride/db`, `@kansride/config`, and `@kansride/auth` compile as CommonJS and expose `dist/index.js`. Shared packages must be built before `start:prod`. The default backend port is 3000; admin and tracking development ports remain 3001 and 3002.
 
 Relevant variable names include database, Redis, JWT access/refresh, SMS, maps, logging, node environment, and application port. Do not copy secret values into recovery documents.
 

@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next section:** Section E — runtime configuration and service startup
+**Current next section:** Section F — migrations and runtime smoke validation (externally blocked where database/Redis access is required)
 
 ## Recovery Objective
 
@@ -49,12 +49,13 @@ Older audit findings must be reconciled before implementation. In particular:
 | Section B — private realtime rooms | Implemented; runtime pending | Profile-derived ride ownership, permission-gated admin room, malformed-ID rejection, reconnect restoration |
 | Task 3d / Section C — public tracking security | Implemented; runtime pending | Passenger-owned expiring token, minimized REST/events, dedicated public namespace/rooms, terminal revocation |
 | Task 4a / Section D — admin build | Complete | Existing typed hooks resolved through `@/lib/hooks`; TypeScript and Next production build pass |
+| Section E — runtime configuration | Repository complete; external services blocked | Root `.env` loading, fail-fast canonical URL, runtime package outputs, port/scripts, and setup guidance aligned |
 
 The latest tagged checkpoint is `phase3-task3a-complete` at `4189034`.
 
 ## Operational Prerequisite: Restore Database Runtime Verification
 
-This is a blocker, not a newly invented audit task number. The recovery log records local PostgreSQL authentication failure `28P01`.
+This is a blocker, not a newly invented audit task number. Section E confirmed no local `.env`, PostgreSQL 13 on port 5432 instead of the stopped documented v16 service, unavailable credentials, and no Redis listener.
 
 Dependencies: every database-backed runtime acceptance test.
 
