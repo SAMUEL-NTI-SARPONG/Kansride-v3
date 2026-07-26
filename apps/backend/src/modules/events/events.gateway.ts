@@ -9,12 +9,13 @@ import {
 } from '@nestjs/websockets';
 import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { JWTService } from '@kansride/auth';
+import { JWTService, RBACService } from '@kansride/auth';
 import { DATABASE_TOKEN } from '../../database';
 import { REDIS_SERVICE } from '../../redis';
 import { IRedisService } from '../../redis/redis.interface';
-import { Database, rides, drivers } from '@kansride/db';
+import { Database, rides, drivers, passengers } from '@kansride/db';
 import { eq, and, inArray } from 'drizzle-orm';
+import { isUUID } from 'class-validator';
 import { DispatchService } from '../rides/dispatch.service';
 import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
 
@@ -36,6 +37,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(EventsGateway.name);
   private readonly jwtService: JWTService;
+  private readonly rbacService = new RBACService();
 
   /** Map of userId → Set of socket IDs */
   private readonly connectedUsers = new Map<string, Set<string>>();
@@ -191,6 +193,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (client.data.role !== 'driver') {
       return { event: 'error', data: { message: 'Driver role required' } };
     }
+    if (!this.isValidRideId(data?.rideId)) {
+      return { event: 'error', data: { message: 'Invalid ride request' } };
+    }
 
     // Find driver record by userId
     const driverRecords = await this.db
@@ -253,6 +258,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (client.data.role !== 'driver') {
       return { event: 'error', data: { message: 'Driver role required' } };
     }
+    if (!this.isValidRideId(data?.rideId)) {
+      return { event: 'error', data: { message: 'Invalid ride request' } };
+    }
 
     // Find driver record by userId
     const driverRecords = await this.db
@@ -297,17 +305,58 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('ride:subscribe')
-  handleRideSubscribe(
+  async handleRideSubscribe(
     @ConnectedSocket() client: AuthenticatedSocket,
     @MessageBody() data: { rideId: string },
   ) {
     if (!client.data?.userId) {
       return { event: 'error', data: { message: 'Not authenticated' } };
     }
+    if (!this.isValidRideId(data?.rideId)) {
+      return { event: 'error', data: { message: 'Invalid ride subscription' } };
+    }
+    if (!(await this.canJoinPrivateRide(client, data.rideId))) {
+      return { event: 'error', data: { message: 'Ride subscription not authorized' } };
+    }
 
-    client.join(`ride:${data.rideId}`);
+    await client.join(`ride:${data.rideId}`);
     this.logger.debug(`User ${client.data.userId} subscribed to ride:${data.rideId}`);
     return { event: 'ack', data: { subscribed: data.rideId } };
+  }
+
+  @SubscribeMessage('ride:unsubscribe')
+  async handleRideUnsubscribe(
+    @ConnectedSocket() client: AuthenticatedSocket,
+    @MessageBody() data: { rideId: string },
+  ) {
+    if (!client.data?.userId || !this.isValidRideId(data?.rideId)) {
+      return { event: 'error', data: { message: 'Invalid ride subscription' } };
+    }
+    await client.leave(`ride:${data.rideId}`);
+    return { event: 'ack', data: { unsubscribed: data.rideId } };
+  }
+
+  @SubscribeMessage('admin:subscribe')
+  async handleAdminSubscribe(@ConnectedSocket() client: AuthenticatedSocket) {
+    const permitted = this.rbacService.hasAnyPermission(client.data?.role, [
+      'ride:view_all',
+      'dispatch:view_live_map',
+      'safety:view_live_trips',
+    ]);
+    if (!client.data?.userId || !permitted) {
+      return { event: 'error', data: { message: 'Admin subscription not authorized' } };
+    }
+    await client.join('admin:rides');
+    return { event: 'ack', data: { subscribed: 'admin:rides' } };
+  }
+
+  @SubscribeMessage('admin:unsubscribe')
+  async handleAdminUnsubscribe(@ConnectedSocket() client: AuthenticatedSocket) {
+    if (!client.data?.userId) {
+      return { event: 'error', data: { message: 'Not authenticated' } };
+    }
+    await client.leave('admin:rides');
+    return { event: 'ack', data: { unsubscribed: 'admin:rides' } };
   }
 
   // ─── Public Methods for Other Services ──────────────────────────────────────
@@ -345,5 +394,44 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     this.emitToUser(driverRecord.userId, event, data);
+  }
+
+  private async canJoinPrivateRide(
+    client: AuthenticatedSocket,
+    rideId: string,
+  ): Promise<boolean> {
+    const [ride] = await this.db
+      .select({
+        passengerId: rides.passengerId,
+        driverId: rides.driverId,
+      })
+      .from(rides)
+      .where(eq(rides.id, rideId))
+      .limit(1);
+    if (!ride) return false;
+
+    if (client.data.role === 'passenger') {
+      const [passenger] = await this.db
+        .select({ id: passengers.id })
+        .from(passengers)
+        .where(eq(passengers.userId, client.data.userId))
+        .limit(1);
+      return passenger?.id === ride.passengerId;
+    }
+
+    if (client.data.role === 'driver') {
+      const [driver] = await this.db
+        .select({ id: drivers.id })
+        .from(drivers)
+        .where(eq(drivers.userId, client.data.userId))
+        .limit(1);
+      return driver?.id === ride.driverId;
+    }
+
+    return false;
+  }
+
+  private isValidRideId(value: unknown): value is string {
+    return typeof value === 'string' && isUUID(value);
   }
 }

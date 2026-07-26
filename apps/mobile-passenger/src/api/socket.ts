@@ -5,6 +5,7 @@ import type { RideUpdatePayload } from '@kansride/types';
 const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
 
 let socket: Socket | null = null;
+const subscribedRideIds = new Set<string>();
 
 export interface DriverLocation {
   latitude: number;
@@ -30,27 +31,32 @@ export async function connectSocket(): Promise<Socket> {
   const token = await getAccessToken();
   if (!token) throw new Error('No auth token for socket connection');
 
-  socket = io(`${SOCKET_URL}/rides`, {
-    auth: { token },
-    transports: ['websocket'],
-    reconnection: true,
-    reconnectionAttempts: 10,
-    reconnectionDelay: 2000,
-    reconnectionDelayMax: 10000,
-  });
+  if (!socket) {
+    socket = io(`${SOCKET_URL}/rides`, {
+      auth: { token },
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 10000,
+    });
 
-  socket.on('connect', () => {
-    console.log('[Socket] Connected to rides namespace');
-  });
+    socket.on('connect', () => {
+      console.log('[Socket] Connected to rides namespace');
+      for (const rideId of subscribedRideIds) {
+        socket?.emit('ride:subscribe', { rideId });
+      }
+    });
 
-  socket.on('disconnect', (reason) => {
-    console.log('[Socket] Disconnected:', reason);
-  });
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected:', reason);
+    });
+  } else {
+    socket.auth = { token };
+    socket.connect();
+  }
 
-  socket.on('connect_error', (err) => {
-    console.log('[Socket] Connection error:', err.message);
-  });
-
+  await waitForConnection(socket);
   return socket;
 }
 
@@ -59,8 +65,8 @@ export function getSocket(): Socket | null {
 }
 
 export function subscribeToRide(rideId: string): void {
+  subscribedRideIds.add(rideId);
   if (!socket?.connected) {
-    console.warn('[Socket] Not connected, cannot subscribe to ride:', rideId);
     return;
   }
   socket.emit('ride:subscribe', { rideId });
@@ -68,6 +74,7 @@ export function subscribeToRide(rideId: string): void {
 }
 
 export function unsubscribeFromRide(rideId: string): void {
+  subscribedRideIds.delete(rideId);
   if (!socket?.connected) return;
   socket.emit('ride:unsubscribe', { rideId });
   console.log('[Socket] Unsubscribed from ride:', rideId);
@@ -96,4 +103,28 @@ export function disconnectSocket(): void {
     socket.disconnect();
     socket = null;
   }
+  subscribedRideIds.clear();
+}
+
+function waitForConnection(target: Socket): Promise<void> {
+  if (target.connected) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      target.off('connect', handleConnect);
+      target.off('connect_error', handleError);
+      reject(new Error('Socket connection timed out'));
+    }, 10_000);
+    const handleConnect = () => {
+      clearTimeout(timeout);
+      target.off('connect_error', handleError);
+      resolve();
+    };
+    const handleError = (error: Error) => {
+      clearTimeout(timeout);
+      target.off('connect', handleConnect);
+      reject(error);
+    };
+    target.once('connect', handleConnect);
+    target.once('connect_error', handleError);
+  });
 }

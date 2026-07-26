@@ -108,6 +108,7 @@ export default function DriverHomeScreen() {
           return;
         }
 
+        socketClient.subscribeToRide(offer.rideId);
         setActiveRide({
           rideId: offer.rideId,
           status: 'driver_assigned',
@@ -157,6 +158,10 @@ export default function DriverHomeScreen() {
         setCurrentOffer(null);
       });
 
+      const existingRide = useDriverStore.getState().activeRide;
+      if (existingRide) {
+        socketClient.subscribeToRide(existingRide.rideId);
+      }
       socketClient.requestPendingOffers();
     } catch (err: any) {
       Alert.alert('Connection Error', err.message || 'Failed to connect to server');

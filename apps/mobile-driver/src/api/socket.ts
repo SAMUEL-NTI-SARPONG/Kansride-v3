@@ -10,6 +10,7 @@ const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
 
 let socket: Socket | null = null;
 let locationInterval: ReturnType<typeof setInterval> | null = null;
+const subscribedRideIds = new Set<string>();
 
 export type RideOffer = RideOfferPayload;
 
@@ -21,15 +22,26 @@ export async function connect(): Promise<Socket> {
   const token = await getStoredToken();
   if (!token) throw new Error('No auth token available');
 
-  socket = io(`${SOCKET_URL}/rides`, {
-    auth: { token },
-    transports: ['websocket'],
-    reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 3000,
-    reconnectionDelayMax: 10000,
-  });
+  if (!socket) {
+    socket = io(`${SOCKET_URL}/rides`, {
+      auth: { token },
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 3000,
+      reconnectionDelayMax: 10000,
+    });
+    socket.on('connect', () => {
+      for (const rideId of subscribedRideIds) {
+        socket?.emit('ride:subscribe', { rideId });
+      }
+    });
+  } else {
+    socket.auth = { token };
+    socket.connect();
+  }
 
+  await waitForConnection(socket);
   return socket;
 }
 
@@ -43,6 +55,7 @@ export function disconnect(): void {
     socket.disconnect();
     socket = null;
   }
+  subscribedRideIds.clear();
 }
 
 export function sendLocation(latitude: number, longitude: number): void {
@@ -90,6 +103,7 @@ export function requestPendingOffers(): void {
 }
 
 export function subscribeToRide(rideId: string): void {
+  subscribedRideIds.add(rideId);
   if (socket?.connected) {
     socket.emit('ride:subscribe', { rideId });
   }
@@ -125,4 +139,27 @@ export function onError(callback: (data: { message: string }) => void): () => vo
   if (!socket) return () => {};
   socket.on('error', callback);
   return () => { socket?.off('error', callback); };
+}
+
+function waitForConnection(target: Socket): Promise<void> {
+  if (target.connected) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      target.off('connect', handleConnect);
+      target.off('connect_error', handleError);
+      reject(new Error('Socket connection timed out'));
+    }, 10_000);
+    const handleConnect = () => {
+      clearTimeout(timeout);
+      target.off('connect_error', handleError);
+      resolve();
+    };
+    const handleError = (error: Error) => {
+      clearTimeout(timeout);
+      target.off('connect', handleConnect);
+      reject(error);
+    };
+    target.once('connect', handleConnect);
+    target.once('connect_error', handleError);
+  });
 }
