@@ -17,6 +17,7 @@ import {
   onRideUpdate,
 } from '../../src/api/socket';
 import { useRideStore } from '../../src/stores/ride-store';
+import type { RideType } from '@kansride/types';
 
 // Demo coordinates around Kansawrodo / Takoradi
 const DEFAULT_PICKUP = { latitude: 4.92, longitude: -1.76, address: 'Kansawrodo' };
@@ -28,12 +29,10 @@ const DESTINATIONS = [
   { label: 'Harbour Area', latitude: 4.885, longitude: -1.755 },
 ];
 
-type RideType = 'standard' | 'comfort';
-
 export default function HomeScreen() {
   const [destination, setDestination] = useState('');
   const [selectedDest, setSelectedDest] = useState<(typeof DESTINATIONS)[0] | null>(null);
-  const [rideType, setRideType] = useState<RideType>('standard');
+  const [rideType, setRideType] = useState<RideType>('standard_tricycle');
   const [showDestinations, setShowDestinations] = useState(false);
   const [estimatedFare, setEstimatedFare] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -154,19 +153,19 @@ export default function HomeScreen() {
           <>
             <View style={styles.rideTypeRow}>
               <TouchableOpacity
-                style={[styles.rideTypeBtn, rideType === 'standard' && styles.rideTypeBtnActive]}
-                onPress={() => setRideType('standard')}
+                style={[styles.rideTypeBtn, rideType === 'standard_tricycle' && styles.rideTypeBtnActive]}
+                onPress={() => setRideType('standard_tricycle')}
               >
-                <Text style={[styles.rideTypeText, rideType === 'standard' && styles.rideTypeTextActive]}>
+                <Text style={[styles.rideTypeText, rideType === 'standard_tricycle' && styles.rideTypeTextActive]}>
                   Standard
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.rideTypeBtn, rideType === 'comfort' && styles.rideTypeBtnActive]}
-                onPress={() => setRideType('comfort')}
+                style={[styles.rideTypeBtn, rideType === 'priority_tricycle' && styles.rideTypeBtnActive]}
+                onPress={() => setRideType('priority_tricycle')}
               >
-                <Text style={[styles.rideTypeText, rideType === 'comfort' && styles.rideTypeTextActive]}>
-                  Comfort
+                <Text style={[styles.rideTypeText, rideType === 'priority_tricycle' && styles.rideTypeTextActive]}>
+                  Priority
                 </Text>
               </TouchableOpacity>
             </View>

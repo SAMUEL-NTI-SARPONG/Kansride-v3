@@ -5,6 +5,7 @@ import {
   FARE_PER_MINUTE_PESEWAS,
   FARE_MINIMUM_PESEWAS,
 } from '@kansride/config';
+import type { RideType } from '@kansride/types';
 
 @Injectable()
 export class FareService {
@@ -16,7 +17,7 @@ export class FareService {
   calculateFare(
     distanceMeters: number,
     durationSeconds: number,
-    rideType: string = 'standard_tricycle',
+    rideType: RideType = 'standard_tricycle',
   ): {
     baseFare: number;
     distanceFare: number;

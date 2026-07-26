@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { DriverLocation, RideUpdate } from '../api/socket';
+import type { RideType } from '@kansride/types';
 
 export type RideStatus =
   | 'idle'
@@ -30,7 +31,7 @@ export interface ActiveRide {
   pickupLongitude: number;
   dropoffLatitude: number;
   dropoffLongitude: number;
-  rideType: string;
+  rideType: RideType;
   estimatedFare?: number;
   driver?: RideDriver;
 }

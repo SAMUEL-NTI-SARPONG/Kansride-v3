@@ -5,7 +5,7 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { Public } from '../../common/decorators/public.decorator';
 import { RidesService } from './rides.service';
 import type { TokenPayload } from '@kansride/auth';
-import type { UserRole } from '@kansride/types';
+import type { RideType, UserRole } from '@kansride/types';
 
 interface AuthenticatedRequest extends Request {
   user: TokenPayload & { iat: number; exp: number };
@@ -77,7 +77,7 @@ export class RidesController {
     dropoffLatitude: number;
     dropoffLongitude: number;
     dropoffAddress?: string;
-    rideType?: string;
+    rideType?: RideType;
   }) {
     return this.ridesService.createRide(req.user.userId, body);
   }

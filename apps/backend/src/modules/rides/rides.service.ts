@@ -4,7 +4,7 @@ import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
 import { eq, desc, avg, and, isNull, isNotNull, type SQL } from 'drizzle-orm';
-import type { UserRole, RideStatus } from '@kansride/types';
+import type { UserRole, RideStatus, RideType } from '@kansride/types';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
 import { DispatchService } from './dispatch.service';
@@ -16,6 +16,30 @@ const CANCELLATION_ROLES = {
   driver:    { actor: 'driver',    cancelStatus: 'cancelled_by_driver' as RideStatus },
   super_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
 } as const satisfies Record<'passenger' | 'driver' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
+
+const ALLOWED_RIDE_TYPES = [
+  'standard_tricycle',
+  'priority_tricycle',
+  'shared',
+  'parcel_delivery',
+] as const satisfies readonly RideType[];
+
+function isRideType(value: unknown): value is RideType {
+  return typeof value === 'string'
+    && ALLOWED_RIDE_TYPES.some((rideType) => rideType === value);
+}
+
+function resolveRideType(value: unknown): RideType {
+  if (value === undefined) return 'standard_tricycle';
+
+  if (!isRideType(value)) {
+    throw new BadRequestException(
+      `rideType must be one of: ${ALLOWED_RIDE_TYPES.join(', ')}`,
+    );
+  }
+
+  return value;
+}
 
 @Injectable()
 export class RidesService {
@@ -83,9 +107,11 @@ export class RidesService {
       dropoffLongitude: number;
       dropoffAddress?: string;
       dropoffLandmark?: string;
-      rideType?: string;
+      rideType?: RideType;
     },
   ) {
+    const rideType = resolveRideType(data.rideType);
+
     // Resolve the real passenger.id from the authenticated users.id.
     // Never insert users.id into rides.passengerId (FK -> passengers.id).
     const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);
@@ -100,7 +126,7 @@ export class RidesService {
     const fare = this.fareService.calculateFare(
       distance.distanceMeters,
       distance.durationSeconds,
-      data.rideType || 'standard_tricycle',
+      rideType,
     );
 
     // Generate 4-digit verification PIN
@@ -120,7 +146,7 @@ export class RidesService {
         dropoffAddress: data.dropoffAddress,
         dropoffLandmark: data.dropoffLandmark,
         status: 'requested',
-        rideType: data.rideType as any || 'standard_tricycle',
+        rideType,
         estimatedFarePesewas: fare.totalFare,
         estimatedDistanceMeters: distance.distanceMeters,
         estimatedDurationSeconds: distance.durationSeconds,
