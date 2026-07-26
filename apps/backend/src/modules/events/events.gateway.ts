@@ -16,7 +16,7 @@ import { IRedisService } from '../../redis/redis.interface';
 import { Database, rides, drivers } from '@kansride/db';
 import { eq, and, inArray } from 'drizzle-orm';
 import { DispatchService } from '../rides/dispatch.service';
-import type { RideUpdatePayload } from '@kansride/types';
+import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 const LOCATION_DB_DEBOUNCE_MS = 5000;
@@ -222,8 +222,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           `Ride ${data.rideId} was assigned but realtime delivery failed: ${message}`,
         );
       }
+      const acceptResult: RideAcceptResult = {
+        rideId: data.rideId,
+        success: true,
+        message: result.message,
+      };
+      client.emit('ride:accept-result', acceptResult);
       return { event: 'ack', data: { success: true, message: result.message } };
     } else {
+      const acceptResult: RideAcceptResult = {
+        rideId: data.rideId,
+        success: false,
+        message: result.message,
+      };
+      client.emit('ride:accept-result', acceptResult);
       client.emit('error', { message: result.message });
       return { event: 'error', data: { success: false, message: result.message } };
     }
@@ -238,6 +250,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) {
       return { event: 'error', data: { message: 'Not authenticated' } };
     }
+    if (client.data.role !== 'driver') {
+      return { event: 'error', data: { message: 'Driver role required' } };
+    }
 
     // Find driver record by userId
     const driverRecords = await this.db
@@ -251,8 +266,34 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { event: 'error', data: { message: 'Driver profile not found' } };
     }
 
-    await this.dispatchService.driverDeclineRide(data.rideId, driverRecord.id);
-    return { event: 'ack', data: { declined: true } };
+    const result = await this.dispatchService.driverDeclineRide(
+      data.rideId,
+      driverRecord.id,
+    );
+    return { event: result.success ? 'ack' : 'error', data: result };
+  }
+
+  @SubscribeMessage('driver:get-offers')
+  async handleDriverGetOffers(@ConnectedSocket() client: AuthenticatedSocket) {
+    const userId = client.data?.userId;
+    if (!userId || client.data.role !== 'driver') {
+      return { event: 'error', data: { message: 'Driver role required' } };
+    }
+
+    const [driver] = await this.db
+      .select({ id: drivers.id })
+      .from(drivers)
+      .where(eq(drivers.userId, userId))
+      .limit(1);
+    if (!driver) {
+      return { event: 'error', data: { message: 'Driver profile not found' } };
+    }
+
+    const offers = await this.dispatchService.getDriverOffers(driver.id);
+    for (const offer of offers) {
+      client.emit('ride:offered', offer);
+    }
+    return { event: 'ack', data: { offers: offers.length } };
   }
 
   @SubscribeMessage('ride:subscribe')

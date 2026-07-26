@@ -73,6 +73,32 @@ export interface RideUpdatePayload {
   cancelledAt?: string;
 }
 
+/** Private offer delivered only to the addressed authenticated driver. */
+export interface RideOfferPayload {
+  rideId: string;
+  rideType: RideType;
+  pickupAddress: string | null;
+  pickupLandmark: string | null;
+  pickupLatitude: number;
+  pickupLongitude: number;
+  dropoffAddress: string | null;
+  dropoffLandmark: string | null;
+  dropoffLatitude: number;
+  dropoffLongitude: number;
+  estimatedFarePesewas: number;
+  estimatedDistanceMeters: number | null;
+  estimatedDurationSeconds: number | null;
+  distanceToPickupMeters: number;
+  offeredAt: string;
+  expiresAt: string;
+}
+
+export interface RideAcceptResult {
+  rideId: string;
+  success: boolean;
+  message: string;
+}
+
 export interface Ride {
   id: string;
   passengerId: string;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { RideOffer } from '../api/socket';
+import type { RideOffer } from '../api/socket';
 
 export type RideStatus =
   | 'driver_assigned'
@@ -58,7 +58,10 @@ export const useDriverStore = create<DriverState>((set) => ({
   setSubscription: (active, expiresAt) =>
     set({ subscriptionActive: active, subscriptionExpiresAt: expiresAt || null }),
   setCurrentOffer: (offer) =>
-    set({ currentOffer: offer, offerExpiresAt: offer ? Date.now() + 30000 : null }),
+    set({
+      currentOffer: offer,
+      offerExpiresAt: offer ? Date.parse(offer.expiresAt) : null,
+    }),
   setActiveRide: (ride) => set({ activeRide: ride, currentOffer: null, offerExpiresAt: null }),
   updateRideStatus: (status) =>
     set((state) => ({

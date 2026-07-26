@@ -313,6 +313,14 @@ export class RidesService {
 
     this.logger.log(`Ride ${id}: ${ride.status} → ${cancelStatus} by ${actor} (user ${cancelledBy})`);
 
+    try {
+      await this.dispatchService.invalidateRideOffers(id);
+    } catch (error) {
+      this.logger.error(
+        `Ride ${id} was cancelled but offer cleanup failed: ${this.errorMessage(error)}`,
+      );
+    }
+
     // Broadcast only after the DB update has committed. The cancelledBy column
     // stores users.id for every actor type (passenger/driver/super_admin) —
     // this is an intentional invariant; no passengers.id/drivers.id resolution

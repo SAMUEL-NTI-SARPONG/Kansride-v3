@@ -35,6 +35,8 @@ export class MemoryRedisService implements IRedisService {
 
   async del(key: string): Promise<void> {
     this.store.delete(key);
+    this.geoStore.delete(key);
+    this.setStore.delete(key);
   }
 
   async geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void> {

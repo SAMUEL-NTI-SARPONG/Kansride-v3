@@ -20,7 +20,7 @@ export default function DriverHomeScreen() {
   const {
     isOnline, setOnline, currentOffer, setCurrentOffer,
     activeRide, setActiveRide, setSubscription, setDriverId,
-    subscriptionActive, updateRideStatus,
+    subscriptionActive, offerExpiresAt, updateRideStatus,
   } = useDriverStore();
   const getLocation = useLocationStore((s) => s.getLocation);
   const [toggling, setToggling] = useState(false);
@@ -34,17 +34,21 @@ export default function DriverHomeScreen() {
 
   // Countdown timer for ride offer
   useEffect(() => {
-    if (currentOffer) {
-      setCountdown(30);
+    if (currentOffer && offerExpiresAt) {
+      const updateCountdown = () => {
+        const remaining = Math.max(
+          0,
+          Math.ceil((offerExpiresAt - Date.now()) / 1000),
+        );
+        setCountdown(remaining);
+        if (remaining === 0) {
+          socketClient.declineRide(currentOffer.rideId);
+          setCurrentOffer(null);
+        }
+      };
+      updateCountdown();
       countdownRef.current = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            // Offer expired
-            handleDeclineOffer();
-            return 0;
-          }
-          return prev - 1;
-        });
+        updateCountdown();
       }, 1000);
     } else {
       if (countdownRef.current) {
@@ -55,7 +59,7 @@ export default function DriverHomeScreen() {
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
-  }, [currentOffer]);
+  }, [currentOffer?.rideId, offerExpiresAt]);
 
   const loadDriverProfile = async () => {
     try {
@@ -86,8 +90,35 @@ export default function DriverHomeScreen() {
       const socket = socketClient.getSocket();
       if (!socket) return;
 
+      socket.off('ride:offered');
+      socket.off('ride:accept-result');
+      socket.off('ride:update');
+      socket.off('ride:cancelled');
+
       socket.on('ride:offered', (data: RideOffer) => {
         setCurrentOffer(data);
+      });
+
+      socket.on('ride:accept-result', (result) => {
+        const offer = useDriverStore.getState().currentOffer;
+        if (!offer || offer.rideId !== result.rideId) return;
+        if (!result.success) {
+          setCurrentOffer(null);
+          Alert.alert('Offer unavailable', result.message);
+          return;
+        }
+
+        setActiveRide({
+          rideId: offer.rideId,
+          status: 'driver_assigned',
+          pickupAddress: offer.pickupAddress || 'Pickup location',
+          dropoffAddress: offer.dropoffAddress || 'Dropoff location',
+          pickupLatitude: offer.pickupLatitude,
+          pickupLongitude: offer.pickupLongitude,
+          dropoffLatitude: offer.dropoffLatitude,
+          dropoffLongitude: offer.dropoffLongitude,
+          estimatedFarePesewas: offer.estimatedFarePesewas,
+        });
       });
 
       socket.on('ride:update', (data: RideUpdateData) => {
@@ -125,6 +156,8 @@ export default function DriverHomeScreen() {
         setActiveRide(null);
         setCurrentOffer(null);
       });
+
+      socketClient.requestPendingOffers();
     } catch (err: any) {
       Alert.alert('Connection Error', err.message || 'Failed to connect to server');
     }
@@ -182,20 +215,6 @@ export default function DriverHomeScreen() {
   const handleAcceptOffer = useCallback(() => {
     if (!currentOffer) return;
     socketClient.acceptRide(currentOffer.rideId);
-    socketClient.subscribeToRide(currentOffer.rideId);
-
-    setActiveRide({
-      rideId: currentOffer.rideId,
-      status: 'driver_assigned',
-      pickupAddress: currentOffer.pickupAddress,
-      dropoffAddress: currentOffer.dropoffAddress,
-      pickupLatitude: currentOffer.pickupLatitude,
-      pickupLongitude: currentOffer.pickupLongitude,
-      dropoffLatitude: currentOffer.dropoffLatitude,
-      dropoffLongitude: currentOffer.dropoffLongitude,
-      estimatedFarePesewas: currentOffer.estimatedFarePesewas,
-    });
-    setCurrentOffer(null);
   }, [currentOffer]);
 
   const handleDeclineOffer = useCallback(() => {
@@ -361,7 +380,7 @@ export default function DriverHomeScreen() {
                   <View style={styles.offerStat}>
                     <Text style={styles.offerStatLabel}>Distance</Text>
                     <Text style={styles.offerStatValue}>
-                      {((currentOffer.distance || 0) / 1000).toFixed(1)} km
+                      {(currentOffer.distanceToPickupMeters / 1000).toFixed(1)} km
                     </Text>
                   </View>
                 </View>

@@ -1,23 +1,17 @@
 import { io, Socket } from 'socket.io-client';
 import { getStoredToken } from './client';
-import type { RideUpdatePayload } from '@kansride/types';
+import type {
+  RideAcceptResult,
+  RideOfferPayload,
+  RideUpdatePayload,
+} from '@kansride/types';
 
 const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
 
 let socket: Socket | null = null;
 let locationInterval: ReturnType<typeof setInterval> | null = null;
 
-export interface RideOffer {
-  rideId: string;
-  pickupAddress: string;
-  dropoffAddress: string;
-  pickupLatitude: number;
-  pickupLongitude: number;
-  dropoffLatitude: number;
-  dropoffLongitude: number;
-  estimatedFarePesewas: number;
-  distance: number;
-}
+export type RideOffer = RideOfferPayload;
 
 export type RideUpdateData = RideUpdatePayload;
 
@@ -89,6 +83,12 @@ export function declineRide(rideId: string): void {
   }
 }
 
+export function requestPendingOffers(): void {
+  if (socket?.connected) {
+    socket.emit('driver:get-offers');
+  }
+}
+
 export function subscribeToRide(rideId: string): void {
   if (socket?.connected) {
     socket.emit('ride:subscribe', { rideId });
@@ -105,6 +105,14 @@ export function onRideUpdate(callback: (data: RideUpdateData) => void): () => vo
   if (!socket) return () => {};
   socket.on('ride:update', callback);
   return () => { socket?.off('ride:update', callback); };
+}
+
+export function onRideAcceptResult(
+  callback: (data: RideAcceptResult) => void,
+): () => void {
+  if (!socket) return () => {};
+  socket.on('ride:accept-result', callback);
+  return () => { socket?.off('ride:accept-result', callback); };
 }
 
 export function onRideCancelled(callback: (data: { rideId: string; reason?: string }) => void): () => void {
