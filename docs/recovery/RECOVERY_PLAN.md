@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next task:** Task 3a — broadcast all ride state changes
+**Current next task:** Task 3b — emit driver offers
 
 ## Recovery Objective
 
@@ -44,8 +44,9 @@ Older audit findings must be reconciled before implementation. In particular:
 | Step 2d — ride-history correctness | Implemented; runtime pending | Actor-scoped passenger/driver history, bounded pagination, deterministic ordering |
 | Step 2e — normalize ride types | Implemented; runtime pending | Canonical client values and backend validation before fare/database work |
 | Step 2f — normalize create-ride fare response | Implemented; runtime pending | Integer-pesewa persistence/transport/state fields and UI-boundary GHS formatting |
+| Task 3a — broadcast committed ride state changes | Implemented; runtime pending | Typed canonical event, post-persistence emission, conditional transition writes, canonical client statuses |
 
-The latest tagged checkpoint is `phase2-task2e-complete` at `87eea07`. Task 2f is implemented at `d66b314`; no Task 2f tag exists.
+The latest tagged checkpoint is `phase2-task2f-complete` at `16bceb1`. Task 3a is implemented at `57f14de`; no Task 3a tag exists.
 
 ## Operational Prerequisite: Restore Database Runtime Verification
 
@@ -111,9 +112,9 @@ Acceptance:
 
 ## Phase B — Real-Time Dispatch and Ride Events
 
-### Task 3a — broadcast all ride state changes
+### Task 3a — broadcast all ride state changes (completed; runtime pending)
 
-Current state: cancellation emits `ride:update` and an assigned-driver `ride:cancelled`; ordinary `updateStatus` does not emit.
+Current state: every implemented lifecycle write returns its persisted row and emits one canonical `ride:update` after the write resolves. Creation targets the authenticated passenger; later transitions target the ride room. Cancellation retains its direct assigned-driver `ride:cancelled` notification. Conditional writes reject stale dispatch work and concurrent duplicate status, cancellation, or assignment attempts without emitting.
 
 Dependencies: stable ride status payload and module dependency design.
 
@@ -142,7 +143,7 @@ Dependencies: successful offer acceptance and a privacy-reviewed response shape.
 
 Acceptance:
 
-- `ride:driver-assigned` contains the exact driver/vehicle fields approved for passengers.
+- The canonical `ride:update` payload for `driver_assigned` contains the exact driver/vehicle fields approved for passengers, or a separately approved compatibility event is deliberately restored.
 - The passenger store consumes that payload without type casts or field-name mismatches.
 - Private/internal driver data is not broadcast.
 

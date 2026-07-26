@@ -1670,3 +1670,99 @@ No PostgreSQL-backed `POST /rides`, history, tracking, earnings, or admin reques
 
 The next verified recovery item is **Task 3a — broadcast all ride state changes**, as ordered by `RECOVERY_PLAN.md` after completion of Tasks 2e–2f. Task 3a was not started here.
 
+## Task 3a — Broadcast all committed ride state changes
+
+**Date:** 2026-07-26
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); database-backed Socket.IO verification remains blocked by the documented PostgreSQL `28P01` authentication failure.
+**Implementation commit:** `57f14de` (`fix(realtime): broadcast committed ride state changes`)
+
+### Event inventory and defects
+
+- **E1 — High — `RidesService.updateStatus`:** the database status changed, but the method emitted no event. Arrival, start, intermediate, and completion changes were invisible until a refresh. Correct behavior is one canonical update after the write succeeds.
+- **E2 — High — `DispatchService.dispatchRide` / timeout paths:** `searching`, `driver_offered`, and `no_driver_found` were persisted without events. `searching` was also written after offers were created, allowing it to overwrite `driver_offered`. Correct behavior is ordered conditional persistence followed by one event per successful transition.
+- **E3 — Critical — `DispatchService.driverAcceptRide`:** a read followed by an unconditional update allowed concurrent drivers to pass the availability check and assign the same ride. The gateway could then broadcast multiple successful assignments. Correct behavior is one conditional assignment winner and zero events for losers.
+- **E4 — High — `RidesController.updateStatus` / `RidesService.updateStatus`:** the route did not pass JWT identity or role, so the service used actor `system`; valid driver transitions failed, and assignment ownership was not checked. Cancellation also lacked passenger/driver ownership checks. Correct behavior is profile-ID resolution and authorization before persistence or emission.
+- **E5 — Medium — `EventsGateway.handleDriverAcceptRide`:** acceptance emitted a separate `ride:driver-assigned` shape before the accepting driver had joined the room. Passenger code listened to both that event and `ride:update`, creating incompatible update paths. Correct behavior is one typed `ride:update`, with the successful driver joined before room emission.
+- **E6 — Medium — mobile listeners:** passenger and driver stores expected simplified statuses such as `en_route`, `arrived`, or `cancelled`, while the backend persists canonical enum values. The driver’s local acceptance state also skipped `driver_assigned` and configured intermediate states. Correct behavior is canonical socket input with deliberate local UI mapping.
+- **E7 — Medium — mutation/event failure reporting:** an exception during synchronous socket emission could surface as a failed request after the database had already committed. Correct behavior is to log delivery failure without representing the committed mutation as rolled back.
+- **E8 — Medium — `DispatchService.offerToDrivers`:** the ride became `driver_offered` even when every nearby driver lacked an active subscription. Correct behavior is to enter that state only after at least one Redis offer is stored.
+
+### Implemented persistence and emission boundaries
+
+| Mutation | Persistence boundary | Event and recipient |
+| --- | --- | --- |
+| Create ride | `INSERT ... RETURNING` resolves with status `requested` | One `ride:update` to the authenticated passenger’s user sockets |
+| Begin dispatch | Conditional `requested → searching` update returns a row | One `ride:update` to `ride:{rideId}` |
+| Store eligible offers | At least one Redis offer is stored, then conditional `searching → driver_offered` returns a row | One lifecycle `ride:update` to the ride room; Task 3b still owns driver-targeted `ride:offered` |
+| Accept ride | Conditional update requires an offerable status and `driver_id IS NULL` | Gateway joins the winning driver socket, then emits one `ride:update` with `driver_assigned` |
+| No driver found | Conditional update from `searching` / `driver_offered` returns a row | One `ride:update` to the ride room |
+| Driver/admin status update | Ownership/actor validation, then compare-and-set update on the previously read status | One `ride:update` to the ride room |
+| Cancel ride | Role, ownership, and transition validation, then compare-and-set update | One `ride:update` to the ride room plus the retained `ride:cancelled` notification to the assigned driver |
+| Driver location | Redis geo update succeeds; debounced driver-row write succeeds when due | Existing `ride:driver-location` to the active ride room; this is location telemetry, not a ride-status transition |
+
+Ride decline only deletes an offer and does not change `rides.status`, so it emits no lifecycle update. Task 2c rating runs in a database transaction but does not change lifecycle status, so it also emits no lifecycle update. No lifecycle mutation currently uses a database transaction; the resolved conditional write is its commit boundary.
+
+### Payload and client contract
+
+`RideUpdatePayload` is shared by the backend and both mobile clients. The serializer selects only:
+
+- `rideId`, canonical `status`, optional `previousStatus`;
+- assigned `driverId` and canonical `rideType`;
+- integer `estimatedFarePesewas` and nullable integer `actualFarePesewas`;
+- ISO `createdAt` and `updatedAt`;
+- cancellation metadata only for cancellation events.
+
+The compatibility `reason` field remains alongside `cancellationReason`; no unitless fare field was restored. Coordinates, passenger identifiers, verification PINs, ratings, and full database rows are not broadcast.
+
+Passenger state maps canonical statuses into its reduced presentation states and ignores an event for a different active ride. The duplicate `ride:driver-assigned` listener was removed. Driver state now begins at `driver_assigned`, follows the configured intermediate statuses, consumes the shared payload, and reads current Zustand state inside the socket callback rather than a stale render closure.
+
+### Room and authorization behavior
+
+- Creation is user-targeted because the ride room normally has no subscribers before `POST /rides` returns.
+- Subsequent lifecycle events are scoped to `ride:{rideId}`; no private ride payload is globally broadcast.
+- The accepting driver is role-checked, resolved through `drivers.userId = JWT users.id`, and joined to the room only after winning the conditional assignment.
+- Driver status and cancellation operations compare the resolved `drivers.id` with `rides.driverId`. Passenger cancellation compares resolved `passengers.id` with `rides.passengerId`.
+- The existing `ride:subscribe` handler still permits any authenticated socket to request an arbitrary ride room. This authorization gap was not redesigned because Task 3d owns the public/private tracking decision; it remains a documented security risk.
+- No admin room or admin realtime consumer exists. Tracking web still cannot authenticate to the `/rides` namespace.
+
+### Files changed
+
+- `packages/shared-types/src/ride.types.ts`
+- `apps/backend/src/modules/rides/ride-event.payload.ts`
+- `apps/backend/src/modules/rides/rides.controller.ts`
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `apps/backend/src/modules/rides/dispatch.service.ts`
+- `apps/backend/src/modules/events/events.gateway.ts`
+- `apps/mobile-passenger/src/api/socket.ts`
+- `apps/mobile-passenger/src/stores/ride-store.ts`
+- `apps/mobile-passenger/app/(main)/home.tsx`
+- `apps/mobile-passenger/app/(main)/ride/[id].tsx`
+- `apps/mobile-driver/src/api/socket.ts`
+- `apps/mobile-driver/src/stores/driver-store.ts`
+- `apps/mobile-driver/app/(main)/home.tsx`
+
+No schema, migration, database credential, environment configuration, admin source, or tracking source file changed.
+
+### Validation
+
+- `npm run build --workspace=@kansride/types` — PASS.
+- `npx tsc --noEmit -p apps/backend/tsconfig.json` — PASS.
+- `npm run build --workspace=@kansride/backend` — PASS.
+- `npx tsc --noEmit -p apps/mobile-passenger/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/mobile-driver/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/tracking-web/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/admin-web/tsconfig.json` — FAIL only on the four previously documented missing `../../../../lib/hooks` imports and their resulting implicit-`any` errors. Task 3a changed no admin file.
+- `npm test --workspaces --if-present` — PASS with no test scripts executed. No workspace has a configured unit-test framework.
+- Temporary `npx tsx` mocked event probe — PASS. It covered successful and failed creation; successful driver en-route, arrival, start, and completion transitions; conditional-update conflict and persistence failure with zero events; cancellation recipients; successful acceptance with one event; rejected acceptance with zero events; and integer-pesewa payload fields. The temporary probe was removed before staging.
+- `git diff --check` and `git diff --cached --check` — PASS before the implementation commit.
+- Schema and migration diff — empty.
+
+### Runtime limitations and remaining risks
+
+No PostgreSQL/Redis/Socket.IO end-to-end run was completed because PostgreSQL still rejects the local credentials with SQLSTATE `28P01`. Credentials and database configuration were not changed. Transaction/conditional-write behavior therefore remains runtime-unverified against PostgreSQL.
+
+Socket.IO delivery is best effort: there is no outbox, acknowledgement, replay, or multi-instance Redis adapter. A successful database change can be logged when delivery throws, but it cannot be replayed automatically. Room membership authorization, tracking authentication, assignment enrichment, offer indexing/cleanup, and actual `ride:offered` delivery remain incomplete.
+
+The next verified recovery task is **Task 3b — emit driver offers**. Task 3b was not started here.
+

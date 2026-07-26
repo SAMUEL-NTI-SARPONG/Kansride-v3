@@ -1,10 +1,10 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 2f
+**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 3a
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Task 2f at commit `d66b314`
-**Latest tagged checkpoint:** tag `phase2-task2e-complete` at commit `87eea07`
+**Latest recovery implementation:** Task 3a at commit `57f14de`
+**Latest tagged checkpoint:** tag `phase2-task2f-complete` at commit `16bceb1`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
 ## Purpose
@@ -19,7 +19,7 @@ Use `RECOVERY_PLAN.md` for recovery sequencing and acceptance criteria. Use `ARC
 
 KansRide is an npm-workspaces monorepo for a Ghanaian tricycle ride-hailing platform. It contains passenger and driver mobile clients, an administrative web client, a public ride-tracking web client, and a NestJS backend.
 
-The active recovery branch contains completed static recovery work through Task 2f. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, canonical ride types, and the integer-pesewa fare contract. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
+The active recovery branch contains completed static recovery work through Task 3a. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, canonical ride types, the integer-pesewa fare contract, and committed-state realtime broadcasting. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
 
 No completion percentage is assigned.
 
@@ -60,8 +60,9 @@ The design-system currently exports `Button`, `TextInput`, `OTPInput`, `Card`, a
 
 The current recovery checkpoints are:
 
-- `phase2-task2e-complete` points to `87eea07`, including the Task 2e implementation and its hash-recording documentation commit.
-- Task 2f is implemented at `d66b314`; no Task 2f tag exists.
+- `phase2-task2f-complete` points to the Task 2f documentation checkpoint `16bceb1`.
+- Task 3a is implemented at `57f14de`; no Task 3a tag exists.
+- `phase2-task2e-complete` remains immutable at `87eea07`.
 - `phase2-task2d-complete` remains immutable at `1eff349`.
 - `phase2-task2c-complete` remains immutable at `db5576f`.
 - `phase2-context-docs-complete` identifies the documentation-only commit containing this source-of-truth set.
@@ -72,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `57f14de` | Post-persistence ride lifecycle broadcasts, conditional transition writes, and canonical client event handling |
 | `d66b314` | Integer-pesewa create-ride response, client state, and fare presentation contract |
 | `c49d639` | Canonical ride-type client contract and backend validation |
 | `76ea4a3` / `1eff349` | Actor-scoped ride history and immutable-hash recovery record |
@@ -133,6 +135,10 @@ Confirmed in current code and recovery history:
 - Ride fare persistence, backend calculations, shared types, API/event fields, and client state use numeric integer pesewas with explicit `Pesewas` suffixes.
 - `POST /rides` returns the backend-calculated `estimatedFarePesewas` and an explicitly named pesewa fare breakdown; the passenger app no longer substitutes a local estimate.
 - Passenger, driver, tracking, and admin fare displays convert pesewas to `GHS` once at the presentation boundary and handle missing or invalid values without displaying `NaN`.
+- Persisted ride lifecycle changes use one typed `ride:update` payload with canonical status names, integer-pesewa fare fields, and ISO timestamps.
+- Creation targets the authenticated passenger; later changes target the subscribed ride room; cancellation also retains the assigned-driver `ride:cancelled` notification.
+- Dispatch and HTTP transition writes are conditional, preventing stale dispatch work, duplicate cancellation/status emissions, and multiple concurrent driver assignments.
+- Driver status changes resolve and authorize the authenticated `drivers.id`; passenger and driver cancellation ownership is profile-scoped.
 
 ## Known Limitations
 
@@ -142,14 +148,13 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current next recovery task is Task 3a: broadcast all committed ride state changes.
+- The current next recovery task is Task 3b: emit eligible driver offers.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Dispatch stores offers but does not emit `ride:offered`; the driver offer flow is therefore incomplete.
-- Normal ride status updates do not broadcast `ride:update`; cancellation is the recovered exception.
-- The driver status route does not pass the authenticated actor to `RidesService.updateStatus`, whose default actor is `system`; this does not match driver-only state transitions.
-- `ride:driver-assigned` lacks the driver details expected by the passenger client.
+- Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
 - Tracking web connects to the authenticated `/rides` namespace without a token.
+- Any authenticated socket can currently request membership in an arbitrary `ride:{rideId}` room; room authorization remains a security risk for the later tracking/socket-auth decision.
 - Four admin dashboard pages still import `../../../../lib/hooks`, which does not resolve from their current paths.
 - The admin login page is an unwired email/password form, while the recovered backend design uses pre-provisioned administrative users and the phone-OTP flow.
 - No admin route middleware or equivalent dashboard session gate was found.
@@ -179,11 +184,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Task 2f is complete at implementation commit `d66b314`. The next implementation boundary is Task 3a only after explicit approval. Do not begin dispatch offers, admin, authentication, navigation, or other client recovery work as part of Task 3a.
+Task 3a is complete at implementation commit `57f14de`. The next implementation boundary is Task 3b only after explicit approval. Do not begin assignment enrichment, public tracking authentication, admin, authentication, navigation, or other client recovery work as part of Task 3b.
 
 ## Planned Work
 
-Planned recovery resumes with Task 3a ride-state broadcasting, then continues through dispatch/events, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
+Planned recovery resumes with Task 3b driver-offer delivery, then continues through assignment enrichment, tracking authorization, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
 
 ## Validation Practices
 

@@ -171,8 +171,8 @@ Important qualifications:
 
 - Presence in the schema does not prove a status is reachable. `driver_no_show` and `disputed` have no inbound transition in the current table.
 - Rating is persisted on a completed ride; it is not a ride status transition.
-- The driver client currently skips configured intermediate states in parts of its progression. This is a known contract gap.
-- `RidesService.updateStatus` defaults its actor to `system`, while the controller does not pass the authenticated role. Whether current driver status calls can satisfy actor rules requires correction and runtime verification.
+- The driver client progression now includes `driver_assigned`, `driver_en_route`, `driver_arrived`, `waiting_for_passenger`, `passenger_verified`, `in_progress`, and `completed`; product-level passenger verification is still not runtime-validated.
+- `PATCH /rides/:id/status` passes the authenticated user and role. Driver calls resolve `drivers.id`, enforce assignment ownership, and use the `driver` state-machine actor; `super_admin` uses the `admin` actor.
 
 ## Cancellation Semantics
 
@@ -186,13 +186,13 @@ Important qualifications:
 
 Other roles are rejected by the service even if a future RBAC change accidentally grants `ride:cancel`.
 
-The state machine still decides whether that actor may cancel from the ride’s current status. On success:
+Passenger and driver callers resolve their profile ID and must own or be assigned to the ride. The state machine still decides whether that actor may cancel from the ride’s current status. On success:
 
 - the ride status, optional reason, `cancelledBy` (`users.id`), and `updatedAt` are persisted;
 - `ride:update` is emitted to `ride:{rideId}`;
 - if assigned, `ride:cancelled` is emitted to the driver via its connected user sockets.
 
-The database write occurs before emission. There is no outbox or durable event delivery.
+The conditional database write occurs before emission; a concurrent losing update emits nothing. There is no outbox or durable event delivery.
 
 ## Rating Semantics
 
@@ -258,16 +258,22 @@ Confirmed behavior:
 - The gateway tracks socket IDs by JWT `users.id`.
 - `ride:subscribe` joins room `ride:{rideId}`.
 - `driver:location` resolves `drivers.id`, updates Redis on every event, debounces database writes, and emits `ride:driver-location` for an active ride.
-- `driver:accept-ride` delegates to dispatch and emits `ride:driver-assigned` to the ride room.
+- `driver:accept-ride` is driver-role-only, resolves `drivers.id`, conditionally assigns an unassigned offerable ride, joins the accepting socket to the ride room, and emits one canonical `ride:update`.
 - `driver:decline-ride` deletes that driver’s offer key.
 - Services can emit to a ride room, a user’s sockets, or a driver after resolving `drivers.userId`.
+- `RideUpdatePayload` in `packages/shared-types/src/ride.types.ts` is the private lifecycle contract. It contains `rideId`, canonical `status`, safe assignment/type fields, integer `estimatedFarePesewas` / `actualFarePesewas`, and ISO `createdAt` / `updatedAt` timestamps.
+- `apps/backend/src/modules/rides/ride-event.payload.ts` is the shared backend serializer; its explicit Drizzle selection prevents full ride rows and verification PINs from entering lifecycle events.
+- A newly inserted `requested` ride is sent to the authenticated passenger’s user sockets. `searching`, `driver_offered`, `driver_assigned`, driver lifecycle status changes, `no_driver_found`, and cancellations are sent to `ride:{rideId}` after their conditional database writes resolve.
+- Cancellation also sends the Task 2b compatibility event `ride:cancelled` directly to the assigned driver. This is a distinct driver notification, not a second `ride:update`.
+- Lifecycle mutations do not use a database transaction. Their resolved conditional `UPDATE ... RETURNING` call is the persistence boundary. Task 2c rating still uses a transaction but does not alter ride lifecycle status and emits no lifecycle event.
+- Socket delivery failures are logged after persistence and do not turn a committed REST or acceptance mutation into a false failure response.
 
 Confirmed gaps:
 
 - `DispatchService.offerToDrivers` stores Redis offers but never calls `emitToDriver(..., 'ride:offered', ...)`.
-- `RidesService.updateStatus` does not emit `ride:update`.
-- The driver-assigned payload contains only `rideId`, `driverId`, and a message.
+- The canonical `driver_assigned` update has the assigned `driverId` but no passenger-approved driver/vehicle enrichment.
 - Tracking web supplies no JWT to an authenticated namespace.
+- `ride:subscribe` checks authentication but not passenger/driver ride ownership, so an authenticated user can request another ride’s room.
 - Passenger emits `ride:unsubscribe`, but the gateway has no handler.
 - Rooms are process-local; no Socket.IO Redis adapter is configured.
 - There is no durable event log/outbox, delivery acknowledgement strategy, or reconnect replay.
@@ -292,7 +298,7 @@ Known contract mismatches requiring recovery:
 - Passenger cancellation uses `POST`, while the backend declares `PATCH /rides/:id/cancel`.
 - Admin login UI does not implement the backend’s phone-OTP design.
 - Tracking socket authentication is absent.
-- Driver ride-status handling does not fully match the configured state machine.
+- End-to-end driver progression and passenger-verification behavior remain runtime-unverified.
 
 Do not “fix” one side without inspecting and approving the complete boundary.
 
@@ -380,10 +386,9 @@ Run only the commands appropriate to the approved scope and record static versus
 
 ## Areas Requiring Investigation
 
-- `RidesService.updateStatus` actor propagation and missing configured intermediate states.
-- Atomic single-driver assignment under concurrent offer acceptance.
 - Complete dispatch event payload and Redis offer cleanup/indexing.
 - Reliable real-time delivery, multi-instance Socket.IO, and reconnect behavior.
+- Ride-room membership authorization for passenger, assigned driver, tracking, and administrative audiences.
 - Public tracking authorization model.
 - Admin user provisioning and admin-web login/session design.
 - Client auth navigation guards beyond root redirects.
