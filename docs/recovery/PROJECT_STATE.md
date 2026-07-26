@@ -1,9 +1,9 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section C
+**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section D
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Section C at commit `8ed1962`
+**Latest recovery implementation:** Section D at commit `d6d9d44`
 **Latest tagged checkpoint:** tag `phase3-task3a-complete` at commit `4189034`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `d6d9d44` | Admin dashboard hook imports restored through the configured alias; TypeScript and production build pass |
 | `8ed1962` | Expiring passenger-authorized public tracking tokens, minimized REST/events, and dedicated public socket rooms |
 | `9b89f47` | Profile-derived private ride-room authorization, admin permission gate, UUID validation, and reconnect resubscription |
 | `bd4abe3` | Authenticated driver-specific offers, eligibility filtering, indexed expiry/cleanup, and non-optimistic acceptance |
@@ -160,11 +161,10 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current recovery section is Section D: restore the admin-web build.
+- The current recovery section is Section E: runtime configuration and service startup.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
-- Four admin dashboard pages still import `../../../../lib/hooks`, which does not resolve from their current paths.
 - The admin login page is an unwired email/password form, while the recovered backend design uses pre-provisioned administrative users and the phone-OTP flow.
 - No admin route middleware or equivalent dashboard session gate was found.
 - Driver and passenger client state/status contracts still contain mismatches described in the recovery plan.
@@ -193,11 +193,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Section C is complete at implementation commit `8ed1962`. The current autonomous boundary is Section D admin-web build recovery, followed by Sections E–H.
+Section D is complete at implementation commit `d6d9d44`. The current autonomous boundary is Section E runtime configuration and service startup, followed by Sections F–H.
 
 ## Planned Work
 
-The autonomous run continues with admin build recovery, runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
+The autonomous run continues with runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
 
 ## Validation Practices
 

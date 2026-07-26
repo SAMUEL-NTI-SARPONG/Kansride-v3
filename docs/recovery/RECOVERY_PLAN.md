@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next section:** Section D — admin-web build recovery
+**Current next section:** Section E — runtime configuration and service startup
 
 ## Recovery Objective
 
@@ -48,6 +48,7 @@ Older audit findings must be reconciled before implementation. In particular:
 | Task 3b — authenticated driver offers | Implemented; runtime pending | Deterministic eligibility, private delivery, explicit expiry, Redis indexing/cleanup, atomic acceptance |
 | Section B — private realtime rooms | Implemented; runtime pending | Profile-derived ride ownership, permission-gated admin room, malformed-ID rejection, reconnect restoration |
 | Task 3d / Section C — public tracking security | Implemented; runtime pending | Passenger-owned expiring token, minimized REST/events, dedicated public namespace/rooms, terminal revocation |
+| Task 4a / Section D — admin build | Complete | Existing typed hooks resolved through `@/lib/hooks`; TypeScript and Next production build pass |
 
 The latest tagged checkpoint is `phase3-task3a-complete` at `4189034`.
 
@@ -169,9 +170,11 @@ Acceptance:
 
 ## Phase C — Admin Web Recovery
 
-### Task 4a — restore admin build
+### Task 4a — restore admin build (complete)
 
 Dependencies: none.
+
+Current state: the four nested dashboard pages use the configured `@/lib/hooks` alias. The existing generic hook types now flow into each list callback; no suppression or broad `any` was added. Admin TypeScript and the Next.js production build pass.
 
 Acceptance:
 

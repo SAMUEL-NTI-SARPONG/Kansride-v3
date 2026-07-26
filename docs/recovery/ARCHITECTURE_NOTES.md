@@ -51,7 +51,7 @@ Scheduling supports subscription-expiry checks. Throttling is configured globall
 
 ### Web applications
 
-- `apps/admin-web`: Next.js App Router dashboard. REST base is `NEXT_PUBLIC_API_URL` or `http://localhost:3000/api/v1`. The client reads `admin_token` from browser local storage.
+- `apps/admin-web`: Next.js App Router dashboard. REST base is `NEXT_PUBLIC_API_URL` or `http://localhost:3000/api/v1`. The client reads `admin_token` from browser local storage. Dashboard pages import the existing typed React Query hooks through the configured `@/lib/hooks` alias; TypeScript and production build pass.
 - `apps/tracking-web`: Next.js App Router landing page and `/track/[token]`. It uses a passenger-issued capability for public REST and the dedicated `/tracking` Socket.IO namespace.
 
 ### Mobile applications

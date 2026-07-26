@@ -1865,3 +1865,24 @@ The root cause was an unfinished placeholder flow: public REST accepted the pers
 
 No database-backed REST or live Redis/Socket.IO browser flow ran because PostgreSQL access remains to be investigated in Section E. The in-memory Redis fallback intentionally loses public links on restart and is not multi-process coordination.
 
+## Autonomous Section D — Admin-web build recovery
+
+**Date:** 2026-07-26
+**Status:** Complete.
+**Implementation commit:** `d6d9d44` (`fix(admin): restore admin web build integrity`)
+
+### Defect and implementation
+
+- **D1 — High:** four nested dashboard pages imported `../../../../lib/hooks`, traversing one directory above `src`. Module resolution failed, and the missing generic hook types caused four derived implicit-`any` list callbacks.
+- Each page now imports its existing typed hook through the configured Windows-safe `@/lib/hooks` alias.
+- No hook, API contract, RBAC rule, strictness setting, suppression, or dashboard behavior changed.
+
+### Validation
+
+- Admin TypeScript — PASS.
+- Admin Next.js production build — PASS, including all dashboard routes.
+- The protected `apps/admin-web/next-env.d.ts` SHA-256 was identical before and after validation and remained unstaged.
+- `git diff --check` — PASS.
+
+No runtime admin session/API flow was claimed. The separate unwired admin login and route-session design remains documented for integration recovery.
+
