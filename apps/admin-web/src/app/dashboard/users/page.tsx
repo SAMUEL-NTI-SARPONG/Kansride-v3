@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useUsers } from '../../../../lib/hooks';
+import { useUsers } from '@/lib/hooks';
 
 export default function UsersPage() {
   const [page, setPage] = useState(1);

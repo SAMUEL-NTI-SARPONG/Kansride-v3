@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useSubscriptions } from '../../../../lib/hooks';
+import { useSubscriptions } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
 
 export default function SubscriptionsPage() {

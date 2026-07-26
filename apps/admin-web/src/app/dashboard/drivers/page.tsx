@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useDrivers } from '../../../../lib/hooks';
+import { useDrivers } from '@/lib/hooks';
 
 export default function DriversPage() {
   const [page, setPage] = useState(1);

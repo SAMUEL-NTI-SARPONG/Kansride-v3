@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRides } from '../../../../lib/hooks';
+import { useRides } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
 
 const STATUS_TABS = [
