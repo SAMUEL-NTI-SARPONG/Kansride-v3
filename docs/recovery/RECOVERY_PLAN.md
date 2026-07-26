@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next section:** Section B — realtime room authorization
+**Current next section:** Section C — public tracking security
 
 ## Recovery Objective
 
@@ -46,8 +46,9 @@ Older audit findings must be reconciled before implementation. In particular:
 | Step 2f — normalize create-ride fare response | Implemented; runtime pending | Integer-pesewa persistence/transport/state fields and UI-boundary GHS formatting |
 | Task 3a — broadcast committed ride state changes | Implemented; runtime pending | Typed canonical event, post-persistence emission, conditional transition writes, canonical client statuses |
 | Task 3b — authenticated driver offers | Implemented; runtime pending | Deterministic eligibility, private delivery, explicit expiry, Redis indexing/cleanup, atomic acceptance |
+| Section B — private realtime rooms | Implemented; runtime pending | Profile-derived ride ownership, permission-gated admin room, malformed-ID rejection, reconnect restoration |
 
-The latest tagged checkpoint is `phase2-task2f-complete` at `16bceb1`. Task 3a is implemented at `57f14de`; no Task 3a tag exists.
+The latest tagged checkpoint is `phase3-task3a-complete` at `4189034`.
 
 ## Operational Prerequisite: Restore Database Runtime Verification
 

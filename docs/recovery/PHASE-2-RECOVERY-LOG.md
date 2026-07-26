@@ -1805,3 +1805,24 @@ The next verified recovery task is **Task 3b — emit driver offers**. Task 3b w
 
 PostgreSQL/Redis/Socket.IO end-to-end delivery remains pending Section E–G service recovery. No credentials or configuration were changed.
 
+## Autonomous Section B — Private realtime room authorization
+
+**Date:** 2026-07-26
+**Status:** Implemented and statically validated; runtime Socket.IO verification remains pending.
+**Implementation commit:** `9b89f47` (`fix(realtime): authorize private socket room membership`)
+
+### Defects and implementation
+
+- **B1 — Critical:** `ride:subscribe` allowed any authenticated user into any private ride room. It now loads only ride ownership IDs, resolves the JWT user through `passengers.userId` or `drivers.userId`, and permits only the owning passenger or assigned driver.
+- **B2 — High:** mobile connection helpers returned before connection, so initial joins were dropped and reconnect lost membership. Both clients now await connection, remember intended ride IDs, and resubscribe on reconnect.
+- **B3 — Medium:** malformed IDs could reach database handlers, no leave handler existed, and admin membership had no contract. UUID validation runs before queries, `ride:unsubscribe` is implemented, and `admin:rides` requires explicit live-operations permissions.
+
+Targeted offers remain direct user-socket events and do not grant unassigned drivers private ride-room access. Public tracking remains outside the private room contract for Section C.
+
+### Validation
+
+- Backend TypeScript and build — PASS.
+- Passenger and driver TypeScript checks — PASS.
+- Focused mocked room probe — PASS for owner passenger, assigned driver, unrelated-user rejection, malformed input without DB access, permission-gated admin join, and leave.
+- `git diff --check` — PASS.
+

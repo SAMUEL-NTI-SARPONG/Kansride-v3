@@ -1,10 +1,10 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section A / Task 3b
+**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section B
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Section A / Task 3b at commit `bd4abe3`
-**Latest tagged checkpoint:** tag `phase2-task2f-complete` at commit `16bceb1`
+**Latest recovery implementation:** Section B at commit `9b89f47`
+**Latest tagged checkpoint:** tag `phase3-task3a-complete` at commit `4189034`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
 ## Purpose
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `9b89f47` | Profile-derived private ride-room authorization, admin permission gate, UUID validation, and reconnect resubscription |
 | `bd4abe3` | Authenticated driver-specific offers, eligibility filtering, indexed expiry/cleanup, and non-optimistic acceptance |
 | `57f14de` | Post-persistence ride lifecycle broadcasts, conditional transition writes, and canonical client event handling |
 | `d66b314` | Integer-pesewa create-ride response, client state, and fare presentation contract |
@@ -143,6 +144,9 @@ Confirmed in current code and recovery history:
 - Dispatch targets at most five deterministically ordered eligible drivers and sends each a private typed `ride:offered` payload.
 - Offer eligibility requires a verified active `driver` user, active/online driver profile, recent location, active tricycle, current subscription, and no active assigned ride.
 - Redis ride/driver indexes support pending-offer recovery and cleanup on decline, cancellation, acceptance, expiry/terminal failure, and competing acceptance.
+- Private ride-room joins resolve passenger/driver profiles from JWT `users.id` and allow only the owning passenger or assigned driver.
+- Administrative room membership requires explicit live-operations permissions; malformed identifiers are rejected without a database lookup.
+- Passenger and driver clients wait for socket connection and restore authorized subscriptions after reconnect.
 
 ## Known Limitations
 
@@ -152,12 +156,11 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current recovery section is Section B: authorize private Socket.IO room membership.
+- The current recovery section is Section C: secure public tracking.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
 - Tracking web connects to the authenticated `/rides` namespace without a token.
-- Any authenticated socket can currently request membership in an arbitrary `ride:{rideId}` room; room authorization remains a security risk for the later tracking/socket-auth decision.
 - Four admin dashboard pages still import `../../../../lib/hooks`, which does not resolve from their current paths.
 - The admin login page is an unwired email/password form, while the recovered backend design uses pre-provisioned administrative users and the phone-OTP flow.
 - No admin route middleware or equivalent dashboard session gate was found.
@@ -187,7 +190,7 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Section A / Task 3b is complete at implementation commit `bd4abe3`. The current autonomous boundary is Section B private room authorization, followed by the explicitly ordered Sections C–H.
+Section B is complete at implementation commit `9b89f47`. The current autonomous boundary is Section C public tracking security, followed by Sections D–H.
 
 ## Planned Work
 

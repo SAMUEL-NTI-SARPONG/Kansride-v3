@@ -257,6 +257,9 @@ Confirmed behavior:
 - Connections require an access JWT in `handshake.auth.token` or a bearer authorization header.
 - The gateway tracks socket IDs by JWT `users.id`.
 - `ride:subscribe` joins room `ride:{rideId}`.
+- `ride:subscribe` authorizes only the owning passenger or assigned driver after resolving their profile from JWT `users.id`; unknown, unauthorized, and malformed IDs receive generic failures.
+- `ride:unsubscribe` leaves only the named private room. Socket.IO automatically removes all room membership on disconnect, and mobile clients restore their remembered authorized rides after reconnect.
+- `admin:subscribe` joins `admin:rides` only for roles carrying `ride:view_all`, `dispatch:view_live_map`, or `safety:view_live_trips`.
 - `driver:location` resolves `drivers.id`, updates Redis on every event, debounces database writes, and emits `ride:driver-location` for an active ride.
 - `driver:accept-ride` is driver-role-only, resolves `drivers.id`, conditionally assigns an unassigned offerable ride, joins the accepting socket to the ride room, and emits one canonical `ride:update`.
 - `driver:decline-ride` deletes that driver’s offer key.
@@ -273,7 +276,6 @@ Confirmed gaps:
 
 - The canonical `driver_assigned` update has the assigned `driverId` but no passenger-approved driver/vehicle enrichment.
 - Tracking web supplies no JWT to an authenticated namespace.
-- `ride:subscribe` checks authentication but not passenger/driver ride ownership, so an authenticated user can request another ride’s room.
 - Passenger emits `ride:unsubscribe`, but the gateway has no handler.
 - Rooms are process-local; no Socket.IO Redis adapter is configured.
 - There is no durable event log/outbox, delivery acknowledgement strategy, or reconnect replay.
