@@ -279,7 +279,7 @@ Principal current routes:
 - Auth: `POST /auth/request-otp`, `POST /auth/verify-otp`, `POST /auth/refresh-token`
 - User: `GET /users/me`
 - Drivers: register, go-online/offline, location, subscribe, profile, earnings
-- Rides: create, get by ID, cancel, update status, rate, public track
+- Rides: create, actor-scoped own history, ownership-checked get by ID, cancel, update status, rate, public track
 - Admin: dashboard, drivers, rides, users, subscriptions
 - Health: `GET /health`
 
@@ -287,15 +287,17 @@ Known contract mismatches requiring recovery:
 
 - Passenger auth uses `phone` instead of `phoneNumber`.
 - Passenger OTP response expects `user.phone` / `user.name`.
-- Passenger sends unsupported ride types.
 - Passenger expects `estimatedFare`; backend exposes pesewa-oriented fields and a fare breakdown.
-- Passenger activity calls a ride-history route not yet implemented.
 - Passenger cancellation uses `POST`, while the backend declares `PATCH /rides/:id/cancel`.
 - Admin login UI does not implement the backend’s phone-OTP design.
 - Tracking socket authentication is absent.
 - Driver ride-status handling does not fully match the configured state machine.
 
 Do not “fix” one side without inspecting and approving the complete boundary.
+
+`POST /rides` accepts only the schema-supported `RideType` values: `standard_tricycle`, `priority_tricycle`, `shared`, and `parcel_delivery`. An omitted type defaults to `standard_tricycle`; any supplied unsupported value is rejected before fare or database work. The passenger selector currently exposes Standard and Priority, mapped directly to the first two canonical values. `priority_tricycle` retains the implemented 1.5× fare multiplier.
+
+`GET /rides/my-rides` uses the JWT role to resolve either `passengers.id` or `drivers.id`, returns a bounded deterministic history array, and accepts no profile identifier from the caller.
 
 ## Environment Validation
 
@@ -363,6 +365,7 @@ Run only the commands appropriate to the approved scope and record static versus
 - Persist a state change before broadcasting it.
 - Ride rating persistence and driver aggregate recomputation remain atomic.
 - The conditional duplicate-rating guard must remain part of the database mutation.
+- Ride type must be validated against the canonical shared/schema set before fare calculation and persistence; fare and insert must use the same validated value.
 - Monetary persistence uses integer pesewas.
 - Migrations are append-only history; do not rewrite applied migration intent casually.
 - Do not weaken authenticated Socket.IO access to solve public tracking without an approved security design.
@@ -370,7 +373,7 @@ Run only the commands appropriate to the approved scope and record static versus
 
 ## Areas Requiring Investigation
 
-- Exact Task 2d route, pagination, RBAC permission, and response contracts.
+- Task 2f create-ride fare response and presentation-unit contract.
 - `RidesService.updateStatus` actor propagation and missing configured intermediate states.
 - Atomic single-driver assignment under concurrent offer acceptance.
 - Complete dispatch event payload and Redis offer cleanup/indexing.

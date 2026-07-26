@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next task:** Task 2d — ride-history correctness
+**Current next task:** Task 2f — normalize create-ride fare response
 
 ## Recovery Objective
 
@@ -41,8 +41,10 @@ Older audit findings must be reconciled before implementation. In particular:
 | Step 2a — driver JWT identity | Implemented; runtime pending | `users.id` resolves to `drivers.id` |
 | Step 2b — cancellation actor | Implemented; runtime pending | Role-aware status, `users.id` actor, cancellation events |
 | Step 2c — rating correctness | Implemented; runtime pending | Transactional persistence, duplicate guard, live AVG |
+| Step 2d — ride-history correctness | Implemented; runtime pending | Actor-scoped passenger/driver history, bounded pagination, deterministic ordering |
+| Step 2e — normalize ride types | Implemented; runtime pending | Canonical client values and backend validation before fare/database work |
 
-The stable checkpoint for this completed set is `phase2-task2c-complete` at `db5576f`.
+The latest tagged checkpoint is `phase2-task2d-complete` at `1eff349`. Task 2e is implemented at `c49d639`; no Task 2e tag has been requested.
 
 ## Operational Prerequisite: Restore Database Runtime Verification
 
@@ -62,9 +64,9 @@ This prerequisite may be resolved in parallel with code inspection, but runtime 
 
 ## Phase A — Ride and Client Contract Recovery
 
-### Task 2d — ride-history correctness (next task)
+### Task 2d — ride-history correctness (completed; runtime pending)
 
-Scope must be inspected and approved before editing. Existing service methods accept profile IDs, but the controller exposes no history route and RBAC has no clearly named “view own history” permission.
+Current state: `GET /rides/my-rides` derives the correct passenger or driver profile from the authenticated user, applies bounded `limit`/`offset`, orders by `createdAt DESC, id DESC`, preserves the passenger array contract, and protects authenticated ride-detail ownership.
 
 Dependencies: completed passenger/driver identity resolution; a design decision on route shape and permission semantics.
 
@@ -80,11 +82,11 @@ Acceptance:
 - The passenger activity client’s expected route is either satisfied or changed in the same approved contract.
 - Focused shared-auth/backend/client checks pass; database runtime tests remain clearly marked pending if `28P01` persists.
 
-Do not begin Task 2d during the documentation task.
+### Task 2e — normalize ride types (completed; runtime pending)
 
-### Task 2e — normalize ride types
+Current state: the passenger client sends `standard_tricycle` or `priority_tricycle` from the shared `RideType` union. The backend defaults only an omitted value, rejects every unsupported value with HTTP 400 before maps/database work, and uses one validated value for fare calculation and persistence.
 
-Dependencies: Task 2d is independent; this must be coordinated with the passenger client.
+Dependencies: completed Task 2d; coordinated backend and passenger-client contract.
 
 Acceptance:
 
@@ -93,7 +95,7 @@ Acceptance:
 - Validation returns a clear client error for invalid values.
 - Fare multipliers and displayed ride labels map deliberately to the canonical values.
 
-### Task 2f — normalize create-ride fare response
+### Task 2f — normalize create-ride fare response (next task)
 
 Dependencies: agreed money-unit contract.
 
@@ -251,8 +253,8 @@ Acceptance:
 ## Dependency Summary
 
 1. Database access unblocks runtime proof for all persistence work.
-2. Task 2d completes owned ride retrieval before passenger activity integration.
-3. Tasks 2e–2f establish canonical ride and money contracts before passenger/driver UI fixes.
+2. Task 2d completed owned ride retrieval for passenger activity and future driver history use.
+3. Task 2e established the canonical ride-type contract; Task 2f must establish the money-unit contract before broader passenger/driver UI fixes.
 4. Tasks 3a–3c complete real-time ride flow before end-to-end mobile validation.
 5. Task 3d requires a security decision independent of mobile authentication.
 6. Admin build can be repaired independently; admin login and route gating depend on the authentication/provisioning decision.
@@ -275,7 +277,7 @@ Every recovery task follows this sequence:
 - Never use `git add .`; stage exact reviewed paths.
 - Do not combine recovery logs, generated outputs, or unrelated refactors unless the task explicitly requires them.
 - Tag only stable, reviewed checkpoints after explicit instruction.
-- Keep `phase2-task2c-complete` immutable.
+- Keep `phase2-task2c-complete` and `phase2-task2d-complete` immutable.
 - Reconcile the final release tag with repository history before creating it; do not assume the old audit’s proposed tag is still desired.
 
 ## Definition of Recovery Completion

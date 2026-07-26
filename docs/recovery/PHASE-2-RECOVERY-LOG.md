@@ -1524,3 +1524,66 @@ No database-backed HTTP scenarios were run. The standing repository blocker is P
 
 The driver mobile app currently has no ride-history list caller; it can use the role-aware route later without a profile ID. `/drivers/earnings` already resolves `drivers.id` from the JWT user and remains unchanged. The `drivers.completedRides` and `passengers.completedRides` columns remain unmaintained and are not used by this history endpoint.
 
+## Task 2e — Normalize canonical ride types
+
+**Date:** 2026-07-26
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); database-backed verification remains blocked by the documented PostgreSQL `28P01` authentication failure.
+**Implementation commit:** `c49d639` (`fix(rides): normalize canonical ride types`)
+
+### Selection and reconciliation
+
+Task 2e was selected because both `RECOVERY_PLAN.md` and the audit's Step 2 order place ride-type normalization immediately after completed Task 2d. The recovery log also ended with Task 2d complete. `PROJECT_STATE.md` and `RECOVERY_PLAN.md` still described Task 2d as next, but current code and commits `76ea4a3` / `1eff349` proved that statement stale; the source-of-truth documents were advanced to Task 2f after this implementation.
+
+### Defects and root cause
+
+- **N1 — High:** `apps/mobile-passenger/app/(main)/home.tsx` sent `standard` or `comfort`, while the shared type, Drizzle schema, and migration allow only `standard_tricycle`, `priority_tricycle`, `shared`, and `parcel_delivery`. Every passenger request therefore reached PostgreSQL with an invalid enum value.
+- **N2 — High:** the controller, service, and fare service accepted a free-form string, and persistence used `data.rideType as any`. An arbitrary client could bypass compile-time types and receive an opaque database failure instead of a client error.
+- **N3 — Medium:** the premium client option was labelled and stored as `comfort`, but the only premium fare rule is the 1.5× multiplier for `priority_tricycle`. The UI value, persisted enum, and fare rule had no common identifier.
+
+The root cause was a passenger-local duplicate union that diverged from `@kansride/types`, combined with no runtime validation before the database enum became the last line of defense.
+
+### Implementation
+
+- The passenger home screen and active-ride store now use the shared `RideType` union.
+- The visible options deliberately map `Standard` to `standard_tricycle` and `Priority` to `priority_tricycle`; the request and local active-ride state retain those canonical values.
+- `RidesController` and `FareService` now type the field as `RideType`.
+- `RidesService` validates the runtime value against all four schema-supported values before passenger lookup, maps, fare calculation, insert, or dispatch.
+- Only an omitted value defaults to `standard_tricycle`. Legacy `standard` / `comfort`, null, empty, non-string, case-mismatched, or otherwise unsupported values produce `BadRequestException` with the allowed values.
+- Fare calculation and persistence use the same validated value. The unsafe ride-type `as any` cast was removed.
+- The existing `priority_tricycle` 1.5× fare multiplier is preserved. `shared` and `parcel_delivery` remain valid API/schema values but are not newly exposed in the passenger selector.
+- No identity, RBAC, ride-history, cancellation, rating, status-transition, event, schema, or migration behavior changed.
+
+### Files changed
+
+Implementation commit:
+
+- `apps/backend/src/modules/rides/fare.service.ts`
+- `apps/backend/src/modules/rides/rides.controller.ts`
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `apps/mobile-passenger/app/(main)/home.tsx`
+- `apps/mobile-passenger/src/stores/ride-store.ts`
+
+Documentation-only follow-up:
+
+- `docs/recovery/PHASE-2-RECOVERY-LOG.md`
+- `docs/recovery/PROJECT_STATE.md`
+- `docs/recovery/RECOVERY_PLAN.md`
+- `docs/recovery/ARCHITECTURE_NOTES.md`
+
+### Validation
+
+- `npx tsc --noEmit -p packages/shared-types/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/backend/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/mobile-passenger/tsconfig.json` — PASS.
+- `npm run build --workspace @kansride/backend` — PASS.
+- Focused in-memory `npx tsx --tsconfig apps/backend/tsconfig.json -` smoke — PASS. It verified the omitted default and all four canonical values reach both fare calculation and persistence unchanged, while `standard`, `comfort`, empty, null, non-string, object, and case-mismatched inputs fail with status 400 before database access.
+- No workspace defines a test script and no configured unit-test framework exists.
+- `git diff --check` — PASS before documentation commit.
+
+### Runtime limitations and next task
+
+No PostgreSQL-backed `POST /rides` request was run because the standing SQLSTATE `28P01` authentication blocker remains. Credentials and database configuration were not changed. Persistence against the real enum and the end-to-end passenger request remain runtime-unverified.
+
+The next incomplete task is **Task 2f — normalize the create-ride fare response**. It must reconcile pesewa transport fields with the passenger's GHS display without changing money semantics incidentally. Task 2f was not started here.
+

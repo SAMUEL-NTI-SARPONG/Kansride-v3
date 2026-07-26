@@ -1,9 +1,10 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 2c
+**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 2e
 **Current branch:** `recovery/phase-2-opencode`
-**Recovery implementation checkpoint:** tag `phase2-task2c-complete` at commit `db5576f`
+**Latest recovery implementation:** Task 2e at commit `c49d639`
+**Latest tagged checkpoint:** tag `phase2-task2d-complete` at commit `1eff349`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
 ## Purpose
@@ -18,7 +19,7 @@ Use `RECOVERY_PLAN.md` for recovery sequencing and acceptance criteria. Use `ARC
 
 KansRide is an npm-workspaces monorepo for a Ghanaian tricycle ride-hailing platform. It contains passenger and driver mobile clients, an administrative web client, a public ride-tracking web client, and a NestJS backend.
 
-The active recovery branch is preserved at the completion of Task 2c. Recovery work through that checkpoint has primarily repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, and rating correctness. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
+The active recovery branch contains completed static recovery work through Task 2e. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, and the canonical ride-type contract. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
 
 No completion percentage is assigned.
 
@@ -57,18 +58,21 @@ The design-system currently exports `Button`, `TextInput`, `OTPInput`, `Card`, a
 
 ### Git checkpoint
 
-The recovery implementation baseline is:
+The current recovery checkpoints are:
 
-- `phase2-task2c-complete` points to `db5576f`.
-- `db5576f` is the last implementation commit before this context-documentation checkpoint.
+- `phase2-task2d-complete` points to `1eff349`, including the Task 2d implementation and its hash-recording documentation commit.
+- Task 2e is implemented at `c49d639`; no Task 2e tag has been requested.
+- `phase2-task2c-complete` remains immutable at `db5576f`.
 - `phase2-context-docs-complete` identifies the documentation-only commit containing this source-of-truth set.
-- After that documentation commit, the working tree is expected to contain only the two protected untracked generated files listed below.
+- The working tree is expected to contain only the two protected untracked generated files listed below after task documentation is committed.
 - No recovery release tag such as the audit-proposed `v0.2.0-phase2` exists.
 
 Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `c49d639` | Canonical ride-type client contract and backend validation |
+| `76ea4a3` / `1eff349` | Actor-scoped ride history and immutable-hash recovery record |
 | `db5576f` | Atomic ride-rating persistence, duplicate-rating race protection, live driver-rating recomputation |
 | `bf1f245` | Role-aware ride-cancellation actor and event handling |
 | `0c4f698` | Real database-backed `UsersService.getProfile` |
@@ -120,6 +124,10 @@ Confirmed in current code and recovery history:
 - Per-ride rating persistence and `drivers.rating` recomputation run in one database transaction.
 - A conditional update on `rated_by IS NULL` protects against concurrent duplicate ratings.
 - The driver aggregate is recomputed from live `AVG(rides.rating)`.
+- `GET /rides/my-rides` resolves passenger or driver profile identity from the authenticated user, applies bounded pagination, and orders deterministically.
+- Authenticated ride-detail reads enforce passenger/driver ownership.
+- Passenger ride creation sends canonical `standard_tricycle` or `priority_tricycle` values from the shared `RideType` contract.
+- The backend defaults an omitted ride type to `standard_tricycle`, rejects unsupported values with HTTP 400 before database work, and uses the same validated value for fare calculation and persistence.
 
 ## Known Limitations
 
@@ -129,9 +137,9 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current next recovery task is Task 2d: ride-history correctness. Service queries exist, but no controller route exposes passenger or driver ride history.
+- The current next recovery task is Task 2f: normalize the create-ride fare response and presentation-unit contract.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
-- Passenger ride creation sends unsupported `standard` / `comfort` ride types and reads `estimatedFare` instead of the backend’s persisted pesewa field and fare breakdown.
+- Passenger ride creation still reads `estimatedFare` in GHS while the backend returns pesewa-oriented fields and a fare breakdown.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Dispatch stores offers but does not emit `ride:offered`; the driver offer flow is therefore incomplete.
 - Normal ride status updates do not broadcast `ride:update`; cancellation is the recovered exception.
@@ -165,22 +173,13 @@ These generated files were present before this task and must remain unmodified, 
 - `apps/admin-web/next-env.d.ts`
 - `apps/tracking-web/next-env.d.ts`
 
-## Context-Documentation Boundary
+## Current Recovery Boundary
 
-The context-documentation checkpoint changes only:
-
-- `docs/recovery/PROJECT_STATE.md`
-- `docs/recovery/RECOVERY_PLAN.md`
-- `docs/recovery/ARCHITECTURE_NOTES.md`
-- `AGENTS.md`
-
-It does not change application, package, database, migration, configuration, or recovery-log files. It does not begin Task 2d.
-
-After the context-documentation checkpoint, the next implementation boundary is Task 2d only after explicit approval.
+Task 2e is complete at implementation commit `c49d639`. The next implementation boundary is Task 2f only after explicit approval. Do not begin real-time, admin, authentication, navigation, or other client recovery work as part of Task 2f.
 
 ## Planned Work
 
-Planned recovery begins with Task 2d ride-history correctness, then reconciles ride-type and fare contracts, real-time dispatch/events, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
+Planned recovery resumes with Task 2f fare-contract normalization, then continues through real-time dispatch/events, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
 
 ## Validation Practices
 
