@@ -1479,7 +1479,7 @@ All five validation commands were re-run after the revisions; all returned expli
 **Date:** 2026-07-26
 **Branch:** `recovery/phase-2-opencode`
 **Status:** Complete (static); database-backed verification remains blocked by the documented PostgreSQL `28P01` authentication failure.
-**Implementation commit:** Pending creation after this entry is reviewed.
+**Implementation commit:** `76ea4a3` (`fix(rides): correct authenticated ride history queries`)
 
 ### Problem and root cause
 
