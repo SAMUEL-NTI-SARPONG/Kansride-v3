@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next task:** Task 2f — normalize create-ride fare response
+**Current next task:** Task 3a — broadcast all ride state changes
 
 ## Recovery Objective
 
@@ -43,8 +43,9 @@ Older audit findings must be reconciled before implementation. In particular:
 | Step 2c — rating correctness | Implemented; runtime pending | Transactional persistence, duplicate guard, live AVG |
 | Step 2d — ride-history correctness | Implemented; runtime pending | Actor-scoped passenger/driver history, bounded pagination, deterministic ordering |
 | Step 2e — normalize ride types | Implemented; runtime pending | Canonical client values and backend validation before fare/database work |
+| Step 2f — normalize create-ride fare response | Implemented; runtime pending | Integer-pesewa persistence/transport/state fields and UI-boundary GHS formatting |
 
-The latest tagged checkpoint is `phase2-task2d-complete` at `1eff349`. Task 2e is implemented at `c49d639`; no Task 2e tag has been requested.
+The latest tagged checkpoint is `phase2-task2e-complete` at `87eea07`. Task 2f is implemented at `d66b314`; no Task 2f tag exists.
 
 ## Operational Prerequisite: Restore Database Runtime Verification
 
@@ -95,9 +96,11 @@ Acceptance:
 - Validation returns a clear client error for invalid values.
 - Fare multipliers and displayed ride labels map deliberately to the canonical values.
 
-### Task 2f — normalize create-ride fare response (next task)
+### Task 2f — normalize create-ride fare response (completed; runtime pending)
 
 Dependencies: agreed money-unit contract.
+
+Current state: fare values are numeric integer pesewas in persistence, backend calculations, shared contracts, API/event fields, and client state. Names identify the unit with a `Pesewas` suffix. The passenger create flow uses the backend response without a local fallback, and GHS strings are produced only by presentation code.
 
 Acceptance:
 
@@ -254,7 +257,7 @@ Acceptance:
 
 1. Database access unblocks runtime proof for all persistence work.
 2. Task 2d completed owned ride retrieval for passenger activity and future driver history use.
-3. Task 2e established the canonical ride-type contract; Task 2f must establish the money-unit contract before broader passenger/driver UI fixes.
+3. Tasks 2e–2f established the canonical ride-type and money-unit contracts before broader passenger/driver UI fixes.
 4. Tasks 3a–3c complete real-time ride flow before end-to-end mobile validation.
 5. Task 3d requires a security decision independent of mobile authentication.
 6. Admin build can be repaired independently; admin login and route gating depend on the authentication/provisioning decision.

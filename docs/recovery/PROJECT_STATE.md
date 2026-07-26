@@ -1,10 +1,10 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 2e
+**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 2f
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Task 2e at commit `c49d639`
-**Latest tagged checkpoint:** tag `phase2-task2d-complete` at commit `1eff349`
+**Latest recovery implementation:** Task 2f at commit `d66b314`
+**Latest tagged checkpoint:** tag `phase2-task2e-complete` at commit `87eea07`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
 ## Purpose
@@ -19,7 +19,7 @@ Use `RECOVERY_PLAN.md` for recovery sequencing and acceptance criteria. Use `ARC
 
 KansRide is an npm-workspaces monorepo for a Ghanaian tricycle ride-hailing platform. It contains passenger and driver mobile clients, an administrative web client, a public ride-tracking web client, and a NestJS backend.
 
-The active recovery branch contains completed static recovery work through Task 2e. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, and the canonical ride-type contract. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
+The active recovery branch contains completed static recovery work through Task 2f. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, canonical ride types, and the integer-pesewa fare contract. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
 
 No completion percentage is assigned.
 
@@ -60,8 +60,9 @@ The design-system currently exports `Button`, `TextInput`, `OTPInput`, `Card`, a
 
 The current recovery checkpoints are:
 
-- `phase2-task2d-complete` points to `1eff349`, including the Task 2d implementation and its hash-recording documentation commit.
-- Task 2e is implemented at `c49d639`; no Task 2e tag has been requested.
+- `phase2-task2e-complete` points to `87eea07`, including the Task 2e implementation and its hash-recording documentation commit.
+- Task 2f is implemented at `d66b314`; no Task 2f tag exists.
+- `phase2-task2d-complete` remains immutable at `1eff349`.
 - `phase2-task2c-complete` remains immutable at `db5576f`.
 - `phase2-context-docs-complete` identifies the documentation-only commit containing this source-of-truth set.
 - The working tree is expected to contain only the two protected untracked generated files listed below after task documentation is committed.
@@ -71,6 +72,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `d66b314` | Integer-pesewa create-ride response, client state, and fare presentation contract |
 | `c49d639` | Canonical ride-type client contract and backend validation |
 | `76ea4a3` / `1eff349` | Actor-scoped ride history and immutable-hash recovery record |
 | `db5576f` | Atomic ride-rating persistence, duplicate-rating race protection, live driver-rating recomputation |
@@ -128,6 +130,9 @@ Confirmed in current code and recovery history:
 - Authenticated ride-detail reads enforce passenger/driver ownership.
 - Passenger ride creation sends canonical `standard_tricycle` or `priority_tricycle` values from the shared `RideType` contract.
 - The backend defaults an omitted ride type to `standard_tricycle`, rejects unsupported values with HTTP 400 before database work, and uses the same validated value for fare calculation and persistence.
+- Ride fare persistence, backend calculations, shared types, API/event fields, and client state use numeric integer pesewas with explicit `Pesewas` suffixes.
+- `POST /rides` returns the backend-calculated `estimatedFarePesewas` and an explicitly named pesewa fare breakdown; the passenger app no longer substitutes a local estimate.
+- Passenger, driver, tracking, and admin fare displays convert pesewas to `GHS` once at the presentation boundary and handle missing or invalid values without displaying `NaN`.
 
 ## Known Limitations
 
@@ -137,9 +142,8 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current next recovery task is Task 2f: normalize the create-ride fare response and presentation-unit contract.
+- The current next recovery task is Task 3a: broadcast all committed ride state changes.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
-- Passenger ride creation still reads `estimatedFare` in GHS while the backend returns pesewa-oriented fields and a fare breakdown.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Dispatch stores offers but does not emit `ride:offered`; the driver offer flow is therefore incomplete.
 - Normal ride status updates do not broadcast `ride:update`; cancellation is the recovered exception.
@@ -175,11 +179,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Task 2e is complete at implementation commit `c49d639`. The next implementation boundary is Task 2f only after explicit approval. Do not begin real-time, admin, authentication, navigation, or other client recovery work as part of Task 2f.
+Task 2f is complete at implementation commit `d66b314`. The next implementation boundary is Task 3a only after explicit approval. Do not begin dispatch offers, admin, authentication, navigation, or other client recovery work as part of Task 3a.
 
 ## Planned Work
 
-Planned recovery resumes with Task 2f fare-contract normalization, then continues through real-time dispatch/events, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
+Planned recovery resumes with Task 3a ride-state broadcasting, then continues through dispatch/events, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
 
 ## Validation Practices
 

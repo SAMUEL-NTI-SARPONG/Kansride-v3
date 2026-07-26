@@ -233,7 +233,9 @@ Current migrations:
 
 `src/migrate.ts` applies migrations from `./src/migrations`. Local execution remains runtime-unverified because the recovery log records PostgreSQL `28P01`.
 
-Money is represented as integer pesewas in database/API fields such as `estimatedFarePesewas`, `actualFarePesewas`, and subscription/payment amounts.
+Money is represented as numeric integer pesewas in the database, backend calculations, shared TypeScript contracts, API/event payloads, and client state. Monetary field names identify the unit with a `Pesewas` suffix, including `estimatedFarePesewas`, `actualFarePesewas`, `farePesewas`, and `amountPesewas`. UI components convert once at the presentation boundary and render `GHS 0.00`-style strings. Missing, negative, fractional, or non-finite presentation inputs render a safe placeholder rather than `NaN`.
+
+`FareService.calculateFare` returns `FareBreakdown` with `baseFarePesewas`, `distanceFarePesewas`, `timeFarePesewas`, and `totalFarePesewas`. Distance and time components use the existing upward rounding, and the priority total is rounded upward after multiplication, so every returned value remains an integer. The minimum is applied before the existing 1.5× `priority_tricycle` multiplier.
 
 ## Redis and Provider Boundaries
 
@@ -287,7 +289,6 @@ Known contract mismatches requiring recovery:
 
 - Passenger auth uses `phone` instead of `phoneNumber`.
 - Passenger OTP response expects `user.phone` / `user.name`.
-- Passenger expects `estimatedFare`; backend exposes pesewa-oriented fields and a fare breakdown.
 - Passenger cancellation uses `POST`, while the backend declares `PATCH /rides/:id/cancel`.
 - Admin login UI does not implement the backend’s phone-OTP design.
 - Tracking socket authentication is absent.
@@ -297,7 +298,11 @@ Do not “fix” one side without inspecting and approving the complete boundary
 
 `POST /rides` accepts only the schema-supported `RideType` values: `standard_tricycle`, `priority_tricycle`, `shared`, and `parcel_delivery`. An omitted type defaults to `standard_tricycle`; any supplied unsupported value is rejected before fare or database work. The passenger selector currently exposes Standard and Priority, mapped directly to the first two canonical values. `priority_tricycle` retains the implemented 1.5× fare multiplier.
 
-`GET /rides/my-rides` uses the JWT role to resolve either `passengers.id` or `drivers.id`, returns a bounded deterministic history array, and accepts no profile identifier from the caller.
+The `POST /rides` response implements the shared `CreateRideResponse` contract. Its authoritative fare is `estimatedFarePesewas: number`, and `fareBreakdown` uses only explicit pesewa-suffixed fields. The passenger active-ride state copies this backend value directly; the removed local estimate cannot override it.
+
+`GET /rides/my-rides` uses the JWT role to resolve either `passengers.id` or `drivers.id`, returns a bounded deterministic history array, and accepts no profile identifier from the caller. Its selected actual-or-estimated value is transported as `farePesewas`; conversion to GHS occurs in the activity screen.
+
+Tracking uses `estimatedFarePesewas`; admin ride lists use `farePesewas` and `totalRevenuePesewas`; driver offer/state and earnings contracts use `estimatedFarePesewas`, `todayPesewas`, and `thisWeekPesewas`. These consumers format GHS at their UI boundary. The driver offer producer remains absent and belongs to Task 3b.
 
 ## Environment Validation
 
@@ -367,13 +372,14 @@ Run only the commands appropriate to the approved scope and record static versus
 - The conditional duplicate-rating guard must remain part of the database mutation.
 - Ride type must be validated against the canonical shared/schema set before fare calculation and persistence; fare and insert must use the same validated value.
 - Monetary persistence uses integer pesewas.
+- Monetary API/event/state fields must be numeric integer pesewas and carry an explicit `Pesewas` suffix; currency strings belong only in presentation code.
+- The fare persisted and returned by ride creation must come from the backend `FareService`; a client estimate must never replace it after creation.
 - Migrations are append-only history; do not rewrite applied migration intent casually.
 - Do not weaken authenticated Socket.IO access to solve public tracking without an approved security design.
 - Provider mocks must not be represented as production integrations.
 
 ## Areas Requiring Investigation
 
-- Task 2f create-ride fare response and presentation-unit contract.
 - `RidesService.updateStatus` actor propagation and missing configured intermediate states.
 - Atomic single-driver assignment under concurrent offer acceptance.
 - Complete dispatch event payload and Redis offer cleanup/indexing.

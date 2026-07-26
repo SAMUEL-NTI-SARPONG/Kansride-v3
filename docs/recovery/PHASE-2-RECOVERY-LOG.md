@@ -1587,3 +1587,86 @@ No PostgreSQL-backed `POST /rides` request was run because the standing SQLSTATE
 
 The next incomplete task is **Task 2f — normalize the create-ride fare response**. It must reconcile pesewa transport fields with the passenger's GHS display without changing money semantics incidentally. Task 2f was not started here.
 
+## Task 2f — Normalize the create-ride fare response
+
+**Date:** 2026-07-26
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); database-backed verification remains blocked by the documented PostgreSQL `28P01` authentication failure.
+**Implementation commit:** `d66b314` (`fix(rides): normalize create-ride fare response`)
+
+### Selected fare contract
+
+- Database and backend calculation: numeric integer pesewas.
+- REST and event payloads: numeric integer pesewas with explicit `Pesewas` suffixes.
+- Shared TypeScript contracts and mobile/web state: numeric integer pesewas with the same names.
+- UI display: one conversion at the presentation boundary to `GHS 0.00`; invalid or missing values render `--`.
+- `POST /rides` remains authoritative. Its `estimatedFarePesewas` and pesewa-suffixed `fareBreakdown` replace any client-side value after creation.
+
+This contract follows the existing integer columns in `packages/shared-db/src/schema/rides.ts`, the pesewa constants in `packages/shared-config/src/constants.ts`, and the existing payment/subscription convention. No schema or migration change was required.
+
+### Defects and root cause
+
+- **F1 — High:** `apps/mobile-passenger/app/(main)/home.tsx` read `response.estimatedFare`, but `RidesService.createRide` returned `estimatedFarePesewas`. The missing field caused the client to ignore the backend-calculated fare.
+- **F2 — High:** the passenger then fell back to a local GHS formula (`5 + distance × 3`) and stored it as `estimatedFare`. That formula differed from `FareService`, omitted duration, and did not recompute for `priority_tricycle`, so the active ride could show a non-authoritative fare.
+- **F3 — Medium:** `FareService` and `fareBreakdown` used ambiguous names such as `totalFare` even though every value was in pesewas. Shared `Ride` fields repeated the ambiguity.
+- **F4 — Medium:** ride history converted to GHS in the backend and returned a generic `fare`, unlike other integer-pesewa transport fields.
+- **F5 — Medium:** tracking, admin ride/revenue, driver offer/state, and driver earnings contracts transported pesewas under unitless names. Their displays usually divided by 100 correctly, but the payload contract did not make the unit enforceable.
+- **F6 — Low:** several displays formatted raw values directly or substituted zero. A missing, fractional, negative, or `NaN` value could be misrepresented instead of producing a safe placeholder.
+
+The root cause was a correct database convention that was not carried through shared response types and client state. Local frontend interfaces independently assigned names and presentation units.
+
+### Implementation
+
+- Added shared `FareBreakdown` and `CreateRideResponse` contracts with numeric pesewa-suffixed fields.
+- Renamed fare-calculation components to explicit pesewa names while preserving integer `Math.ceil` rounding, the GHS 3.00 minimum, and the existing 1.5× priority multiplier.
+- Persisted and returned the same `totalFarePesewas` value from `POST /rides`.
+- Removed the passenger's provisional local formula and fallback. The active ride now stores `response.estimatedFarePesewas` and uses the backend-echoed canonical ride type.
+- Changed passenger history to transport `farePesewas` and convert only in the activity screen.
+- Normalized tracking, admin, driver offer/state, and driver earnings payload names to explicit pesewa fields, updating every discovered caller.
+- Standardized affected displays on `GHS` and guarded formatting against invalid or missing numeric input.
+- Preserved ride creation identity resolution, dispatch triggering, canonical ride types, cancellation, rating, history authorization/pagination/order, statuses, schema, and migrations.
+
+### Files changed
+
+- `packages/shared-types/src/ride.types.ts`
+- `apps/backend/src/modules/rides/fare.service.ts`
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `apps/backend/src/modules/drivers/drivers.service.ts`
+- `apps/backend/src/modules/admin/admin.service.ts`
+- `apps/mobile-passenger/app/(main)/home.tsx`
+- `apps/mobile-passenger/app/(main)/ride/[id].tsx`
+- `apps/mobile-passenger/app/(main)/activity.tsx`
+- `apps/mobile-passenger/src/stores/ride-store.ts`
+- `apps/mobile-driver/src/api/socket.ts`
+- `apps/mobile-driver/src/stores/driver-store.ts`
+- `apps/mobile-driver/app/(main)/home.tsx`
+- `apps/mobile-driver/app/(main)/earnings.tsx`
+- `apps/tracking-web/src/app/track/[rideId]/page.tsx`
+- `apps/admin-web/src/lib/hooks.ts`
+- `apps/admin-web/src/lib/currency.ts`
+- `apps/admin-web/src/app/dashboard/page.tsx`
+- `apps/admin-web/src/app/dashboard/rides/page.tsx`
+- `apps/admin-web/src/app/dashboard/subscriptions/page.tsx`
+
+### Validation
+
+- `npm run build --workspace=packages/shared-types` — PASS.
+- `npx tsc --noEmit -p packages/shared-types/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/backend/tsconfig.json` — PASS.
+- `npm run build --workspace=apps/backend` — PASS.
+- `npx tsc --noEmit -p apps/mobile-passenger/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/mobile-driver/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/tracking-web/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/admin-web/tsconfig.json` — FAIL only on the four previously documented `../../../../lib/hooks` import errors and their resulting implicit-`any` errors. No Task 2f fare-type error was reported; the Task 4a imports were intentionally not changed.
+- Focused in-memory create-response probe — PASS. It verified standard minimum fare (300 pesewas), a decimal-distance/time standard fare (402 pesewas), the same priority fare at 1.5× (603 pesewas), integer persistence, numeric response type, matching breakdown total, and absence of the ambiguous legacy response names.
+- Focused display probe — PASS for `300 → GHS 3.00`, `603 → GHS 6.03`, and invalid/missing inputs → `--`.
+- A direct compiled-JavaScript probe was unsuitable because the workspace package entry points use source ESM imports; the equivalent `tsx` probe passed when rerun outside the sandbox after its worker initially received `EPERM`.
+- No workspace defines a test script and no configured test framework exists, so no permanent test file was added.
+- `git diff --check` and `git diff --cached --check` — PASS before the implementation commit.
+
+### Runtime limitations and next task
+
+No PostgreSQL-backed `POST /rides`, history, tracking, earnings, or admin request was run because the standing SQLSTATE `28P01` authentication blocker remains. Credentials and database configuration were not changed. End-to-end persistence and serialization therefore remain runtime-unverified.
+
+The next verified recovery item is **Task 3a — broadcast all ride state changes**, as ordered by `RECOVERY_PLAN.md` after completion of Tasks 2e–2f. Task 3a was not started here.
+
