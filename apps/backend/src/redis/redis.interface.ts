@@ -3,6 +3,7 @@ export interface IRedisService {
   set(key: string, value: string, ttlSeconds?: number): Promise<void>;
   get(key: string): Promise<string | null>;
   del(key: string): Promise<void>;
+  expire(key: string, ttlSeconds: number): Promise<void>;
 
   // Geo operations (for driver locations)
   geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void>;

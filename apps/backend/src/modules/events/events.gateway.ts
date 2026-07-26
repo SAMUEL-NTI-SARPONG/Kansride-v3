@@ -18,6 +18,7 @@ import { eq, and, inArray } from 'drizzle-orm';
 import { isUUID } from 'class-validator';
 import { DispatchService } from '../rides/dispatch.service';
 import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
+import { PublicTrackingGateway } from './public-tracking.gateway';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 const LOCATION_DB_DEBOUNCE_MS = 5000;
@@ -49,6 +50,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     @Inject(REDIS_SERVICE) private readonly redis: IRedisService,
     @Inject(forwardRef(() => DispatchService)) private readonly dispatchService: DispatchService,
+    private readonly publicTrackingGateway: PublicTrackingGateway,
   ) {
     this.jwtService = new JWTService({
       accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
@@ -176,6 +178,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         longitude: data.longitude,
         timestamp: now,
       });
+      void this.publicTrackingGateway
+        .emitDriverLocation(
+          activeRides[0].id,
+          data.latitude,
+          data.longitude,
+          new Date(now),
+        )
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Public location delivery failed for ride ${activeRides[0]!.id}: ${message}`,
+          );
+        });
     }
 
     return { event: 'ack', data: { received: true } };
@@ -364,6 +379,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** Broadcast a ride update to all sockets in the ride room */
   emitRideUpdate(rideId: string, data: RideUpdatePayload) {
     this.server.to(`ride:${rideId}`).emit('ride:update', data);
+    void this.publicTrackingGateway.emitRideUpdate(data).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Public tracking delivery failed for ride ${rideId}: ${message}`);
+    });
   }
 
   /** Send an event to all connected sockets of a specific user */

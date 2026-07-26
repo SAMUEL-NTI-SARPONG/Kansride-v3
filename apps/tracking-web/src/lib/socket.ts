@@ -1,43 +1,35 @@
 import { io, Socket } from 'socket.io-client';
+import type {
+  PublicDriverLocationPayload,
+  PublicTrackingUpdatePayload,
+} from '@kansride/types';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3000';
-const NAMESPACE = '/rides';
+const NAMESPACE = '/tracking';
 
 let socket: Socket | null = null;
 
-function getSocket(): Socket {
-  if (!socket) {
-    socket = io(`${SOCKET_URL}${NAMESPACE}`, {
-      transports: ['websocket', 'polling'],
-      autoConnect: true,
-    });
-  }
+export function connectTracking(trackingToken: string): Socket {
+  disconnect();
+  socket = io(`${SOCKET_URL}${NAMESPACE}`, {
+    transports: ['websocket', 'polling'],
+    auth: { token: trackingToken },
+  });
   return socket;
 }
 
-export function subscribeToRide(rideId: string): void {
-  const s = getSocket();
-  s.emit('ride:subscribe', { rideId });
-}
-
 export function onLocationUpdate(
-  callback: (data: {
-    rideId: string;
-    driverId: string;
-    latitude: number;
-    longitude: number;
-    timestamp: number;
-  }) => void,
-): void {
-  const s = getSocket();
-  s.on('ride:driver-location', callback);
+  callback: (data: PublicDriverLocationPayload) => void,
+): () => void {
+  socket?.on('tracking:driver-location', callback);
+  return () => socket?.off('tracking:driver-location', callback);
 }
 
 export function onRideUpdate(
-  callback: (data: { rideId: string; status: string; [key: string]: unknown }) => void,
-): void {
-  const s = getSocket();
-  s.on('ride:update', callback);
+  callback: (data: PublicTrackingUpdatePayload) => void,
+): () => void {
+  socket?.on('tracking:update', callback);
+  return () => socket?.off('tracking:update', callback);
 }
 
 export function disconnect(): void {

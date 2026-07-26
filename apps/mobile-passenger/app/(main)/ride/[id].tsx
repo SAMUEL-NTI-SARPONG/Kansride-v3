@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Share,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -18,6 +19,7 @@ import {
   connectSocket,
 } from '../../../src/api/socket';
 import type { RideStatus } from '../../../src/stores/ride-store';
+import type { PublicTrackingLink } from '@kansride/types';
 
 const STATUS_LABELS: Record<RideStatus, string> = {
   idle: 'Idle',
@@ -52,6 +54,7 @@ export default function ActiveRideScreen() {
   const [rating, setRating] = useState(0);
   const [showRating, setShowRating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     let unsubUpdate: (() => void) | undefined;
@@ -125,6 +128,27 @@ export default function ActiveRideScreen() {
   const handleGoHome = () => {
     resetRide();
     router.replace('/(main)/home');
+  };
+
+  const handleShareTracking = async () => {
+    setSharing(true);
+    try {
+      const link = await post<PublicTrackingLink>(`/rides/${id}/tracking-link`);
+      const trackingBaseUrl = (
+        process.env.EXPO_PUBLIC_TRACKING_URL || 'http://localhost:3002'
+      ).replace(/\/$/, '');
+      await Share.share({
+        message: `Track my KansRide trip: ${trackingBaseUrl}${link.trackingPath}`,
+        url: `${trackingBaseUrl}${link.trackingPath}`,
+      });
+    } catch (error: unknown) {
+      Alert.alert(
+        'Unable to share',
+        error instanceof Error ? error.message : 'Failed to create tracking link',
+      );
+    } finally {
+      setSharing(false);
+    }
   };
 
   // Rating screen
@@ -217,6 +241,18 @@ export default function ActiveRideScreen() {
         )}
       </View>
 
+      <TouchableOpacity
+        style={[styles.shareButton, sharing && styles.buttonDisabled]}
+        onPress={handleShareTracking}
+        disabled={sharing}
+      >
+        {sharing ? (
+          <ActivityIndicator color="#1B8B4B" />
+        ) : (
+          <Text style={styles.shareText}>Share live tracking</Text>
+        )}
+      </TouchableOpacity>
+
       {/* Cancel button - only show when ride is not in progress */}
       {(rideStatus === 'searching' || rideStatus === 'driver_assigned' || rideStatus === 'en_route') && (
         <TouchableOpacity
@@ -286,6 +322,16 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#EF4444',
   },
+  shareButton: {
+    borderRadius: 12,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1B8B4B',
+    marginBottom: 12,
+  },
+  shareText: { color: '#1B8B4B', fontSize: 16, fontWeight: '600' },
   cancelText: { color: '#EF4444', fontSize: 16, fontWeight: '600' },
   buttonDisabled: { opacity: 0.7 },
   button: {

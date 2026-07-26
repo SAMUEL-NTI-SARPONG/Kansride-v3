@@ -99,6 +99,44 @@ export interface RideAcceptResult {
   message: string;
 }
 
+/** Passenger-authorized capability used to share a live ride safely. */
+export interface PublicTrackingLink {
+  trackingToken: string;
+  trackingPath: string;
+  expiresAt: string;
+}
+
+/**
+ * Minimized public tracking snapshot. This deliberately does not reuse Ride,
+ * RideUpdatePayload, database identifiers, contact details, or fare fields.
+ */
+export interface PublicTrackingSnapshot {
+  publicReference: string;
+  status: RideStatus;
+  rideType: RideType;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  driverFirstName: string | null;
+  vehicleColour: string | null;
+  maskedVehiclePlate: string | null;
+  estimatedDurationSeconds: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicTrackingUpdatePayload {
+  publicReference: string;
+  status: RideStatus;
+  updatedAt: string;
+}
+
+export interface PublicDriverLocationPayload {
+  publicReference: string;
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+}
+
 export interface Ride {
   id: string;
   passengerId: string;

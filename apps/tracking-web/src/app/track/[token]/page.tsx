@@ -2,31 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { get } from '../../../lib/api';
-import { subscribeToRide, onLocationUpdate, onRideUpdate, disconnect } from '../../../lib/socket';
-
-interface RideData {
-  id: string;
-  status: string;
-  pickupLatitude: string;
-  pickupLongitude: string;
-  pickupAddress: string | null;
-  dropoffLatitude: string;
-  dropoffLongitude: string;
-  dropoffAddress: string | null;
-  driverFirstName: string | null;
-  vehicleColour: string | null;
-  vehiclePlate: string | null;
-  estimatedFarePesewas: number;
-  estimatedDurationSeconds: number | null;
-  rideType: string;
-  createdAt: string;
-}
-
-interface DriverLocation {
-  latitude: number;
-  longitude: number;
-  timestamp: number;
-}
+import { connectTracking, onLocationUpdate, onRideUpdate, disconnect } from '../../../lib/socket';
+import type {
+  PublicDriverLocationPayload,
+  PublicTrackingSnapshot,
+} from '@kansride/types';
 
 const STATUS_STEPS = [
   'requested',
@@ -79,30 +59,25 @@ function formatETA(seconds: number | null): string {
   return `${mins} min`;
 }
 
-function formatFare(pesewas: number | null | undefined): string {
-  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
-    return '--';
-  }
-  return `GHS ${(pesewas / 100).toFixed(2)}`;
-}
-
-export default function TrackRidePage({ params }: { params: Promise<{ rideId: string }> }) {
-  const [rideId, setRideId] = useState<string>('');
-  const [ride, setRide] = useState<RideData | null>(null);
-  const [driverLocation, setDriverLocation] = useState<DriverLocation | null>(null);
+export default function TrackRidePage({ params }: { params: Promise<{ token: string }> }) {
+  const [trackingToken, setTrackingToken] = useState<string>('');
+  const [ride, setRide] = useState<PublicTrackingSnapshot | null>(null);
+  const [driverLocation, setDriverLocation] = useState<PublicDriverLocationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Unwrap params
   useEffect(() => {
-    params.then((p) => setRideId(p.rideId));
+    params.then((p) => setTrackingToken(p.token));
   }, [params]);
 
   const fetchRide = useCallback(async () => {
-    if (!rideId) return;
+    if (!trackingToken) return;
     try {
       setLoading(true);
-      const data = await get<RideData>(`/rides/${rideId}/track`);
+      const data = await get<PublicTrackingSnapshot>(
+        `/rides/public-track/${encodeURIComponent(trackingToken)}`,
+      );
       setRide(data);
       setError(null);
     } catch (err: unknown) {
@@ -110,39 +85,47 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
     } finally {
       setLoading(false);
     }
-  }, [rideId]);
+  }, [trackingToken]);
 
   useEffect(() => {
-    if (!rideId) return;
+    if (!trackingToken) return;
     fetchRide();
-  }, [rideId, fetchRide]);
+  }, [trackingToken, fetchRide]);
 
   // WebSocket connection
   useEffect(() => {
-    if (!rideId || !ride) return;
+    if (!trackingToken || !ride) return;
 
-    subscribeToRide(rideId);
-
-    onLocationUpdate((data) => {
-      if (data.rideId === rideId) {
-        setDriverLocation({
-          latitude: data.latitude,
-          longitude: data.longitude,
-          timestamp: data.timestamp,
-        });
+    connectTracking(trackingToken);
+    const removeLocationListener = onLocationUpdate((data) => {
+      if (data.publicReference === ride.publicReference) {
+        setDriverLocation(data);
       }
     });
 
-    onRideUpdate((data) => {
-      if (data.rideId === rideId && data.status) {
+    const removeRideListener = onRideUpdate((data) => {
+      if (data.publicReference === ride.publicReference) {
         setRide((prev) => (prev ? { ...prev, status: data.status } : prev));
+        if (
+          data.status !== 'completed'
+          && !data.status.startsWith('cancelled')
+          && data.status !== 'no_driver_found'
+        ) {
+          void get<PublicTrackingSnapshot>(
+            `/rides/public-track/${encodeURIComponent(trackingToken)}`,
+          ).then(setRide).catch(() => {
+            // The status event remains usable if a background refresh races expiry.
+          });
+        }
       }
     });
 
     return () => {
+      removeLocationListener();
+      removeRideListener();
       disconnect();
     };
-  }, [rideId, ride]);
+  }, [trackingToken, ride?.publicReference]);
 
   if (loading) {
     return (
@@ -183,7 +166,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
             <span className="text-2xl">🛺</span>
             <h1 className="text-lg font-bold text-green-700">KansRide</h1>
           </div>
-          <span className="text-xs text-gray-400 font-mono">ID: {ride.id.slice(0, 8)}...</span>
+          <span className="text-xs text-gray-400 font-mono">{ride.publicReference}</span>
         </div>
       </header>
 
@@ -274,7 +257,9 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
                 <p className="text-sm font-semibold text-gray-800">{ride.driverFirstName}</p>
                 <p className="text-xs text-gray-500">
                   {ride.vehicleColour && <span>{ride.vehicleColour} Tricycle</span>}
-                  {ride.vehiclePlate && <span className="ml-2 font-mono">{ride.vehiclePlate}</span>}
+                  {ride.maskedVehiclePlate && (
+                    <span className="ml-2 font-mono">{ride.maskedVehiclePlate}</span>
+                  )}
                 </p>
               </div>
               <span className="text-2xl">🛺</span>
@@ -290,7 +275,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
               <div>
                 <p className="text-xs text-gray-500 font-medium">Pickup</p>
                 <p className="text-sm text-gray-800">
-                  {ride.pickupAddress || `${ride.pickupLatitude}, ${ride.pickupLongitude}`}
+                  {ride.pickupAddress || 'Pickup location'}
                 </p>
               </div>
             </div>
@@ -302,18 +287,10 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
               <div>
                 <p className="text-xs text-gray-500 font-medium">Dropoff</p>
                 <p className="text-sm text-gray-800">
-                  {ride.dropoffAddress || `${ride.dropoffLatitude}, ${ride.dropoffLongitude}`}
+                  {ride.dropoffAddress || 'Destination'}
                 </p>
               </div>
             </div>
-          </div>
-
-          {/* Fare */}
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-            <span className="text-xs text-gray-500">Estimated Fare</span>
-            <span className="text-sm font-bold text-gray-800">
-              {formatFare(ride.estimatedFarePesewas)}
-            </span>
           </div>
 
           {/* Footer */}

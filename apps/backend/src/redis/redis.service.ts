@@ -51,6 +51,10 @@ export class RedisService implements IRedisService, OnModuleDestroy {
     await this.client.del(key);
   }
 
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    await this.client.expire(key, ttlSeconds);
+  }
+
   async geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void> {
     await this.client.geoadd(key, longitude, latitude, member);
   }

@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, Post, Patch, Body, Param, Query, UseGuards, Request, ParseUUIDPipe } from '@nestjs/common';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -6,6 +6,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { RidesService } from './rides.service';
 import type { TokenPayload } from '@kansride/auth';
 import type { RideType, UserRole } from '@kansride/types';
+import { PublicTrackingService } from '../events/public-tracking.service';
 
 interface AuthenticatedRequest extends Request {
   user: TokenPayload & { iat: number; exp: number };
@@ -37,7 +38,10 @@ function parseBoundedInteger(
 @Controller('rides')
 @UseGuards(AuthGuard, RolesGuard)
 export class RidesController {
-  constructor(private readonly ridesService: RidesService) {}
+  constructor(
+    private readonly ridesService: RidesService,
+    private readonly publicTrackingService: PublicTrackingService,
+  ) {}
 
   @Get('my-rides')
   @RequirePermissions('ride:view')
@@ -62,10 +66,10 @@ export class RidesController {
     );
   }
 
-  @Get(':id/track')
+  @Get('public-track/:token')
   @Public()
-  trackRide(@Param('id') id: string) {
-    return this.ridesService.getTrackingData(id);
+  trackRide(@Param('token') token: string) {
+    return this.publicTrackingService.getSnapshot(token);
   }
 
   @Post()
@@ -80,6 +84,32 @@ export class RidesController {
     rideType?: RideType;
   }) {
     return this.ridesService.createRide(req.user.userId, body);
+  }
+
+  @Post(':id/tracking-link')
+  @RequirePermissions('ride:view')
+  createTrackingLink(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.publicTrackingService.createLink(
+      id,
+      req.user.userId,
+      req.user.role,
+    );
+  }
+
+  @Delete(':id/tracking-links')
+  @RequirePermissions('ride:view')
+  revokeTrackingLinks(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.publicTrackingService.revokeForOwner(
+      id,
+      req.user.userId,
+      req.user.role,
+    );
   }
 
   @Get(':id')

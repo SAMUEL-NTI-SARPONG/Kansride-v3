@@ -13,6 +13,7 @@ export class MemoryRedisService implements IRedisService {
   private readonly store = new Map<string, { value: string; expiresAt?: number }>();
   private readonly geoStore = new Map<string, GeoEntry[]>();
   private readonly setStore = new Map<string, Set<string>>();
+  private readonly collectionExpiries = new Map<string, number>();
 
   constructor() {
     this.logger.warn('Using in-memory Redis fallback. Install Redis for production use.');
@@ -37,6 +38,11 @@ export class MemoryRedisService implements IRedisService {
     this.store.delete(key);
     this.geoStore.delete(key);
     this.setStore.delete(key);
+    this.collectionExpiries.delete(key);
+  }
+
+  async expire(key: string, ttlSeconds: number): Promise<void> {
+    this.collectionExpiries.set(key, Date.now() + ttlSeconds * 1000);
   }
 
   async geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void> {
@@ -89,6 +95,11 @@ export class MemoryRedisService implements IRedisService {
   }
 
   async sMembers(key: string): Promise<string[]> {
+    const expiresAt = this.collectionExpiries.get(key);
+    if (expiresAt !== undefined && Date.now() > expiresAt) {
+      await this.del(key);
+      return [];
+    }
     const set = this.setStore.get(key);
     return set ? Array.from(set) : [];
   }

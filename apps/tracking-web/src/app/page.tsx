@@ -4,14 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function TrackingHome() {
-  const [rideId, setRideId] = useState('');
+  const [trackingToken, setTrackingToken] = useState('');
   const router = useRouter();
 
   const handleTrack = (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = rideId.trim();
-    if (trimmed) {
-      router.push(`/track/${trimmed}`);
+    const trimmed = trackingToken.trim();
+    const tokenFromLink = trimmed.split('/track/').pop()?.split(/[?#]/)[0] ?? '';
+    if (tokenFromLink) {
+      router.push(`/track/${encodeURIComponent(tokenFromLink)}`);
     }
   };
 
@@ -26,21 +27,21 @@ export default function TrackingHome() {
 
         <form onSubmit={handleTrack} className="bg-white rounded-2xl shadow-lg p-6 space-y-4">
           <div>
-            <label htmlFor="rideId" className="block text-sm font-medium text-gray-700 mb-1">
-              Ride ID
+            <label htmlFor="trackingToken" className="block text-sm font-medium text-gray-700 mb-1">
+              Tracking link
             </label>
             <input
-              id="rideId"
+              id="trackingToken"
               type="text"
-              value={rideId}
-              onChange={(e) => setRideId(e.target.value)}
-              placeholder="Enter your ride ID"
+              value={trackingToken}
+              onChange={(e) => setTrackingToken(e.target.value)}
+              placeholder="Paste the tracking link or token"
               className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition text-sm"
             />
           </div>
           <button
             type="submit"
-            disabled={!rideId.trim()}
+            disabled={!trackingToken.trim()}
             className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition shadow-sm"
           >
             Track Ride
@@ -48,7 +49,7 @@ export default function TrackingHome() {
         </form>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Paste the ride link or ID shared by a KansRide passenger
+          Use only a tracking link shared by a KansRide passenger
         </p>
       </div>
     </div>
