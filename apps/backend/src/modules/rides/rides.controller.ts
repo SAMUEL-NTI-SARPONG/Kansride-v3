@@ -100,8 +100,17 @@ export class RidesController {
 
   @Patch(':id/status')
   @RequirePermissions('ride:update_status')
-  updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
-    return this.ridesService.updateStatus(id, body.status);
+  updateStatus(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { status: string },
+  ) {
+    return this.ridesService.updateStatus(
+      id,
+      body.status,
+      req.user.userId,
+      req.user.role as UserRole,
+    );
   }
 
   @Post(':id/rate')

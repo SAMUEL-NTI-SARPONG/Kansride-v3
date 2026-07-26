@@ -14,7 +14,6 @@ import {
   subscribeToRide,
   unsubscribeFromRide,
   onRideUpdate,
-  onDriverAssigned,
   onDriverLocation,
   connectSocket,
 } from '../../../src/api/socket';
@@ -56,7 +55,6 @@ export default function ActiveRideScreen() {
 
   useEffect(() => {
     let unsubUpdate: (() => void) | undefined;
-    let unsubDriver: (() => void) | undefined;
     let unsubLocation: (() => void) | undefined;
 
     const setupSocket = async () => {
@@ -71,10 +69,6 @@ export default function ActiveRideScreen() {
           }
         });
 
-        unsubDriver = onDriverAssigned((data) => {
-          updateFromSocket(data);
-        });
-
         unsubLocation = onDriverLocation((location) => {
           setDriverLocation(location);
         });
@@ -87,7 +81,6 @@ export default function ActiveRideScreen() {
 
     return () => {
       unsubUpdate?.();
-      unsubDriver?.();
       unsubLocation?.();
       unsubscribeFromRide(id);
     };

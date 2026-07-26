@@ -13,8 +13,6 @@ import { post } from '../../src/api/client';
 import {
   connectSocket,
   subscribeToRide,
-  onDriverAssigned,
-  onRideUpdate,
 } from '../../src/api/socket';
 import { useRideStore } from '../../src/stores/ride-store';
 import type { CreateRideResponse, RideType } from '@kansride/types';
@@ -35,7 +33,7 @@ export default function HomeScreen() {
   const [rideType, setRideType] = useState<RideType>('standard_tricycle');
   const [showDestinations, setShowDestinations] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { rideStatus, setActiveRide, setRideStatus, updateFromSocket } = useRideStore();
+  const { rideStatus, setActiveRide, setRideStatus } = useRideStore();
 
   // Filter destinations based on search
   const filteredDestinations = DESTINATIONS.filter((d) =>

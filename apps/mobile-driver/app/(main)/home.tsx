@@ -3,7 +3,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { router } from 'expo-router';
 import { api } from '../../src/api/client';
 import * as socketClient from '../../src/api/socket';
+import type { RideUpdateData } from '../../src/api/socket';
 import { useDriverStore } from '../../src/stores/driver-store';
+import type { RideStatus } from '../../src/stores/driver-store';
 import { useLocationStore } from '../../src/stores/location-store';
 import { RideOffer } from '../../src/api/socket';
 
@@ -88,12 +90,34 @@ export default function DriverHomeScreen() {
         setCurrentOffer(data);
       });
 
-      socket.on('ride:update', (data: any) => {
-        if (data.status === 'cancelled') {
+      socket.on('ride:update', (data: RideUpdateData) => {
+        const currentRide = useDriverStore.getState().activeRide;
+        if (!currentRide || data.rideId !== currentRide.rideId) return;
+
+        const cancelledStatuses = [
+          'cancelled_by_passenger',
+          'cancelled_by_driver',
+          'cancelled_by_admin',
+          'passenger_no_show',
+          'driver_no_show',
+        ];
+        if (cancelledStatuses.includes(data.status)) {
           setActiveRide(null);
           Alert.alert('Ride Cancelled', 'The ride has been cancelled');
-        } else if (activeRide && data.rideId === activeRide.rideId) {
-          updateRideStatus(data.status);
+          return;
+        }
+
+        const visibleStatuses: RideStatus[] = [
+          'driver_assigned',
+          'driver_en_route',
+          'driver_arrived',
+          'waiting_for_passenger',
+          'passenger_verified',
+          'in_progress',
+          'completed',
+        ];
+        if (visibleStatuses.includes(data.status as RideStatus)) {
+          updateRideStatus(data.status as RideStatus);
         }
       });
 
@@ -162,7 +186,7 @@ export default function DriverHomeScreen() {
 
     setActiveRide({
       rideId: currentOffer.rideId,
-      status: 'driver_en_route',
+      status: 'driver_assigned',
       pickupAddress: currentOffer.pickupAddress,
       dropoffAddress: currentOffer.dropoffAddress,
       pickupLatitude: currentOffer.pickupLatitude,
@@ -185,8 +209,11 @@ export default function DriverHomeScreen() {
     if (!activeRide) return;
 
     const statusProgression: Record<string, string> = {
+      driver_assigned: 'driver_en_route',
       driver_en_route: 'driver_arrived',
-      driver_arrived: 'in_progress',
+      driver_arrived: 'waiting_for_passenger',
+      waiting_for_passenger: 'passenger_verified',
+      passenger_verified: 'in_progress',
       in_progress: 'completed',
     };
 
@@ -209,8 +236,11 @@ export default function DriverHomeScreen() {
   const getStatusButtonLabel = (): string => {
     if (!activeRide) return '';
     switch (activeRide.status) {
+      case 'driver_assigned': return 'Start Pickup';
       case 'driver_en_route': return "I've Arrived";
-      case 'driver_arrived': return 'Start Ride';
+      case 'driver_arrived': return 'Wait for Passenger';
+      case 'waiting_for_passenger': return 'Passenger Verified';
+      case 'passenger_verified': return 'Start Ride';
       case 'in_progress': return 'Complete Ride';
       default: return '';
     }
@@ -223,7 +253,10 @@ export default function DriverHomeScreen() {
         <View style={styles.mapPlaceholder}>
           <Text style={styles.mapText}>Navigation View</Text>
           <Text style={styles.mapSubtext}>
-            {activeRide.status === 'driver_en_route' || activeRide.status === 'driver_arrived'
+            {activeRide.status === 'driver_assigned'
+              || activeRide.status === 'driver_en_route'
+              || activeRide.status === 'driver_arrived'
+              || activeRide.status === 'waiting_for_passenger'
               ? 'Heading to pickup'
               : 'Ride in progress'}
           </Text>

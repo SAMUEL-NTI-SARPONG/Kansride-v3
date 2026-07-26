@@ -5,6 +5,8 @@ export type RideStatus =
   | 'driver_assigned'
   | 'driver_en_route'
   | 'driver_arrived'
+  | 'waiting_for_passenger'
+  | 'passenger_verified'
   | 'in_progress'
   | 'completed'
   | 'cancelled';

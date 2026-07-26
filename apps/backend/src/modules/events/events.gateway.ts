@@ -7,7 +7,7 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JWTService } from '@kansride/auth';
 import { DATABASE_TOKEN } from '../../database';
@@ -16,6 +16,7 @@ import { IRedisService } from '../../redis/redis.interface';
 import { Database, rides, drivers } from '@kansride/db';
 import { eq, and, inArray } from 'drizzle-orm';
 import { DispatchService } from '../rides/dispatch.service';
+import type { RideUpdatePayload } from '@kansride/types';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 const LOCATION_DB_DEBOUNCE_MS = 5000;
@@ -45,7 +46,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     @Inject(REDIS_SERVICE) private readonly redis: IRedisService,
-    private readonly dispatchService: DispatchService,
+    @Inject(forwardRef(() => DispatchService)) private readonly dispatchService: DispatchService,
   ) {
     this.jwtService = new JWTService({
       accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
@@ -112,6 +113,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data?.userId;
     if (!userId) {
       return { event: 'error', data: { message: 'Not authenticated' } };
+    }
+    if (client.data.role !== 'driver') {
+      return { event: 'error', data: { message: 'Driver role required' } };
     }
 
     // Find driver record by userId
@@ -184,6 +188,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) {
       return { event: 'error', data: { message: 'Not authenticated' } };
     }
+    if (client.data.role !== 'driver') {
+      return { event: 'error', data: { message: 'Driver role required' } };
+    }
 
     // Find driver record by userId
     const driverRecords = await this.db
@@ -203,12 +210,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const result = await this.dispatchService.driverAcceptRide(data.rideId, driverId);
 
     if (result.success) {
-      // Emit ride:driver-assigned to the ride room
-      this.server.to(`ride:${data.rideId}`).emit('ride:driver-assigned', {
-        rideId: data.rideId,
-        driverId,
-        message: result.message,
-      });
+      // The conditional database update has resolved. Join the accepting
+      // driver's socket before the single canonical room broadcast so both
+      // the passenger and assigned driver observe driver_assigned.
+      try {
+        await client.join(`ride:${data.rideId}`);
+        this.emitRideUpdate(data.rideId, result.update);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Ride ${data.rideId} was assigned but realtime delivery failed: ${message}`,
+        );
+      }
       return { event: 'ack', data: { success: true, message: result.message } };
     } else {
       client.emit('error', { message: result.message });
@@ -259,12 +272,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ─── Public Methods for Other Services ──────────────────────────────────────
 
   /** Broadcast a ride update to all sockets in the ride room */
-  emitRideUpdate(rideId: string, data: any) {
+  emitRideUpdate(rideId: string, data: RideUpdatePayload) {
     this.server.to(`ride:${rideId}`).emit('ride:update', data);
   }
 
   /** Send an event to all connected sockets of a specific user */
-  emitToUser(userId: string, event: string, data: any) {
+  emitToUser(userId: string, event: string, data: unknown) {
     const socketIds = this.connectedUsers.get(userId);
     if (!socketIds || socketIds.size === 0) {
       this.logger.debug(`emitToUser: user ${userId} has no connected sockets`);
@@ -276,7 +289,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   /** Send an event to a driver (by driverId). Looks up userId from DB cache or connected map. */
-  async emitToDriver(driverId: string, event: string, data: any) {
+  async emitToDriver(driverId: string, event: string, data: unknown) {
     // Look up the driver's userId
     const driverRecords = await this.db
       .select({ userId: drivers.userId })

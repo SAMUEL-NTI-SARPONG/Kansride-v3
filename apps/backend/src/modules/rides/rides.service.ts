@@ -14,6 +14,7 @@ import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
 import { DispatchService } from './dispatch.service';
 import { EventsGateway } from '../events/events.gateway';
+import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload';
 
 /** Authorization mapping: which roles may cancel a ride. */
 const CANCELLATION_ROLES = {
@@ -21,6 +22,11 @@ const CANCELLATION_ROLES = {
   driver:    { actor: 'driver',    cancelStatus: 'cancelled_by_driver' as RideStatus },
   super_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
 } as const satisfies Record<'passenger' | 'driver' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
+
+const STATUS_UPDATE_ROLES: Partial<Record<UserRole, string>> = {
+  driver: 'driver',
+  super_admin: 'admin',
+};
 
 const ALLOWED_RIDE_TYPES = [
   'standard_tricycle',
@@ -164,6 +170,11 @@ export class RidesService {
       `Ride created: ${ride.id} for passenger ${passenger.id}, fare: ${fare.totalFarePesewas} pesewas`,
     );
 
+    // The insert has resolved, so the requested state is committed. A newly
+    // created ride has no room subscribers yet; target the authenticated
+    // passenger's sockets directly.
+    this.emitRideUpdateToUser(authenticatedUserId, toRideUpdatePayload(ride));
+
     // Trigger dispatch engine to find nearby drivers
     this.dispatchService.dispatchRide(ride.id, data.pickupLongitude, data.pickupLatitude).catch((err) => {
       this.logger.error(`Dispatch failed for ride ${ride.id}: ${err.message}`);
@@ -207,20 +218,45 @@ export class RidesService {
     throw new ForbiddenException(`Role "${role}" is not permitted to view this ride`);
   }
 
-  async updateStatus(id: string, newStatus: string, actor: string = 'system') {
+  async updateStatus(
+    id: string,
+    newStatus: string,
+    authenticatedUserId: string,
+    role: UserRole,
+  ) {
     const ride = await this.getRide(id);
-    this.stateMachine.validateTransition(ride.status, newStatus, actor);
 
-    const updateData: Record<string, unknown> = { status: newStatus, updatedAt: new Date() };
-    if (newStatus === 'completed') {
-      updateData.completedAt = new Date();
+    const actor = STATUS_UPDATE_ROLES[role];
+    if (!actor) {
+      throw new ForbiddenException(`Role "${role}" is not permitted to update ride status`);
+    }
+    if (role === 'driver') {
+      const driver = await this.getDriverProfileByUserId(authenticatedUserId);
+      if (ride.driverId !== driver.id) {
+        throw new ForbiddenException('You can only update rides assigned to you');
+      }
     }
 
-    await this.db
+    this.stateMachine.validateTransition(ride.status, newStatus, actor);
+
+    const updatedAt = new Date();
+    const updateData: Record<string, unknown> = { status: newStatus, updatedAt };
+    if (newStatus === 'completed') {
+      updateData.completedAt = updatedAt;
+    }
+
+    const updated = await this.db
       .update(rides)
       .set(updateData as any)
-      .where(eq(rides.id, id));
+      .where(and(eq(rides.id, id), eq(rides.status, ride.status)))
+      .returning(RIDE_EVENT_SELECTION);
+
+    if (!updated[0]) {
+      throw new ConflictException('Ride status changed before this update could be applied');
+    }
+
     this.logger.log(`Ride ${id}: ${ride.status} → ${newStatus} by ${actor}`);
+    this.emitRideUpdate(id, toRideUpdatePayload(updated[0], ride.status));
 
     return { id, previousStatus: ride.status, newStatus };
   }
@@ -239,6 +275,20 @@ export class RidesService {
     }
     const { actor, cancelStatus } = mapping;
 
+    // Authorization is profile-scoped. The JWT contains users.id while the
+    // ride stores passengers.id/drivers.id, so resolve before ownership checks.
+    if (role === 'passenger') {
+      const passenger = await this.getPassengerProfileByUserId(cancelledBy);
+      if (ride.passengerId !== passenger.id) {
+        throw new ForbiddenException('You can only cancel your own rides');
+      }
+    } else if (role === 'driver') {
+      const driver = await this.getDriverProfileByUserId(cancelledBy);
+      if (ride.driverId !== driver.id) {
+        throw new ForbiddenException('You can only cancel rides assigned to you');
+      }
+    }
+
     // The state machine is the single source of truth for transition validity
     // and acts as the duplicate-cancellation guard: terminal states (including
     // all cancelled_* states) have an empty transition array and are rejected
@@ -246,7 +296,7 @@ export class RidesService {
     this.stateMachine.validateTransition(ride.status, cancelStatus, actor);
 
     const updatedAt = new Date();
-    await this.db
+    const updated = await this.db
       .update(rides)
       .set({
         status: cancelStatus as any,
@@ -254,7 +304,12 @@ export class RidesService {
         cancellationReason: reason,
         updatedAt,
       })
-      .where(eq(rides.id, id));
+      .where(and(eq(rides.id, id), eq(rides.status, ride.status)))
+      .returning(RIDE_EVENT_SELECTION);
+
+    if (!updated[0]) {
+      throw new ConflictException('Ride status changed before cancellation could be applied');
+    }
 
     this.logger.log(`Ride ${id}: ${ride.status} → ${cancelStatus} by ${actor} (user ${cancelledBy})`);
 
@@ -262,20 +317,54 @@ export class RidesService {
     // stores users.id for every actor type (passenger/driver/super_admin) —
     // this is an intentional invariant; no passengers.id/drivers.id resolution
     // is performed and the column remains a free UUID with no FK.
-    const payload = {
-      rideId: id,
-      status: cancelStatus,
+    const payload = toRideUpdatePayload(updated[0], ride.status, {
       cancelledBy,
       cancelledByRole: role,
-      reason,
+      cancellationReason: reason ?? null,
+      ...(reason === undefined ? {} : { reason }),
       cancelledAt: updatedAt.toISOString(),
-    };
-    this.eventsGateway.emitRideUpdate(id, payload);
+    });
+    this.emitRideUpdate(id, payload);
     if (ride.driverId) {
-      this.eventsGateway.emitToDriver(ride.driverId, 'ride:cancelled', payload);
+      void this.eventsGateway
+        .emitToDriver(ride.driverId, 'ride:cancelled', payload)
+        .catch((error: unknown) => {
+          this.logger.error(
+            `Ride ${id} was cancelled but direct driver notification failed: ${this.errorMessage(error)}`,
+          );
+        });
     }
 
     return { id, status: cancelStatus, cancelledBy, reason };
+  }
+
+  private emitRideUpdate(rideId: string, payload: ReturnType<typeof toRideUpdatePayload>): void {
+    try {
+      this.eventsGateway.emitRideUpdate(rideId, payload);
+    } catch (error) {
+      // The database transition is already committed. Do not turn a socket
+      // delivery failure into a false HTTP mutation failure.
+      this.logger.error(
+        `Ride ${rideId} was committed but ride:update emission failed: ${this.errorMessage(error)}`,
+      );
+    }
+  }
+
+  private emitRideUpdateToUser(
+    userId: string,
+    payload: ReturnType<typeof toRideUpdatePayload>,
+  ): void {
+    try {
+      this.eventsGateway.emitToUser(userId, 'ride:update', payload);
+    } catch (error) {
+      this.logger.error(
+        `Ride ${payload.rideId} was committed but passenger notification failed: ${this.errorMessage(error)}`,
+      );
+    }
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   async rateRide(id: string, authenticatedUserId: string, role: UserRole, rating: number, comment?: string) {

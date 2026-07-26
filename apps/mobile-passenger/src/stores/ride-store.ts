@@ -69,16 +69,27 @@ export const useRideStore = create<RideState>((set, get) => ({
 
   updateFromSocket: (data) => {
     const currentRide = get().activeRide;
-    if (!currentRide) return;
+    if (!currentRide || data.rideId !== currentRide.id) return;
 
     const statusMap: Record<string, RideStatus> = {
+      requested: 'searching',
       searching: 'searching',
+      driver_offered: 'searching',
       driver_assigned: 'driver_assigned',
-      en_route: 'en_route',
-      arrived: 'arrived',
+      driver_en_route: 'en_route',
+      driver_arrived: 'arrived',
+      waiting_for_passenger: 'arrived',
+      passenger_verified: 'in_progress',
       in_progress: 'in_progress',
       completed: 'completed',
-      cancelled: 'cancelled',
+      payment_pending: 'completed',
+      payment_failed: 'completed',
+      cancelled_by_passenger: 'cancelled',
+      cancelled_by_driver: 'cancelled',
+      cancelled_by_admin: 'cancelled',
+      no_driver_found: 'cancelled',
+      passenger_no_show: 'cancelled',
+      driver_no_show: 'cancelled',
     };
 
     const newStatus = statusMap[data.status] || currentRide.status;

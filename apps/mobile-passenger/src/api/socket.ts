@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { getAccessToken } from './client';
+import type { RideUpdatePayload } from '@kansride/types';
 
 const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
 
@@ -11,9 +12,7 @@ export interface DriverLocation {
   heading?: number;
 }
 
-export interface RideUpdate {
-  rideId: string;
-  status: string;
+export interface RideUpdate extends RideUpdatePayload {
   driver?: {
     id: string;
     name: string;
@@ -79,16 +78,6 @@ export function onRideUpdate(callback: (data: RideUpdate) => void): () => void {
   socket.on('ride:update', callback);
   return () => {
     socket?.off('ride:update', callback);
-  };
-}
-
-export function onDriverAssigned(
-  callback: (data: RideUpdate) => void,
-): () => void {
-  if (!socket) return () => {};
-  socket.on('ride:driver-assigned', callback);
-  return () => {
-    socket?.off('ride:driver-assigned', callback);
   };
 }
 

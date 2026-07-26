@@ -49,6 +49,30 @@ export interface CreateRideResponse {
   fareBreakdown: FareBreakdown;
 }
 
+/**
+ * Canonical private realtime payload for a persisted ride lifecycle change.
+ *
+ * Monetary values are integer pesewas. Dates cross the socket boundary as
+ * ISO-8601 strings rather than Date instances.
+ */
+export interface RideUpdatePayload {
+  rideId: string;
+  status: RideStatus;
+  previousStatus?: RideStatus;
+  driverId: string | null;
+  rideType: RideType;
+  estimatedFarePesewas: number;
+  actualFarePesewas: number | null;
+  createdAt: string;
+  updatedAt: string;
+  cancelledBy?: string;
+  cancelledByRole?: string;
+  cancellationReason?: string | null;
+  /** @deprecated Use cancellationReason. Retained for existing clients. */
+  reason?: string;
+  cancelledAt?: string;
+}
+
 export interface Ride {
   id: string;
   passengerId: string;

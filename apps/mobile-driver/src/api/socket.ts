@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { getStoredToken } from './client';
+import type { RideUpdatePayload } from '@kansride/types';
 
 const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
 
@@ -18,11 +19,7 @@ export interface RideOffer {
   distance: number;
 }
 
-export type RideUpdateData = {
-  rideId: string;
-  status: string;
-  [key: string]: unknown;
-};
+export type RideUpdateData = RideUpdatePayload;
 
 export async function connect(): Promise<Socket> {
   if (socket?.connected) return socket;
