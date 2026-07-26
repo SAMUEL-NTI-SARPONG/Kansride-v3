@@ -1766,3 +1766,42 @@ Socket.IO delivery is best effort: there is no outbox, acknowledgement, replay, 
 
 The next verified recovery task is **Task 3b — emit driver offers**. Task 3b was not started here.
 
+## Autonomous Section A / Task 3b — Authenticated driver offer delivery
+
+**Date:** 2026-07-26
+**Status:** Implemented and statically validated; runtime database/Redis verification remains pending.
+**Implementation commit:** `bd4abe3` (`fix(dispatch): deliver authenticated driver ride offers`)
+
+### Defects
+
+- **A1 — Critical:** Redis offers had no `ride:offered` producer.
+- **A2 — High:** eligibility checked only subscription and sliced geo results before filtering.
+- **A3 — High:** no ride/driver offer indexes existed, preventing deterministic cleanup and reconnect recovery.
+- **A4 — High:** acceptance trusted key existence without validating recipient, expiry, or current eligibility.
+- **A5 — Medium:** offer distance had an ambiguous unit and no explicit expiry or shared canonical type.
+- **A6 — High:** the driver app created an active ride optimistically before acceptance succeeded.
+- **A7 — Medium:** decline did not validate ownership and could not return an exhausted offer round to searching.
+
+### Implementation
+
+- Added shared `RideOfferPayload` and `RideAcceptResult`.
+- Deterministically filters geo candidates by distance and ID, then requires verified active driver user, active/online driver, recent non-null location, active tricycle, current subscription, and no active assigned ride.
+- Stores TTL-bound offers plus ride and driver Redis indexes; cleanup covers acceptance, competing offers, cancellation, decline, expiry/terminal failure, and stale recovery.
+- Emits `ride:offered` only to the addressed driver’s authenticated user sockets after `driver_offered` persists.
+- Replays still-valid pending offers via authenticated `driver:get-offers`.
+- Revalidates offer recipient, expiry, eligibility, and ride availability before the existing atomic assignment.
+- Uses explicit `distanceToPickupMeters`, canonical `rideType`, integer `estimatedFarePesewas`, and ISO expiry. No passenger contact, user ID, or verification PIN is exposed.
+- Driver acceptance now waits for `ride:accept-result`; decline removes only that driver’s offer.
+
+### Validation
+
+- Shared-types build — PASS.
+- Backend TypeScript check and production build — PASS.
+- Driver mobile TypeScript check — PASS.
+- Focused mocked dispatch probe — PASS for targeting, minimized payload, pending recovery, acceptance, competing rejection, cleanup, decline-to-searching, and pesewa/unit fields.
+- `git diff --check` — PASS; schema/migration diff empty.
+
+### Runtime limitation
+
+PostgreSQL/Redis/Socket.IO end-to-end delivery remains pending Section E–G service recovery. No credentials or configuration were changed.
+

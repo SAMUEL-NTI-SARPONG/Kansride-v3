@@ -1,9 +1,9 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Phase 2 recovery in progress; static recovery work is complete through Task 3a
+**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section A / Task 3b
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Task 3a at commit `57f14de`
+**Latest recovery implementation:** Section A / Task 3b at commit `bd4abe3`
 **Latest tagged checkpoint:** tag `phase2-task2f-complete` at commit `16bceb1`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `bd4abe3` | Authenticated driver-specific offers, eligibility filtering, indexed expiry/cleanup, and non-optimistic acceptance |
 | `57f14de` | Post-persistence ride lifecycle broadcasts, conditional transition writes, and canonical client event handling |
 | `d66b314` | Integer-pesewa create-ride response, client state, and fare presentation contract |
 | `c49d639` | Canonical ride-type client contract and backend validation |
@@ -139,6 +140,9 @@ Confirmed in current code and recovery history:
 - Creation targets the authenticated passenger; later changes target the subscribed ride room; cancellation also retains the assigned-driver `ride:cancelled` notification.
 - Dispatch and HTTP transition writes are conditional, preventing stale dispatch work, duplicate cancellation/status emissions, and multiple concurrent driver assignments.
 - Driver status changes resolve and authorize the authenticated `drivers.id`; passenger and driver cancellation ownership is profile-scoped.
+- Dispatch targets at most five deterministically ordered eligible drivers and sends each a private typed `ride:offered` payload.
+- Offer eligibility requires a verified active `driver` user, active/online driver profile, recent location, active tricycle, current subscription, and no active assigned ride.
+- Redis ride/driver indexes support pending-offer recovery and cleanup on decline, cancellation, acceptance, expiry/terminal failure, and competing acceptance.
 
 ## Known Limitations
 
@@ -148,10 +152,9 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current next recovery task is Task 3b: emit eligible driver offers.
+- The current recovery section is Section B: authorize private Socket.IO room membership.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
-- Dispatch stores offers but does not emit `ride:offered`; the driver offer flow is therefore incomplete.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
 - Tracking web connects to the authenticated `/rides` namespace without a token.
 - Any authenticated socket can currently request membership in an arbitrary `ride:{rideId}` room; room authorization remains a security risk for the later tracking/socket-auth decision.
@@ -184,11 +187,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Task 3a is complete at implementation commit `57f14de`. The next implementation boundary is Task 3b only after explicit approval. Do not begin assignment enrichment, public tracking authentication, admin, authentication, navigation, or other client recovery work as part of Task 3b.
+Section A / Task 3b is complete at implementation commit `bd4abe3`. The current autonomous boundary is Section B private room authorization, followed by the explicitly ordered Sections C–H.
 
 ## Planned Work
 
-Planned recovery resumes with Task 3b driver-offer delivery, then continues through assignment enrichment, tracking authorization, admin access, passenger and driver client contracts, and quality/demo/release readiness. The dependency order and acceptance criteria are maintained in `RECOVERY_PLAN.md`. Planned items are not complete and must not be started without task-specific approval.
+The autonomous run continues with private room authorization, public tracking, admin build recovery, runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
 
 ## Validation Practices
 

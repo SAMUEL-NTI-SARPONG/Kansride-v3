@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next task:** Task 3b — emit driver offers
+**Current next section:** Section B — realtime room authorization
 
 ## Recovery Objective
 
@@ -45,6 +45,7 @@ Older audit findings must be reconciled before implementation. In particular:
 | Step 2e — normalize ride types | Implemented; runtime pending | Canonical client values and backend validation before fare/database work |
 | Step 2f — normalize create-ride fare response | Implemented; runtime pending | Integer-pesewa persistence/transport/state fields and UI-boundary GHS formatting |
 | Task 3a — broadcast committed ride state changes | Implemented; runtime pending | Typed canonical event, post-persistence emission, conditional transition writes, canonical client statuses |
+| Task 3b — authenticated driver offers | Implemented; runtime pending | Deterministic eligibility, private delivery, explicit expiry, Redis indexing/cleanup, atomic acceptance |
 
 The latest tagged checkpoint is `phase2-task2f-complete` at `16bceb1`. Task 3a is implemented at `57f14de`; no Task 3a tag exists.
 
@@ -125,9 +126,11 @@ Acceptance:
 - Event failure handling does not falsely report a database transition as uncommitted.
 - Passenger, driver, and tracking listeners agree on status names.
 
-### Task 3b — emit driver offers
+### Task 3b — emit driver offers (completed; runtime pending)
 
 Dependencies: authenticated driver connection, valid subscription, canonical offer payload.
+
+Current state: dispatch filters geo candidates against schema-supported user, driver, vehicle, subscription, recent-location, and active-ride rules; indexes live offers by ride and driver; emits typed offers only to addressed authenticated user sockets; restores pending offers on request; and removes competing or terminal offers.
 
 Acceptance:
 

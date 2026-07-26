@@ -260,6 +260,7 @@ Confirmed behavior:
 - `driver:location` resolves `drivers.id`, updates Redis on every event, debounces database writes, and emits `ride:driver-location` for an active ride.
 - `driver:accept-ride` is driver-role-only, resolves `drivers.id`, conditionally assigns an unassigned offerable ride, joins the accepting socket to the ride room, and emits one canonical `ride:update`.
 - `driver:decline-ride` deletes that driver’s offer key.
+- `driver:get-offers` replays only still-live indexed offers addressed to the authenticated eligible driver.
 - Services can emit to a ride room, a user’s sockets, or a driver after resolving `drivers.userId`.
 - `RideUpdatePayload` in `packages/shared-types/src/ride.types.ts` is the private lifecycle contract. It contains `rideId`, canonical `status`, safe assignment/type fields, integer `estimatedFarePesewas` / `actualFarePesewas`, and ISO `createdAt` / `updatedAt` timestamps.
 - `apps/backend/src/modules/rides/ride-event.payload.ts` is the shared backend serializer; its explicit Drizzle selection prevents full ride rows and verification PINs from entering lifecycle events.
@@ -270,13 +271,26 @@ Confirmed behavior:
 
 Confirmed gaps:
 
-- `DispatchService.offerToDrivers` stores Redis offers but never calls `emitToDriver(..., 'ride:offered', ...)`.
 - The canonical `driver_assigned` update has the assigned `driverId` but no passenger-approved driver/vehicle enrichment.
 - Tracking web supplies no JWT to an authenticated namespace.
 - `ride:subscribe` checks authentication but not passenger/driver ride ownership, so an authenticated user can request another ride’s room.
 - Passenger emits `ride:unsubscribe`, but the gateway has no handler.
 - Rooms are process-local; no Socket.IO Redis adapter is configured.
 - There is no durable event log/outbox, delivery acknowledgement strategy, or reconnect replay.
+
+### Driver offer contract
+
+`RideOfferPayload` is private to the addressed driver and contains canonical ride type, integer `estimatedFarePesewas`, necessary pickup/destination data, explicit `distanceToPickupMeters`, and ISO `offeredAt` / `expiresAt`. It excludes passenger contact details, passenger/user identifiers, verification PIN, and database rows.
+
+Dispatch candidates come from the Redis geo index and are sorted by distance then `drivers.id`. Eligibility requires:
+
+- `users.role = driver`, active status, and verified account;
+- active and online driver profile with non-null location updated within 60 seconds;
+- active tricycle vehicle;
+- active unexpired subscription;
+- no ride assigned to that driver in an active lifecycle status.
+
+At most five eligible drivers receive an offer. Redis stores the TTL-bound addressed payload and indexes it under both ride and driver sets. Acceptance validates recipient, expiry, current eligibility, offerable ride state, and uses the Task 3a conditional single-winner assignment. Acceptance, cancellation, terminal dispatch failure, and winning competition remove all ride offers; decline removes only that driver and returns an exhausted offered ride to `searching`.
 
 ## Frontend/Backend API Boundaries
 
