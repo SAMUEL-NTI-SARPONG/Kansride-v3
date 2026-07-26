@@ -1919,3 +1919,25 @@ No runtime admin session/API flow was claimed. The separate unwired admin login 
 
 Locally create the ignored root `.env` from `.env.example`, select/start PostgreSQL 16 (or explicitly reconcile the supported version), enter the real password only in that file/native prompt with URL encoding, provision `kansride` and PostGIS if needed, and make Redis 7 or a compatible service available. No password was requested, printed, changed, or committed.
 
+## Autonomous Section F — Migrations and runtime smoke validation
+
+**Date:** 2026-07-26
+**Status:** Static migration integrity validated; database/Redis runtime checks blocked externally.
+**Implementation commit:** None; no repository defect or schema change was found.
+
+### Static evidence
+
+- Drizzle journal version 7 contains exactly ordered migrations `0000_unusual_morlun` and `0001_ride_rating_columns`.
+- Both migration snapshots parse successfully.
+- `0000` enables PostGIS, creates the documented enums/tables, identity foreign keys, integer-pesewa columns, and ride/driver/history indexes.
+- `0001` adds rating persistence and the `rated_by → users.id` foreign key.
+- Current schema/migration directories have no uncommitted differences.
+- `npx drizzle-kit check` with an intentionally invalid non-secret URL completed successfully: `Everything's fine`.
+- Shared DB build passed in Section E.
+
+### Blocked runtime matrix
+
+Migration status/application, PostGIS version, live tables/enums/foreign keys/indexes, database-backed OTP/profile/ride/history/cancellation/rating/dispatch/tracking requests, real Redis connectivity, Socket.IO startup with Redis, and persisted concurrent acceptance/rating behavior were not run. They require the local PostgreSQL password/version decision and a Redis service.
+
+No migration was applied, generated, reset, edited, or created. No database or service state was changed.
+

@@ -4,9 +4,9 @@
 **Starting branch:** `recovery/phase-2-opencode`
 **Starting commit:** `4189034`
 **Starting checkpoint:** `phase3-task3a-complete` → `4189034`
-**Current section:** Section F — Migrations and runtime smoke validation
-**Current subtask:** Record the credential/service boundary, inspect migration/schema integrity statically, and classify unavailable runtime checks before continuing independent Section G work.
-**Last updated:** 2026-07-26T14:23:45+00:00
+**Current section:** Section G — First end-to-end ride-flow validation
+**Current subtask:** Reconcile every client/backend lifecycle boundary statically and fix only confirmed V1 integration defects that do not require credentials.
+**Last updated:** 2026-07-26T14:32:34+00:00
 
 ## Section Status
 
@@ -15,8 +15,8 @@
 - [x] Section C — Public tracking — **COMMITTED**
 - [x] Section D — Admin build recovery — **COMMITTED**
 - [x] Section E — Runtime configuration — **COMMITTED**
-- [ ] Section F — Migrations and runtime smoke tests — **IN PROGRESS**
-- [ ] Section G — End-to-end ride validation — **NOT STARTED**
+- [ ] Section F — Migrations and runtime smoke tests — **BLOCKED**
+- [ ] Section G — End-to-end ride validation — **IN PROGRESS**
 - [ ] Section H — Completion documentation — **NOT STARTED**
 
 ## Defects Discovered
@@ -42,10 +42,12 @@
 - **E3 — Medium:** the backend default/template port conflicted with admin web, and the documented backend `dev` script did not exist.
 - **E4 — External blocker:** PostgreSQL 13 is listening on 5432 while the documented PostgreSQL 16 service is stopped; database credentials are unavailable for safe authentication.
 - **E5 — External blocker:** no Redis-compatible service or CLI is installed/running and port 6379 is closed.
+- **F1 — External blocker:** migration status/application and all database-backed smoke checks require unavailable local PostgreSQL authentication.
+- **F2 — External blocker:** Redis-backed dispatch/socket checks require an unavailable Redis-compatible service.
 
 ## Working Files
 
-- Section E recovery documents.
+- Section F recovery documents.
 
 ## Validation
 
@@ -77,12 +79,14 @@ Completed:
 - Built backend health smoke passed on port 3100 with an intentionally invalid test DB identity and in-memory Redis; no database query was claimed.
 - Temporary smoke files and accidental generated source artifacts were removed.
 - Section E `git diff --check` passed.
+- Section F journal/snapshot/SQL inspection and Drizzle static consistency check passed.
+- Schema/migration working-tree diff is empty; no database state was changed.
 
 Still required:
 
-- Section E documentation checkpoint commit.
-- Section F static migration inspection and blocker classification.
-- Sections G–H and final repository-wide validation.
+- Section F documentation checkpoint commit.
+- Section G static/client integration reconciliation and all credential-free validation.
+- Section H and final repository-wide validation.
 
 ## Runtime Blockers and Human Actions
 
@@ -112,7 +116,7 @@ Tags created:
 
 ## Exact Next Action
 
-Commit the Section E recovery checkpoint, then complete every credential-free Section F inspection and mark database/Redis checks blocked.
+Commit the Section F blocker/static-evidence checkpoint, then inspect the complete passenger/driver/admin ride journey for contract defects.
 
 ## Last Checkpoint Git Status
 
@@ -127,10 +131,10 @@ Commit the Section E recovery checkpoint, then complete every credential-free Se
 - Branch: `recovery/phase-2-opencode`
 - HEAD: `4dc613a`
 - Last completed section: Section E — Runtime configuration
-- Current section: Section F — Migrations and runtime smoke validation
+- Current section: Section G — End-to-end ride validation
 - Completed commits: `bd4abe3`, `9c9f83e`, `9b89f47`, `55db052`, `8ed1962`, `854c4d8`, `d6d9d44`, `93f3193`, `4dc613a`
-- Uncommitted files: five Section E recovery documents plus two protected generated files
-- Validation completed: Sections A–E static/focused checks and credential-free backend health
-- Remaining validation: Sections F–H and final matrix
+- Uncommitted files: four Section F recovery documents plus two protected generated files
+- Validation completed: Sections A–F available static/focused checks and credential-free backend health
+- Remaining validation: Sections G–H and final matrix; database/Redis matrix blocked
 - Blocker: PostgreSQL credential/version selection and Redis service availability
-- Exact next action: commit Section E documentation, then inspect migrations/schema and record runtime blocks
+- Exact next action: commit Section F documentation, then inspect end-to-end client/backend contracts

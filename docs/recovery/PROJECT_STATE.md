@@ -162,7 +162,7 @@ The local machine has no root `.env` and no database/Redis process variables. Po
 
 ### Confirmed incomplete or broken areas
 
-- The current recovery section is Section F: migrations and runtime smoke validation.
+- The current recovery section is Section G: credential-free end-to-end contract reconciliation; Section F database/Redis runtime checks are externally blocked.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.

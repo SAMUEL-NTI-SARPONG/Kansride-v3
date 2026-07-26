@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next section:** Section F — migrations and runtime smoke validation (externally blocked where database/Redis access is required)
+**Current next section:** Section G — end-to-end ride-flow contract validation (runtime execution externally blocked)
 
 ## Recovery Objective
 
@@ -50,6 +50,7 @@ Older audit findings must be reconciled before implementation. In particular:
 | Task 3d / Section C — public tracking security | Implemented; runtime pending | Passenger-owned expiring token, minimized REST/events, dedicated public namespace/rooms, terminal revocation |
 | Task 4a / Section D — admin build | Complete | Existing typed hooks resolved through `@/lib/hooks`; TypeScript and Next production build pass |
 | Section E — runtime configuration | Repository complete; external services blocked | Root `.env` loading, fail-fast canonical URL, runtime package outputs, port/scripts, and setup guidance aligned |
+| Section F — migrations/runtime smoke | Static complete; runtime blocked | Journal/snapshots/SQL and Drizzle consistency pass; database, PostGIS, Redis, and persisted-flow checks require local services |
 
 The latest tagged checkpoint is `phase3-task3a-complete` at `4189034`.
 
