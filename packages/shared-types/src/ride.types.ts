@@ -47,6 +47,18 @@ export interface CreateRideResponse {
   estimatedDistanceMeters: number | null;
   estimatedDurationSeconds: number | null;
   fareBreakdown: FareBreakdown;
+  /** Passenger-only trip-start credential. Never include in offers or realtime payloads. */
+  verificationPin: string;
+}
+
+export interface AssignedDriverSummary {
+  firstName: string;
+  lastName: string | null;
+  rating: number;
+  vehicleMake: string | null;
+  vehicleModel: string | null;
+  vehicleColour: string;
+  vehicleRegistration: string;
 }
 
 /**
@@ -65,6 +77,8 @@ export interface RideUpdatePayload {
   actualFarePesewas: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Present on assignment updates for private ride participants only. */
+  driver?: AssignedDriverSummary;
   cancelledBy?: string;
   cancelledByRole?: string;
   cancellationReason?: string | null;

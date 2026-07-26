@@ -126,10 +126,14 @@ export function put<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'PUT', body });
 }
 
+export function patch<T>(path: string, body?: unknown): Promise<T> {
+  return request<T>(path, { method: 'PATCH', body });
+}
+
 // Unauthenticated request (for login/otp)
 export function postPublic<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body, skipAuth: true });
 }
 
-export const apiClient = { get, post, put, postPublic };
+export const apiClient = { get, post, put, patch, postPublic };
 export default apiClient;

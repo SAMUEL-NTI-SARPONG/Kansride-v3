@@ -114,45 +114,93 @@ export class DriversService {
     return this.getEarnings(driver.id);
   }
 
-  async register(userId: string, data: { licenseNumber: string; vehicleRegistration: string; vehicleColour: string; vehicleMake?: string; vehicleModel?: string }) {
-    // Check if user already has a driver profile
-    const existing = await this.db.select().from(drivers).where(eq(drivers.userId, userId)).limit(1);
-    if (existing[0]) {
-      throw new BadRequestException('User already registered as a driver');
+  async register(
+    userId: string,
+    data: {
+      firstName: string;
+      lastName?: string;
+      licenseNumber: string;
+      vehicleRegistration: string;
+      vehicleColour: string;
+      vehicleMake: string;
+      vehicleModel: string;
+    },
+  ) {
+    const required = [
+      data.firstName,
+      data.licenseNumber,
+      data.vehicleRegistration,
+      data.vehicleColour,
+      data.vehicleMake,
+      data.vehicleModel,
+    ];
+    if (required.some((value) => typeof value !== 'string' || value.trim().length === 0)) {
+      throw new BadRequestException('Driver and vehicle details are required');
     }
 
-    // Update user role to driver_applicant
-    await this.db.update(users).set({ role: 'driver_applicant' }).where(eq(users.id, userId));
+    const driver = await this.db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ role: users.role })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!user || !['passenger', 'driver_applicant'].includes(user.role)) {
+        throw new BadRequestException('This account cannot submit a driver application');
+      }
 
-    // Create vehicle
-    const [vehicle] = await this.db.insert(vehicles).values({
-      registrationNumber: data.vehicleRegistration,
-      type: 'tricycle',
-      colour: data.vehicleColour,
-      make: data.vehicleMake,
-      model: data.vehicleModel,
-      ownerId: userId,
-      status: 'active',
-    }).returning();
+      const [existing] = await tx
+        .select({ id: drivers.id })
+        .from(drivers)
+        .where(eq(drivers.userId, userId))
+        .limit(1);
+      if (existing) {
+        throw new BadRequestException('User already registered as a driver');
+      }
 
-    if (!vehicle) {
-      throw new BadRequestException('Failed to create vehicle record');
-    }
+      const [vehicle] = await tx
+        .insert(vehicles)
+        .values({
+          registrationNumber: data.vehicleRegistration.trim().toUpperCase(),
+          type: 'tricycle',
+          colour: data.vehicleColour.trim(),
+          make: data.vehicleMake.trim(),
+          model: data.vehicleModel.trim(),
+          ownerId: userId,
+          status: 'active',
+        })
+        .returning();
+      if (!vehicle) {
+        throw new BadRequestException('Failed to create vehicle record');
+      }
 
-    // Create driver record
-    const [driver] = await this.db.insert(drivers).values({
-      userId,
-      licenseNumber: data.licenseNumber,
-      vehicleId: vehicle.id,
-      rating: '5.00',
-      isOnline: false,
-      isActive: false,
-      completedRides: 0,
-    }).returning();
+      const [createdDriver] = await tx
+        .insert(drivers)
+        .values({
+          userId,
+          licenseNumber: data.licenseNumber.trim(),
+          vehicleId: vehicle.id,
+          rating: '5.00',
+          isOnline: false,
+          isActive: false,
+          completedRides: 0,
+        })
+        .returning();
+      if (!createdDriver) {
+        throw new BadRequestException('Failed to create driver record');
+      }
 
-    if (!driver) {
-      throw new BadRequestException('Failed to create driver record');
-    }
+      await tx
+        .update(users)
+        .set({
+          firstName: data.firstName.trim(),
+          lastName: data.lastName?.trim() || null,
+          role: 'driver_applicant',
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+
+      return createdDriver;
+    });
 
     this.logger.log(`Driver registered: ${driver.id} (user: ${userId})`);
     return { message: 'Registration submitted for review', driverId: driver.id, status: 'pending' };

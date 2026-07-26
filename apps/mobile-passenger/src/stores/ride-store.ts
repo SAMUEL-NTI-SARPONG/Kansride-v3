@@ -14,9 +14,7 @@ export type RideStatus =
   | 'cancelled';
 
 export interface RideDriver {
-  id: string;
   name: string;
-  phone: string;
   vehicle: string;
   plateNumber: string;
   rating: number;
@@ -33,6 +31,7 @@ export interface ActiveRide {
   dropoffLongitude: number;
   rideType: RideType;
   estimatedFarePesewas: number;
+  verificationPin: string;
   driver?: RideDriver;
 }
 
@@ -98,7 +97,18 @@ export const useRideStore = create<RideState>((set, get) => ({
       activeRide: {
         ...currentRide,
         status: newStatus,
-        driver: data.driver || currentRide.driver,
+        driver: data.driver
+          ? {
+              name: [data.driver.firstName, data.driver.lastName]
+                .filter(Boolean)
+                .join(' '),
+              vehicle: [data.driver.vehicleColour, data.driver.vehicleMake, data.driver.vehicleModel]
+                .filter(Boolean)
+                .join(' '),
+              plateNumber: data.driver.vehicleRegistration,
+              rating: data.driver.rating,
+            }
+          : currentRide.driver,
       },
     });
   },

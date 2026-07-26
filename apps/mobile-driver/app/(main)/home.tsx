@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { router } from 'expo-router';
 import { api } from '../../src/api/client';
@@ -20,11 +20,14 @@ export default function DriverHomeScreen() {
   const {
     isOnline, setOnline, currentOffer, setCurrentOffer,
     activeRide, setActiveRide, setSubscription, setDriverId,
-    subscriptionActive, offerExpiresAt, updateRideStatus,
+    subscriptionActive, offerExpiresAt, updateRideStatus, isApproved, setApproved,
   } = useDriverStore();
   const getLocation = useLocationStore((s) => s.getLocation);
   const [toggling, setToggling] = useState(false);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
+  const [verificationPin, setVerificationPin] = useState('');
+  const [verifyingPassenger, setVerifyingPassenger] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Initialize driver profile on mount
@@ -69,10 +72,12 @@ export default function DriverHomeScreen() {
         subscriptionActive?: boolean;
         subscriptionExpiresAt?: string;
         isOnline?: boolean;
+        isActive?: boolean;
       }>('/drivers/me');
 
       if (profile.isDriver && profile.driverId) {
         setDriverId(profile.driverId);
+        setApproved(profile.isActive === true);
         setSubscription(profile.subscriptionActive || false, profile.subscriptionExpiresAt);
         if (profile.isOnline) {
           setOnline(true);
@@ -81,6 +86,8 @@ export default function DriverHomeScreen() {
       }
     } catch {
       // Driver profile not found — that's OK for new drivers
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -236,7 +243,6 @@ export default function DriverHomeScreen() {
       driver_assigned: 'driver_en_route',
       driver_en_route: 'driver_arrived',
       driver_arrived: 'waiting_for_passenger',
-      waiting_for_passenger: 'passenger_verified',
       passenger_verified: 'in_progress',
       in_progress: 'completed',
     };
@@ -257,13 +263,31 @@ export default function DriverHomeScreen() {
     }
   };
 
+  const handleVerifyPassenger = async () => {
+    if (!activeRide || !/^\d{4}$/.test(verificationPin)) {
+      Alert.alert('Invalid PIN', 'Enter the passenger\'s 4-digit verification PIN.');
+      return;
+    }
+    setVerifyingPassenger(true);
+    try {
+      await api.post(`/rides/${activeRide.rideId}/verify-passenger`, {
+        verificationPin,
+      });
+      setVerificationPin('');
+      updateRideStatus('passenger_verified');
+    } catch (error: any) {
+      Alert.alert('Verification Failed', error.message || 'Could not verify passenger');
+    } finally {
+      setVerifyingPassenger(false);
+    }
+  };
+
   const getStatusButtonLabel = (): string => {
     if (!activeRide) return '';
     switch (activeRide.status) {
       case 'driver_assigned': return 'Start Pickup';
       case 'driver_en_route': return "I've Arrived";
       case 'driver_arrived': return 'Wait for Passenger';
-      case 'waiting_for_passenger': return 'Passenger Verified';
       case 'passenger_verified': return 'Start Ride';
       case 'in_progress': return 'Complete Ride';
       default: return '';
@@ -310,11 +334,59 @@ export default function DriverHomeScreen() {
               Passenger: {activeRide.passengerName || 'N/A'} ({activeRide.passengerPhone})
             </Text>
           )}
+          {activeRide.status === 'waiting_for_passenger' && (
+            <View style={styles.verificationCard}>
+              <Text style={styles.rideLabel}>Passenger verification PIN</Text>
+              <TextInput
+                style={styles.pinInput}
+                value={verificationPin}
+                onChangeText={(value) => setVerificationPin(value.replace(/\D/g, '').slice(0, 4))}
+                keyboardType="number-pad"
+                maxLength={4}
+                secureTextEntry
+                placeholder="4 digits"
+                placeholderTextColor="#94A3B8"
+              />
+              <TouchableOpacity
+                style={[styles.advanceButton, verifyingPassenger && styles.buttonDisabled]}
+                onPress={handleVerifyPassenger}
+                disabled={verifyingPassenger}
+              >
+                {verifyingPassenger ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.advanceButtonText}>Verify Passenger</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
           {getStatusButtonLabel() && (
             <TouchableOpacity style={styles.advanceButton} onPress={handleAdvanceStatus}>
               <Text style={styles.advanceButtonText}>{getStatusButtonLabel()}</Text>
             </TouchableOpacity>
           )}
+        </View>
+      </View>
+    );
+  }
+
+  if (profileLoading) {
+    return (
+      <View style={[styles.container, styles.pendingContainer]}>
+        <ActivityIndicator size="large" color="#1B8B4B" />
+      </View>
+    );
+  }
+
+  if (!isApproved) {
+    return (
+      <View style={[styles.container, styles.pendingContainer]}>
+        <View style={styles.pendingCard}>
+          <Text style={styles.pendingTitle}>Application under review</Text>
+          <Text style={styles.pendingText}>
+            KansRide must approve your driver and vehicle records before you can
+            subscribe, go online, or receive ride offers.
+          </Text>
         </View>
       </View>
     );
@@ -408,6 +480,10 @@ export default function DriverHomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#E8E8E8' },
+  pendingContainer: { alignItems: 'center', justifyContent: 'center', padding: 24 },
+  pendingCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24 },
+  pendingTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
+  pendingText: { fontSize: 14, color: '#64748B', lineHeight: 21, marginTop: 8 },
   mapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   mapText: { fontSize: 24, fontWeight: '600', color: '#64748B' },
   mapSubtext: { fontSize: 14, color: '#94A3B8', marginTop: 4 },
@@ -452,6 +528,19 @@ const styles = StyleSheet.create({
   fareLabel: { fontSize: 14, color: '#64748B' },
   fareAmount: { fontSize: 24, fontWeight: '700', color: '#1B8B4B' },
   passengerInfo: { fontSize: 14, color: '#64748B', marginTop: 4 },
+  verificationCard: { gap: 8, marginTop: 4 },
+  pinInput: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    backgroundColor: '#FFF',
+    paddingHorizontal: 16,
+    fontSize: 20,
+    letterSpacing: 6,
+    textAlign: 'center',
+    color: '#1A1A2E',
+  },
   advanceButton: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,
@@ -461,6 +550,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   advanceButtonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  buttonDisabled: { opacity: 0.6 },
 
   // Modal styles
   modalOverlay: {

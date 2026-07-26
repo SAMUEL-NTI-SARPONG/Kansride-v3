@@ -14,14 +14,6 @@ export interface DriverLocation {
 }
 
 export interface RideUpdate extends RideUpdatePayload {
-  driver?: {
-    id: string;
-    name: string;
-    phone: string;
-    vehicle: string;
-    plateNumber: string;
-    rating: number;
-  };
   estimatedArrival?: number;
 }
 

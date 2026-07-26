@@ -75,6 +75,7 @@ export default function HomeScreen() {
         dropoffLongitude: selectedDest.longitude,
         rideType: response.rideType,
         estimatedFarePesewas: response.estimatedFarePesewas,
+        verificationPin: response.verificationPin,
       });
       setRideStatus('searching');
 

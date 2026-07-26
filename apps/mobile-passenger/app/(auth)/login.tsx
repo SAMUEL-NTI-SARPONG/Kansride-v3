@@ -24,11 +24,13 @@ export default function LoginScreen() {
       return;
     }
 
-    const fullPhone = `+233${cleanPhone}`;
+    const fullPhone = cleanPhone.startsWith('0')
+      ? `+233${cleanPhone.slice(1)}`
+      : `+233${cleanPhone}`;
     setLoading(true);
 
     try {
-      await postPublic('/auth/request-otp', { phone: fullPhone });
+      await postPublic('/auth/request-otp', { phoneNumber: fullPhone });
       router.push({ pathname: '/(auth)/verify-otp', params: { phone: fullPhone } });
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to send OTP. Please try again.');

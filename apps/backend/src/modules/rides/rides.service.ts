@@ -182,6 +182,7 @@ export class RidesService {
 
     return {
       ...ride,
+      verificationPin,
       fareBreakdown: fare,
     };
   }
@@ -208,7 +209,10 @@ export class RidesService {
       if (ride.driverId !== driver.id) {
         throw new ForbiddenException('You can only view rides assigned to you');
       }
-      return ride;
+      // The passenger reads this PIN aloud at pickup. Returning it to the
+      // assigned driver would make the verification step meaningless.
+      const { verificationPin: _verificationPin, ...driverSafeRide } = ride;
+      return driverSafeRide;
     }
 
     if (role === 'super_admin') {
@@ -236,6 +240,11 @@ export class RidesService {
         throw new ForbiddenException('You can only update rides assigned to you');
       }
     }
+    if (newStatus === 'passenger_verified') {
+      throw new BadRequestException(
+        'Use the passenger PIN verification endpoint for this transition',
+      );
+    }
 
     this.stateMachine.validateTransition(ride.status, newStatus, actor);
 
@@ -243,6 +252,8 @@ export class RidesService {
     const updateData: Record<string, unknown> = { status: newStatus, updatedAt };
     if (newStatus === 'completed') {
       updateData.completedAt = updatedAt;
+      updateData.actualFarePesewas =
+        ride.actualFarePesewas ?? ride.estimatedFarePesewas;
     }
 
     const updated = await this.db
@@ -259,6 +270,53 @@ export class RidesService {
     this.emitRideUpdate(id, toRideUpdatePayload(updated[0], ride.status));
 
     return { id, previousStatus: ride.status, newStatus };
+  }
+
+  async verifyPassenger(
+    id: string,
+    verificationPin: string,
+    authenticatedUserId: string,
+    role: UserRole,
+  ) {
+    if (role !== 'driver') {
+      throw new ForbiddenException('Only the assigned driver may verify the passenger');
+    }
+    if (!/^\d{4}$/.test(verificationPin)) {
+      throw new BadRequestException('Verification PIN must contain exactly 4 digits');
+    }
+
+    const ride = await this.getRide(id);
+    const driver = await this.getDriverProfileByUserId(authenticatedUserId);
+    if (ride.driverId !== driver.id) {
+      throw new ForbiddenException('You can only verify passengers for rides assigned to you');
+    }
+    if (ride.status !== 'waiting_for_passenger') {
+      throw new BadRequestException(
+        'Passenger verification is only available while waiting for the passenger',
+      );
+    }
+    if (ride.verificationPin !== verificationPin) {
+      throw new BadRequestException('Invalid passenger verification PIN');
+    }
+
+    const updated = await this.db
+      .update(rides)
+      .set({ status: 'passenger_verified', updatedAt: new Date() })
+      .where(and(eq(rides.id, id), eq(rides.status, 'waiting_for_passenger')))
+      .returning(RIDE_EVENT_SELECTION);
+    if (!updated[0]) {
+      throw new ConflictException('Ride status changed before verification completed');
+    }
+
+    this.emitRideUpdate(
+      id,
+      toRideUpdatePayload(updated[0], 'waiting_for_passenger'),
+    );
+    return {
+      id,
+      previousStatus: 'waiting_for_passenger',
+      newStatus: 'passenger_verified',
+    };
   }
 
   async cancelRide(id: string, cancelledBy: string, role: UserRole, reason?: string) {

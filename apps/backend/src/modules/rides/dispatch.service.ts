@@ -4,7 +4,11 @@ import { REDIS_SERVICE } from '../../redis';
 import { IRedisService } from '../../redis/redis.interface';
 import { Database, drivers, rides, subscriptions, users, vehicles } from '@kansride/db';
 import { eq, and, gt, gte, inArray, isNotNull, isNull } from 'drizzle-orm';
-import type { RideOfferPayload, RideUpdatePayload } from '@kansride/types';
+import type {
+  AssignedDriverSummary,
+  RideOfferPayload,
+  RideUpdatePayload,
+} from '@kansride/types';
 import { EventsGateway } from '../events/events.gateway';
 import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload';
 
@@ -31,6 +35,7 @@ interface StoredRideOffer extends RideOfferPayload {
 interface EligibleDriver {
   driverId: string;
   userId: string;
+  assignmentSummary: AssignedDriverSummary;
 }
 
 @Injectable()
@@ -251,7 +256,8 @@ export class DispatchService {
       return { success: false, message: 'Ride offer expired or does not exist' };
     }
 
-    if (!(await this.getEligibleDriver(driverId))) {
+    const eligibleDriver = await this.getEligibleDriver(driverId);
+    if (!eligibleDriver) {
       await this.removeOffer(rideId, driverId);
       return { success: false, message: 'Driver is no longer eligible for this offer' };
     }
@@ -293,7 +299,10 @@ export class DispatchService {
     return {
       success: true,
       message: 'Ride accepted successfully',
-      update: toRideUpdatePayload(assigned[0]),
+      update: {
+        ...toRideUpdatePayload(assigned[0]),
+        driver: eligibleDriver.assignmentSummary,
+      },
     };
   }
 
@@ -392,6 +401,13 @@ export class DispatchService {
       .select({
         driverId: drivers.id,
         userId: drivers.userId,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        rating: drivers.rating,
+        vehicleMake: vehicles.make,
+        vehicleModel: vehicles.model,
+        vehicleColour: vehicles.colour,
+        vehicleRegistration: vehicles.registrationNumber,
       })
       .from(drivers)
       .innerJoin(users, eq(users.id, drivers.userId))
@@ -438,7 +454,21 @@ export class DispatchService {
         ),
       )
       .limit(1);
-    return activeRide ? null : candidate;
+    if (activeRide) return null;
+
+    return {
+      driverId: candidate.driverId,
+      userId: candidate.userId,
+      assignmentSummary: {
+        firstName: candidate.firstName?.trim() || 'KansRide driver',
+        lastName: candidate.lastName?.trim() || null,
+        rating: Number(candidate.rating),
+        vehicleMake: candidate.vehicleMake,
+        vehicleModel: candidate.vehicleModel,
+        vehicleColour: candidate.vehicleColour,
+        vehicleRegistration: candidate.vehicleRegistration,
+      },
+    };
   }
 
   private async isOfferRideAvailable(rideId: string): Promise<boolean> {

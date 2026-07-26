@@ -3,34 +3,54 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { api } from '../../src/api/client';
 import { useDriverStore } from '../../src/stores/driver-store';
+import { useAuthStore } from '../../src/stores/auth-store';
 
 export default function DriverRegisterScreen() {
   const [fullName, setFullName] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
   const [vehicleColour, setVehicleColour] = useState('');
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const setDriverId = useDriverStore((s) => s.setDriverId);
+  const logout = useAuthStore((s) => s.logout);
 
   const handleRegister = async () => {
-    if (!fullName.trim() || !plateNumber.trim() || !vehicleColour.trim()) {
+    if (
+      !fullName.trim()
+      || !plateNumber.trim()
+      || !vehicleColour.trim()
+      || !vehicleMake.trim()
+      || !vehicleModel.trim()
+      || !licenseNumber.trim()
+    ) {
       Alert.alert('Missing Fields', 'Please fill in all required fields');
       return;
     }
 
     setLoading(true);
     try {
+      const [firstName, ...lastNameParts] = fullName.trim().split(/\s+/);
       const response = await api.post<{ driverId: string; message: string }>('/drivers/register', {
-        licenseNumber: licenseNumber || 'N/A',
+        firstName,
+        lastName: lastNameParts.join(' ') || undefined,
+        licenseNumber,
         vehicleRegistration: plateNumber,
         vehicleColour: vehicleColour,
-        vehicleMake: 'Tricycle',
-        vehicleModel: fullName,
+        vehicleMake,
+        vehicleModel,
       });
 
       setDriverId(response.driverId);
       Alert.alert('Success', response.message || 'Registration submitted!', [
-        { text: 'OK', onPress: () => router.replace('/(main)/home') },
+        {
+          text: 'OK',
+          onPress: async () => {
+            await logout();
+            router.replace('/(auth)/login');
+          },
+        },
       ]);
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message || 'Could not register');
@@ -45,6 +65,28 @@ export default function DriverRegisterScreen() {
       <Text style={styles.subtitle}>Complete your profile to start earning</Text>
 
       <View style={styles.form}>
+        <View style={styles.field}>
+          <Text style={styles.label}>Vehicle Make</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. TVS"
+            placeholderTextColor="#94A3B8"
+            value={vehicleMake}
+            onChangeText={setVehicleMake}
+          />
+        </View>
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Vehicle Model</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. King Deluxe"
+            placeholderTextColor="#94A3B8"
+            value={vehicleModel}
+            onChangeText={setVehicleModel}
+          />
+        </View>
+
         <View style={styles.field}>
           <Text style={styles.label}>Full Name</Text>
           <TextInput
@@ -87,7 +129,7 @@ export default function DriverRegisterScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>License Number (optional)</Text>
+          <Text style={styles.label}>License Number</Text>
           <TextInput
             style={styles.input}
             placeholder="Driver's license number"

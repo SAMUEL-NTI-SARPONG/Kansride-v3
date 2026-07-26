@@ -58,14 +58,21 @@ export default function VerifyOTPScreen() {
       const response = await postPublic<{
         accessToken: string;
         refreshToken: string;
-        user: { id: string; phone: string; name?: string };
-      }>('/auth/verify-otp', { phone, code: otpCode });
+        user: {
+          id: string;
+          phoneNumber: string;
+          firstName?: string | null;
+          lastName?: string | null;
+        };
+      }>('/auth/verify-otp', { phoneNumber: phone, code: otpCode });
 
       await setTokens(response.accessToken, response.refreshToken);
       useAuthStore.getState().setUser({
         id: response.user.id,
-        phone: response.user.phone,
-        name: response.user.name,
+        phone: response.user.phoneNumber,
+        name: [response.user.firstName, response.user.lastName]
+          .filter(Boolean)
+          .join(' ') || undefined,
       });
 
       router.replace('/(main)/home');
@@ -113,7 +120,7 @@ export default function VerifyOTPScreen() {
       <TouchableOpacity
         style={styles.resendBtn}
         onPress={() => {
-          postPublic('/auth/request-otp', { phone }).catch(() => {});
+          postPublic('/auth/request-otp', { phoneNumber: phone }).catch(() => {});
           Alert.alert('OTP Resent', 'A new code has been sent to your phone');
         }}
         disabled={loading}

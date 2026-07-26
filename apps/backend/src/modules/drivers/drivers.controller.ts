@@ -28,7 +28,15 @@ export class DriversController {
   @RequirePermissions('driver:register')
   register(
     @Req() req: AuthenticatedRequest,
-    @Body() body: { licenseNumber: string; vehicleRegistration: string; vehicleColour: string; vehicleMake?: string; vehicleModel?: string },
+    @Body() body: {
+      firstName: string;
+      lastName?: string;
+      licenseNumber: string;
+      vehicleRegistration: string;
+      vehicleColour: string;
+      vehicleMake: string;
+      vehicleModel: string;
+    },
   ) {
     const authenticatedUserId = req.user.userId;
     return this.driversService.register(authenticatedUserId, body);

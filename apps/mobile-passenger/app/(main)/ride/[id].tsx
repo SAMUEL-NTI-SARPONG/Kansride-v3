@@ -10,7 +10,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useRideStore } from '../../../src/stores/ride-store';
-import { post } from '../../../src/api/client';
+import { patch, post } from '../../../src/api/client';
 import {
   subscribeToRide,
   unsubscribeFromRide,
@@ -98,7 +98,7 @@ export default function ActiveRideScreen() {
         onPress: async () => {
           setCancelling(true);
           try {
-            await post(`/rides/${id}/cancel`);
+            await patch(`/rides/${id}/cancel`);
             setRideStatus('cancelled');
             Alert.alert('Cancelled', 'Your ride has been cancelled');
             resetRide();
@@ -241,6 +241,15 @@ export default function ActiveRideScreen() {
         )}
       </View>
 
+      {(rideStatus === 'arrived' || rideStatus === 'driver_assigned' || rideStatus === 'en_route') &&
+        activeRide?.verificationPin && (
+          <View style={styles.pinCard}>
+            <Text style={styles.pinLabel}>Trip verification PIN</Text>
+            <Text style={styles.pinValue}>{activeRide.verificationPin}</Text>
+            <Text style={styles.pinHint}>Tell this PIN only to your assigned driver at pickup.</Text>
+          </View>
+        )}
+
       <TouchableOpacity
         style={[styles.shareButton, sharing && styles.buttonDisabled]}
         onPress={handleShareTracking}
@@ -314,6 +323,18 @@ const styles = StyleSheet.create({
     marginVertical: 4,
   },
   fareText: { fontSize: 16, fontWeight: '700', color: '#1B8B4B', marginTop: 12 },
+  pinCard: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+  },
+  pinLabel: { fontSize: 13, color: '#9A3412', fontWeight: '600' },
+  pinValue: { fontSize: 30, color: '#7C2D12', fontWeight: '800', letterSpacing: 8, marginTop: 4 },
+  pinHint: { fontSize: 12, color: '#9A3412', textAlign: 'center', marginTop: 4 },
   cancelButton: {
     borderRadius: 12,
     height: 52,

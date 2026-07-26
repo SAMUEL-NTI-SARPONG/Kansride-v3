@@ -28,6 +28,7 @@ export interface ActiveRide {
 interface DriverState {
   isOnline: boolean;
   driverId: string | null;
+  isApproved: boolean;
   subscriptionActive: boolean;
   subscriptionExpiresAt: string | null;
   currentOffer: RideOffer | null;
@@ -36,6 +37,7 @@ interface DriverState {
 
   setOnline: (online: boolean) => void;
   setDriverId: (id: string | null) => void;
+  setApproved: (approved: boolean) => void;
   setSubscription: (active: boolean, expiresAt?: string | null) => void;
   setCurrentOffer: (offer: RideOffer | null) => void;
   setActiveRide: (ride: ActiveRide | null) => void;
@@ -47,6 +49,7 @@ interface DriverState {
 export const useDriverStore = create<DriverState>((set) => ({
   isOnline: false,
   driverId: null,
+  isApproved: false,
   subscriptionActive: false,
   subscriptionExpiresAt: null,
   currentOffer: null,
@@ -55,6 +58,7 @@ export const useDriverStore = create<DriverState>((set) => ({
 
   setOnline: (online) => set({ isOnline: online }),
   setDriverId: (id) => set({ driverId: id }),
+  setApproved: (approved) => set({ isApproved: approved }),
   setSubscription: (active, expiresAt) =>
     set({ subscriptionActive: active, subscriptionExpiresAt: expiresAt || null }),
   setCurrentOffer: (offer) =>
@@ -72,6 +76,7 @@ export const useDriverStore = create<DriverState>((set) => ({
     set({
       isOnline: false,
       driverId: null,
+      isApproved: false,
       subscriptionActive: false,
       subscriptionExpiresAt: null,
       currentOffer: null,

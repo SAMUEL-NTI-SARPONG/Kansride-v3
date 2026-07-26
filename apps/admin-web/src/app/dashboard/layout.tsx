@@ -1,4 +1,9 @@
+'use client';
+
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { clearAdminSession, hasAdminSession } from '@/lib/api';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '📊' },
@@ -10,6 +15,25 @@ const navItems = [
 ];
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!hasAdminSession()) {
+      router.replace('/login');
+      return;
+    }
+    setReady(true);
+  }, [router]);
+
+  if (!ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-500">
+        Checking session…
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen">
       <aside className="w-64 bg-white border-r border-gray-200 p-6">
@@ -25,6 +49,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           ))}
         </nav>
+        <button
+          type="button"
+          onClick={() => {
+            clearAdminSession();
+            router.replace('/login');
+          }}
+          className="mt-8 w-full px-4 py-2 text-sm text-red-700 bg-red-50 rounded-lg"
+        >
+          Sign out
+        </button>
       </aside>
       <main className="flex-1 p-8">{children}</main>
     </div>

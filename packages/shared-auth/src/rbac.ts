@@ -44,7 +44,7 @@ type UserRole =
   | 'auditor';
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
-  passenger: ['ride:create', 'ride:view', 'ride:cancel', 'ride:rate'],
+  passenger: ['ride:create', 'ride:view', 'ride:cancel', 'ride:rate', 'driver:register'],
   driver_applicant: ['driver:register'],
   driver: [
     'ride:view', 'ride:cancel', 'ride:update_status', 'driver:go_online',

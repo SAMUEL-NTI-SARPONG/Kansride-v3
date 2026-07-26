@@ -7,6 +7,7 @@ import { RidesService } from './rides.service';
 import type { TokenPayload } from '@kansride/auth';
 import type { RideType, UserRole } from '@kansride/types';
 import { PublicTrackingService } from '../events/public-tracking.service';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
 interface AuthenticatedRequest extends Request {
   user: TokenPayload & { iat: number; exp: number };
@@ -138,6 +139,23 @@ export class RidesController {
     return this.ridesService.updateStatus(
       id,
       body.status,
+      req.user.userId,
+      req.user.role as UserRole,
+    );
+  }
+
+  @Post(':id/verify-passenger')
+  @RequirePermissions('ride:update_status')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  verifyPassenger(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { verificationPin: string },
+  ) {
+    return this.ridesService.verifyPassenger(
+      id,
+      body.verificationPin,
       req.user.userId,
       req.user.role as UserRole,
     );
