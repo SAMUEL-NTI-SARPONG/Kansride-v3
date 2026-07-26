@@ -18,7 +18,7 @@ export interface ActiveRide {
   pickupLongitude: number;
   dropoffLatitude: number;
   dropoffLongitude: number;
-  estimatedFare: number;
+  estimatedFarePesewas: number;
   passengerName?: string;
   passengerPhone?: string;
 }

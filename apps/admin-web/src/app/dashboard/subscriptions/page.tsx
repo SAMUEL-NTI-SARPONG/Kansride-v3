@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useSubscriptions } from '../../../../lib/hooks';
+import { formatGhsFromPesewas } from '@/lib/currency';
 
 export default function SubscriptionsPage() {
   const [page, setPage] = useState(1);
@@ -55,7 +56,9 @@ export default function SubscriptionsPage() {
                       {sub.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">GHS {(sub.amountPesewas / 100).toFixed(2)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    {formatGhsFromPesewas(sub.amountPesewas)}
+                  </td>
                 </tr>
               ))
             ) : (

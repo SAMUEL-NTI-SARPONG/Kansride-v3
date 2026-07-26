@@ -29,7 +29,7 @@ export class AdminService {
       .select({ value: sum(rides.actualFarePesewas) })
       .from(rides)
       .where(eq(rides.status, 'completed'));
-    const totalRevenue = Number(revenueResult?.value) || 0;
+    const totalRevenuePesewas = Number(revenueResult?.value) || 0;
 
     // Recent rides (last 10)
     const recentRidesRaw = await this.db
@@ -50,13 +50,19 @@ export class AdminService {
           pickupAddress: ride.pickupAddress,
           dropoffAddress: ride.dropoffAddress,
           status: ride.status,
-          fare: ride.actualFarePesewas || ride.estimatedFarePesewas,
+          farePesewas: ride.actualFarePesewas ?? ride.estimatedFarePesewas,
           createdAt: ride.createdAt.toISOString(),
         };
       }),
     );
 
-    return { totalUsers, totalDrivers, activeRides, totalRevenue, recentRides };
+    return {
+      totalUsers,
+      totalDrivers,
+      activeRides,
+      totalRevenuePesewas,
+      recentRides,
+    };
   }
 
   async getDrivers(page: number, limit: number, status?: string) {
@@ -145,7 +151,7 @@ export class AdminService {
           pickupAddress: ride.pickupAddress,
           dropoffAddress: ride.dropoffAddress,
           status: ride.status,
-          fare: ride.actualFarePesewas || ride.estimatedFarePesewas,
+          farePesewas: ride.actualFarePesewas ?? ride.estimatedFarePesewas,
           rideType: ride.rideType,
           createdAt: ride.createdAt.toISOString(),
         };

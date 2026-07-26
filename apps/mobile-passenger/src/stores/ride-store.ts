@@ -32,7 +32,7 @@ export interface ActiveRide {
   dropoffLatitude: number;
   dropoffLongitude: number;
   rideType: RideType;
-  estimatedFare?: number;
+  estimatedFarePesewas: number;
   driver?: RideDriver;
 }
 

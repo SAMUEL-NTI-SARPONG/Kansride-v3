@@ -1,6 +1,7 @@
 'use client';
 
 import { useDashboardStats } from '@/lib/hooks';
+import { formatGhsFromPesewas } from '@/lib/currency';
 
 export default function DashboardPage() {
   const { data, isLoading, error } = useDashboardStats();
@@ -31,7 +32,7 @@ export default function DashboardPage() {
     { label: 'Total Users', value: data?.totalUsers ?? 0 },
     { label: 'Total Drivers', value: data?.totalDrivers ?? 0 },
     { label: 'Active Rides', value: data?.activeRides ?? 0 },
-    { label: 'Revenue (GHS)', value: ((data?.totalRevenue ?? 0) / 100).toFixed(2) },
+    { label: 'Revenue', value: formatGhsFromPesewas(data?.totalRevenuePesewas) },
   ];
 
   return (
@@ -74,7 +75,9 @@ export default function DashboardPage() {
                   <td className="px-6 py-4">
                     <StatusBadge status={ride.status} />
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">GHS {(ride.fare / 100).toFixed(2)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    {formatGhsFromPesewas(ride.farePesewas)}
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{new Date(ride.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}

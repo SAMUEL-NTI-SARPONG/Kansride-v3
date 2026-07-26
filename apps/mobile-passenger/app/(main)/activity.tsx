@@ -17,7 +17,7 @@ interface RideHistoryItem {
   pickupLongitude: number;
   dropoffLatitude: number;
   dropoffLongitude: number;
-  fare?: number;
+  farePesewas: number;
   status: string;
   createdAt: string;
   rideType?: string;
@@ -75,6 +75,17 @@ export default function ActivityScreen() {
     }
   };
 
+  const formatFare = (farePesewas: number | null | undefined) => {
+    if (
+      typeof farePesewas !== 'number' ||
+      !Number.isSafeInteger(farePesewas) ||
+      farePesewas < 0
+    ) {
+      return '--';
+    }
+    return `GHS ${(farePesewas / 100).toFixed(2)}`;
+  };
+
   if (loading) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -96,7 +107,7 @@ export default function ActivityScreen() {
                 {item.pickupAddress || `${item.pickupLatitude.toFixed(3)}, ${item.pickupLongitude.toFixed(3)}`}
               </Text>
               <Text style={styles.fare}>
-                {item.fare ? `GHS ${item.fare.toFixed(2)}` : '--'}
+                {formatFare(item.farePesewas)}
               </Text>
             </View>
             <Text style={styles.to}>

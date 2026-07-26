@@ -3,10 +3,17 @@ import { useState, useEffect } from 'react';
 import { api } from '../../src/api/client';
 
 interface EarningsData {
-  today: number;
-  thisWeek: number;
+  todayPesewas: number;
+  thisWeekPesewas: number;
   todayRides: number;
   weekRides: number;
+}
+
+function formatGhsFromPesewas(pesewas: number | null | undefined): string {
+  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
+    return '--';
+  }
+  return `GHS ${(pesewas / 100).toFixed(2)}`;
 }
 
 export default function EarningsScreen() {
@@ -23,7 +30,12 @@ export default function EarningsScreen() {
       setEarnings(data);
     } catch {
       // Use defaults if fetch fails
-      setEarnings({ today: 0, thisWeek: 0, todayRides: 0, weekRides: 0 });
+      setEarnings({
+        todayPesewas: 0,
+        thisWeekPesewas: 0,
+        todayRides: 0,
+        weekRides: 0,
+      });
     } finally {
       setLoading(false);
     }
@@ -43,13 +55,13 @@ export default function EarningsScreen() {
       <View style={styles.card}>
         <Text style={styles.label}>Today's Earnings</Text>
         <Text style={styles.amount}>
-          GHS {((earnings?.today || 0) / 100).toFixed(2)}
+          {formatGhsFromPesewas(earnings?.todayPesewas)}
         </Text>
       </View>
       <View style={styles.card}>
         <Text style={styles.label}>This Week</Text>
         <Text style={styles.amount}>
-          GHS {((earnings?.thisWeek || 0) / 100).toFixed(2)}
+          {formatGhsFromPesewas(earnings?.thisWeekPesewas)}
         </Text>
       </View>
       <View style={styles.row}>

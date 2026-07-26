@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRides } from '../../../../lib/hooks';
+import { formatGhsFromPesewas } from '@/lib/currency';
 
 const STATUS_TABS = [
   { key: undefined, label: 'All' },
@@ -74,7 +75,9 @@ export default function RidesPage() {
                   <td className="px-6 py-4">
                     <RideStatusBadge status={ride.status} />
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">GHS {(ride.fare / 100).toFixed(2)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">
+                    {formatGhsFromPesewas(ride.farePesewas)}
+                  </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{new Date(ride.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))

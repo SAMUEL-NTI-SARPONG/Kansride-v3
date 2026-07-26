@@ -32,6 +32,23 @@ export interface Location {
   landmark?: string;
 }
 
+export interface FareBreakdown {
+  baseFarePesewas: number;
+  distanceFarePesewas: number;
+  timeFarePesewas: number;
+  totalFarePesewas: number;
+}
+
+export interface CreateRideResponse {
+  id: string;
+  status: RideStatus;
+  rideType: RideType;
+  estimatedFarePesewas: number;
+  estimatedDistanceMeters: number | null;
+  estimatedDurationSeconds: number | null;
+  fareBreakdown: FareBreakdown;
+}
+
 export interface Ride {
   id: string;
   passengerId: string;
@@ -40,8 +57,8 @@ export interface Ride {
   dropoffLocation: Location;
   status: RideStatus;
   rideType: RideType;
-  estimatedFare: number;
-  actualFare?: number;
+  estimatedFarePesewas: number;
+  actualFarePesewas?: number | null;
   estimatedDistance?: number;
   estimatedDuration?: number;
   verificationPin?: string;

@@ -14,7 +14,7 @@ export interface RideOffer {
   pickupLongitude: number;
   dropoffLatitude: number;
   dropoffLongitude: number;
-  estimatedFare: number;
+  estimatedFarePesewas: number;
   distance: number;
 }
 

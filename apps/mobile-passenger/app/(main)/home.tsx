@@ -17,7 +17,7 @@ import {
   onRideUpdate,
 } from '../../src/api/socket';
 import { useRideStore } from '../../src/stores/ride-store';
-import type { RideType } from '@kansride/types';
+import type { CreateRideResponse, RideType } from '@kansride/types';
 
 // Demo coordinates around Kansawrodo / Takoradi
 const DEFAULT_PICKUP = { latitude: 4.92, longitude: -1.76, address: 'Kansawrodo' };
@@ -34,7 +34,6 @@ export default function HomeScreen() {
   const [selectedDest, setSelectedDest] = useState<(typeof DESTINATIONS)[0] | null>(null);
   const [rideType, setRideType] = useState<RideType>('standard_tricycle');
   const [showDestinations, setShowDestinations] = useState(false);
-  const [estimatedFare, setEstimatedFare] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const { rideStatus, setActiveRide, setRideStatus, updateFromSocket } = useRideStore();
 
@@ -47,13 +46,6 @@ export default function HomeScreen() {
     setSelectedDest(dest);
     setDestination(dest.label);
     setShowDestinations(false);
-    // Estimate fare (simple distance-based)
-    const dist = Math.sqrt(
-      Math.pow((dest.latitude - DEFAULT_PICKUP.latitude) * 111, 2) +
-        Math.pow((dest.longitude - DEFAULT_PICKUP.longitude) * 111, 2),
-    );
-    const fare = Math.round((5 + dist * 3) * 100) / 100;
-    setEstimatedFare(fare);
   };
 
   const handleRequestRide = async () => {
@@ -66,15 +58,7 @@ export default function HomeScreen() {
     setRideStatus('requesting');
 
     try {
-      const response = await post<{
-        id: string;
-        status: string;
-        estimatedFare: number;
-        pickupLatitude: number;
-        pickupLongitude: number;
-        dropoffLatitude: number;
-        dropoffLongitude: number;
-      }>('/rides', {
+      const response = await post<CreateRideResponse>('/rides', {
         pickupLatitude: DEFAULT_PICKUP.latitude,
         pickupLongitude: DEFAULT_PICKUP.longitude,
         dropoffLatitude: selectedDest.latitude,
@@ -91,8 +75,8 @@ export default function HomeScreen() {
         pickupLongitude: DEFAULT_PICKUP.longitude,
         dropoffLatitude: selectedDest.latitude,
         dropoffLongitude: selectedDest.longitude,
-        rideType,
-        estimatedFare: response.estimatedFare || estimatedFare || 0,
+        rideType: response.rideType,
+        estimatedFarePesewas: response.estimatedFarePesewas,
       });
       setRideStatus('searching');
 
@@ -170,13 +154,9 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Fare estimate */}
-            {estimatedFare && (
-              <View style={styles.fareRow}>
-                <Text style={styles.fareLabel}>Estimated fare:</Text>
-                <Text style={styles.fareValue}>GHS {estimatedFare.toFixed(2)}</Text>
-              </View>
-            )}
+            <Text style={styles.fareNotice}>
+              Your fare is calculated by KansRide when the ride is requested.
+            </Text>
 
             {/* Request button */}
             <TouchableOpacity
@@ -252,9 +232,7 @@ const styles = StyleSheet.create({
   rideTypeBtnActive: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
   rideTypeText: { fontSize: 14, fontWeight: '600', color: '#64748B' },
   rideTypeTextActive: { color: '#1B8B4B' },
-  fareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  fareLabel: { fontSize: 14, color: '#64748B' },
-  fareValue: { fontSize: 18, fontWeight: '700', color: '#1B8B4B' },
+  fareNotice: { fontSize: 13, color: '#64748B' },
   button: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,

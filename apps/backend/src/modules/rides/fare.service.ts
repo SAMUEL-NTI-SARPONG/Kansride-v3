@@ -5,7 +5,7 @@ import {
   FARE_PER_MINUTE_PESEWAS,
   FARE_MINIMUM_PESEWAS,
 } from '@kansride/config';
-import type { RideType } from '@kansride/types';
+import type { FareBreakdown, RideType } from '@kansride/types';
 
 @Injectable()
 export class FareService {
@@ -18,29 +18,30 @@ export class FareService {
     distanceMeters: number,
     durationSeconds: number,
     rideType: RideType = 'standard_tricycle',
-  ): {
-    baseFare: number;
-    distanceFare: number;
-    timeFare: number;
-    totalFare: number;
-  } {
+  ): FareBreakdown {
     const distanceKm = distanceMeters / 1000;
     const durationMin = durationSeconds / 60;
 
-    const baseFare = this.BASE;
-    const distanceFare = Math.ceil(distanceKm * this.PER_KM);
-    const timeFare = Math.ceil(durationMin * this.PER_MIN);
+    const baseFarePesewas = this.BASE;
+    const distanceFarePesewas = Math.ceil(distanceKm * this.PER_KM);
+    const timeFarePesewas = Math.ceil(durationMin * this.PER_MIN);
 
-    let totalFare = baseFare + distanceFare + timeFare;
+    let totalFarePesewas =
+      baseFarePesewas + distanceFarePesewas + timeFarePesewas;
 
     // Apply minimum fare
-    totalFare = Math.max(totalFare, this.MINIMUM);
+    totalFarePesewas = Math.max(totalFarePesewas, this.MINIMUM);
 
     // Priority rides have 1.5x multiplier
     if (rideType === 'priority_tricycle') {
-      totalFare = Math.ceil(totalFare * 1.5);
+      totalFarePesewas = Math.ceil(totalFarePesewas * 1.5);
     }
 
-    return { baseFare, distanceFare, timeFare, totalFare };
+    return {
+      baseFarePesewas,
+      distanceFarePesewas,
+      timeFarePesewas,
+      totalFarePesewas,
+    };
   }
 }

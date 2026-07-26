@@ -4,7 +4,12 @@ import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
 import { eq, desc, avg, and, isNull, isNotNull, type SQL } from 'drizzle-orm';
-import type { UserRole, RideStatus, RideType } from '@kansride/types';
+import type {
+  CreateRideResponse,
+  UserRole,
+  RideStatus,
+  RideType,
+} from '@kansride/types';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
 import { DispatchService } from './dispatch.service';
@@ -109,7 +114,7 @@ export class RidesService {
       dropoffLandmark?: string;
       rideType?: RideType;
     },
-  ) {
+  ): Promise<CreateRideResponse> {
     const rideType = resolveRideType(data.rideType);
 
     // Resolve the real passenger.id from the authenticated users.id.
@@ -147,7 +152,7 @@ export class RidesService {
         dropoffLandmark: data.dropoffLandmark,
         status: 'requested',
         rideType,
-        estimatedFarePesewas: fare.totalFare,
+        estimatedFarePesewas: fare.totalFarePesewas,
         estimatedDistanceMeters: distance.distanceMeters,
         estimatedDurationSeconds: distance.durationSeconds,
         verificationPin,
@@ -155,7 +160,9 @@ export class RidesService {
       .returning();
 
     const ride = inserted[0]!;
-    this.logger.log(`Ride created: ${ride.id} for passenger ${passenger.id}, fare: ${fare.totalFare} pesewas`);
+    this.logger.log(
+      `Ride created: ${ride.id} for passenger ${passenger.id}, fare: ${fare.totalFarePesewas} pesewas`,
+    );
 
     // Trigger dispatch engine to find nearby drivers
     this.dispatchService.dispatchRide(ride.id, data.pickupLongitude, data.pickupLatitude).catch((err) => {
@@ -442,7 +449,7 @@ export class RidesService {
       pickupLongitude: Number(ride.pickupLongitude),
       dropoffLatitude: Number(ride.dropoffLatitude),
       dropoffLongitude: Number(ride.dropoffLongitude),
-      fare: (ride.actualFarePesewas ?? ride.estimatedFarePesewas) / 100,
+      farePesewas: ride.actualFarePesewas ?? ride.estimatedFarePesewas,
       status: ride.status,
       createdAt: ride.createdAt,
       rideType: ride.rideType,
@@ -514,7 +521,7 @@ export class RidesService {
       driverFirstName,
       vehicleColour,
       vehiclePlate,
-      estimatedFare: ride.estimatedFarePesewas,
+      estimatedFarePesewas: ride.estimatedFarePesewas,
       estimatedDurationSeconds: ride.estimatedDurationSeconds,
       rideType: ride.rideType,
       createdAt: ride.createdAt,

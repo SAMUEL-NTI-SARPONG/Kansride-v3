@@ -16,7 +16,7 @@ interface RideData {
   driverFirstName: string | null;
   vehicleColour: string | null;
   vehiclePlate: string | null;
-  estimatedFare: number;
+  estimatedFarePesewas: number;
   estimatedDurationSeconds: number | null;
   rideType: string;
   createdAt: string;
@@ -79,9 +79,11 @@ function formatETA(seconds: number | null): string {
   return `${mins} min`;
 }
 
-function formatFare(pesewas: number): string {
-  const cedis = (pesewas / 100).toFixed(2);
-  return `GH₵ ${cedis}`;
+function formatFare(pesewas: number | null | undefined): string {
+  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
+    return '--';
+  }
+  return `GHS ${(pesewas / 100).toFixed(2)}`;
 }
 
 export default function TrackRidePage({ params }: { params: Promise<{ rideId: string }> }) {
@@ -309,7 +311,9 @@ export default function TrackRidePage({ params }: { params: Promise<{ rideId: st
           {/* Fare */}
           <div className="flex items-center justify-between pt-2 border-t border-gray-100">
             <span className="text-xs text-gray-500">Estimated Fare</span>
-            <span className="text-sm font-bold text-gray-800">{formatFare(ride.estimatedFare)}</span>
+            <span className="text-sm font-bold text-gray-800">
+              {formatFare(ride.estimatedFarePesewas)}
+            </span>
           </div>
 
           {/* Footer */}

@@ -9,7 +9,7 @@ export interface DashboardStats {
   totalUsers: number;
   totalDrivers: number;
   activeRides: number;
-  totalRevenue: number;
+  totalRevenuePesewas: number;
   recentRides: RecentRide[];
 }
 
@@ -20,7 +20,7 @@ export interface RecentRide {
   pickupAddress: string | null;
   dropoffAddress: string | null;
   status: string;
-  fare: number;
+  farePesewas: number;
   createdAt: string;
 }
 
@@ -52,7 +52,7 @@ export interface AdminRide {
   pickupAddress: string | null;
   dropoffAddress: string | null;
   status: string;
-  fare: number;
+  farePesewas: number;
   rideType: string;
   createdAt: string;
 }

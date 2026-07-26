@@ -32,6 +32,13 @@ const STATUS_LABELS: Record<RideStatus, string> = {
   cancelled: 'Ride cancelled',
 };
 
+function formatGhsFromPesewas(pesewas: number | null | undefined): string {
+  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
+    return '--';
+  }
+  return `GHS ${(pesewas / 100).toFixed(2)}`;
+}
+
 export default function ActiveRideScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
@@ -210,8 +217,10 @@ export default function ActiveRideScreen() {
           <Text style={styles.tripDot}>{'\uD83D\uDD34'}</Text>
           <Text style={styles.tripText}>{activeRide?.dropoffAddress || 'Dropoff location'}</Text>
         </View>
-        {activeRide?.estimatedFare && (
-          <Text style={styles.fareText}>Est. Fare: GHS {activeRide.estimatedFare.toFixed(2)}</Text>
+        {activeRide && (
+          <Text style={styles.fareText}>
+            Est. Fare: {formatGhsFromPesewas(activeRide.estimatedFarePesewas)}
+          </Text>
         )}
       </View>
 

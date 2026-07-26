@@ -7,6 +7,13 @@ import { useDriverStore } from '../../src/stores/driver-store';
 import { useLocationStore } from '../../src/stores/location-store';
 import { RideOffer } from '../../src/api/socket';
 
+function formatGhsFromPesewas(pesewas: number | null | undefined): string {
+  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
+    return '--';
+  }
+  return `GHS ${(pesewas / 100).toFixed(2)}`;
+}
+
 export default function DriverHomeScreen() {
   const {
     isOnline, setOnline, currentOffer, setCurrentOffer,
@@ -162,7 +169,7 @@ export default function DriverHomeScreen() {
       pickupLongitude: currentOffer.pickupLongitude,
       dropoffLatitude: currentOffer.dropoffLatitude,
       dropoffLongitude: currentOffer.dropoffLongitude,
-      estimatedFare: currentOffer.estimatedFare,
+      estimatedFarePesewas: currentOffer.estimatedFarePesewas,
     });
     setCurrentOffer(null);
   }, [currentOffer]);
@@ -238,7 +245,7 @@ export default function DriverHomeScreen() {
           <View style={styles.fareRow}>
             <Text style={styles.fareLabel}>Fare</Text>
             <Text style={styles.fareAmount}>
-              GHS {((activeRide.estimatedFare || 0) / 100).toFixed(2)}
+              {formatGhsFromPesewas(activeRide.estimatedFarePesewas)}
             </Text>
           </View>
           {activeRide.passengerPhone && (
@@ -315,7 +322,7 @@ export default function DriverHomeScreen() {
                   <View style={styles.offerStat}>
                     <Text style={styles.offerStatLabel}>Fare</Text>
                     <Text style={styles.offerStatValue}>
-                      GHS {((currentOffer.estimatedFare || 0) / 100).toFixed(2)}
+                      {formatGhsFromPesewas(currentOffer.estimatedFarePesewas)}
                     </Text>
                   </View>
                   <View style={styles.offerStat}>

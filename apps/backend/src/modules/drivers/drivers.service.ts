@@ -278,12 +278,20 @@ export class DriversService {
         gt(rides.completedAt, weekAgo),
       ));
 
-    const todayEarnings = todayRides.reduce((sum, r) => sum + (r.actualFarePesewas || r.estimatedFarePesewas || 0), 0);
-    const weekEarnings = weekRides.reduce((sum, r) => sum + (r.actualFarePesewas || r.estimatedFarePesewas || 0), 0);
+    const todayPesewas = todayRides.reduce(
+      (sum, ride) =>
+        sum + (ride.actualFarePesewas ?? ride.estimatedFarePesewas),
+      0,
+    );
+    const thisWeekPesewas = weekRides.reduce(
+      (sum, ride) =>
+        sum + (ride.actualFarePesewas ?? ride.estimatedFarePesewas),
+      0,
+    );
 
     return {
-      today: todayEarnings,
-      thisWeek: weekEarnings,
+      todayPesewas,
+      thisWeekPesewas,
       todayRides: todayRides.length,
       weekRides: weekRides.length,
     };
