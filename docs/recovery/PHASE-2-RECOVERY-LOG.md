@@ -1474,3 +1474,53 @@ All five validation commands were re-run after the revisions; all returned expli
 
 (Note: per instruction, Task 2d is NOT to be begun here. This recommendation is for the next session.)
 
+## Task 2d — Fix ride-history correctness
+
+**Date:** 2026-07-26
+**Branch:** `recovery/phase-2-opencode`
+**Status:** Complete (static); database-backed verification remains blocked by the documented PostgreSQL `28P01` authentication failure.
+**Implementation commit:** Pending creation after this entry is reviewed.
+
+### Problem and root cause
+
+The passenger activity screen called `GET /rides/my-rides`, but the backend exposed no matching route. The only history service methods accepted caller-supplied `passengers.id` or `drivers.id`, had no offset, trusted their limit, ordered only by `createdAt`, and selected complete ride rows. They therefore could not safely establish ownership from the authenticated JWT and would have exposed fields not required by a history list if wired directly.
+
+The adjacent authenticated `GET /rides/:id` route also returned any ride to any passenger or driver with `ride:view`; it enforced permission membership but not ride ownership.
+
+### Files changed
+
+- `apps/backend/src/modules/rides/rides.controller.ts`
+- `apps/backend/src/modules/rides/rides.service.ts`
+- `docs/recovery/PHASE-2-RECOVERY-LOG.md`
+
+No frontend, shared package, schema, migration, configuration, or generated file changed.
+
+### Implemented behavior
+
+- Added `GET /api/v1/rides/my-rides` before the dynamic `:id` route.
+- The route accepts only authenticated callers with `ride:view` and derives identity exclusively from `req.user.userId` and `req.user.role`; it accepts no passenger or driver profile ID.
+- Passenger requests resolve `passengers.id` through `passengers.userId = users.id` before filtering `rides.passengerId`.
+- Driver requests resolve `drivers.id` through `drivers.userId = users.id` before filtering `rides.driverId`.
+- A missing passenger profile produces the established explicit `ForbiddenException`; a missing driver profile produces an explicit `NotFoundException`. Roles other than `passenger` or `driver` are rejected by the history service. `driver_applicant` does not have `ride:view`; an inactive driver who still has the approved `driver` role may read their own history because the endpoint is read-only.
+- Pagination defaults to `limit=20` and `offset=0`. `limit` must be a safe integer from 1 through 100; `offset` must be a safe integer from 0 through 10,000. Invalid, fractional, negative, zero-limit, non-numeric, unsafe, or excessive values return `BadRequestException`.
+- Results use deterministic `createdAt DESC, id DESC` ordering and include every status, matching the passenger screen's chronological “Your Rides” activity contract rather than introducing a new lifecycle filter.
+- The response remains a JSON array. It contains only the fields consumed by the mobile history contract, converts Drizzle numeric coordinates to JavaScript numbers, and exposes `fare` in GHS from `actualFarePesewas ?? estimatedFarePesewas`. It excludes the verification PIN, actor IDs, cancellation reason, rating metadata, and other full-row fields.
+- Hardened authenticated `GET /api/v1/rides/:id`: passengers may view only rides whose `passengerId` matches their resolved passenger profile; drivers may view only rides whose `driverId` matches their resolved driver profile. Existing `super_admin` access remains available. Internal service calls continue using the unchanged raw `getRide` method.
+- Existing cancellation, rating, dispatch, public tracking, driver earnings, and admin ride-list paths were not changed.
+
+### Validation results
+
+- `npm run build --workspace @kansride/backend` — PASS.
+- `npx tsc --noEmit -p apps/backend/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/mobile-passenger/tsconfig.json` — PASS.
+- `npx tsc --noEmit -p apps/mobile-driver/tsconfig.json` — PASS.
+- Focused search found no corrected history comparison between authenticated `users.id` and `rides.passengerId` or `rides.driverId`.
+- No configured backend unit-test framework or focused test suite exists, so no automated test file was added.
+- `git diff --check` — PASS before staging.
+
+### Runtime limitations and remaining risks
+
+No database-backed HTTP scenarios were run. The standing repository blocker is PostgreSQL SQLSTATE `28P01`; credentials and database configuration were intentionally left unchanged. Passenger/driver ownership, missing-profile errors, pagination rejection, ordering, and response serialization therefore remain runtime-unverified.
+
+The driver mobile app currently has no ride-history list caller; it can use the role-aware route later without a profile ID. `/drivers/earnings` already resolves `drivers.id` from the JWT user and remains unchanged. The `drivers.completedRides` and `passengers.completedRides` columns remain unmaintained and are not used by this history endpoint.
+

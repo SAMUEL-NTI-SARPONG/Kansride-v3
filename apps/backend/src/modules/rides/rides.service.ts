@@ -3,7 +3,7 @@ import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, users, vehicles, passengers } from '@kansride/db';
-import { eq, desc, avg, and, isNull, isNotNull } from 'drizzle-orm';
+import { eq, desc, avg, and, isNull, isNotNull, type SQL } from 'drizzle-orm';
 import type { UserRole, RideStatus } from '@kansride/types';
 import { FareService } from './fare.service';
 import { StateMachineService } from './state-machine.service';
@@ -52,6 +52,24 @@ export class RidesService {
       throw new ForbiddenException('No passenger profile found for this account');
     }
     return passenger;
+  }
+
+  /**
+   * Resolve drivers.id from the users.id carried by the JWT. Ride ownership
+   * must always be checked against this profile id, never the authenticated
+   * users.id directly.
+   */
+  private async getDriverProfileByUserId(authenticatedUserId: string) {
+    const rows = await this.db
+      .select()
+      .from(drivers)
+      .where(eq(drivers.userId, authenticatedUserId))
+      .limit(1);
+    const driver = rows[0];
+    if (!driver) {
+      throw new NotFoundException('No driver profile found for this account');
+    }
+    return driver;
   }
 
   async createRide(
@@ -128,6 +146,32 @@ export class RidesService {
     const result = await this.db.select().from(rides).where(eq(rides.id, id)).limit(1);
     if (!result[0]) throw new NotFoundException('Ride not found');
     return result[0];
+  }
+
+  async getRideForActor(id: string, authenticatedUserId: string, role: UserRole) {
+    const ride = await this.getRide(id);
+
+    if (role === 'passenger') {
+      const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);
+      if (ride.passengerId !== passenger.id) {
+        throw new ForbiddenException('You can only view your own rides');
+      }
+      return ride;
+    }
+
+    if (role === 'driver') {
+      const driver = await this.getDriverProfileByUserId(authenticatedUserId);
+      if (ride.driverId !== driver.id) {
+        throw new ForbiddenException('You can only view rides assigned to you');
+      }
+      return ride;
+    }
+
+    if (role === 'super_admin') {
+      return ride;
+    }
+
+    throw new ForbiddenException(`Role "${role}" is not permitted to view this ride`);
   }
 
   async updateStatus(id: string, newStatus: string, actor: string = 'system') {
@@ -315,22 +359,68 @@ export class RidesService {
     return { id, rating, comment };
   }
 
-  async getPassengerRides(passengerId: string, limit = 20) {
-    return this.db
-      .select()
-      .from(rides)
-      .where(eq(rides.passengerId, passengerId))
-      .orderBy(desc(rides.createdAt))
-      .limit(limit);
+  async getRideHistory(
+    authenticatedUserId: string,
+    role: UserRole,
+    pagination: { limit: number; offset: number },
+  ) {
+    if (role === 'passenger') {
+      const passenger = await this.getPassengerProfileByUserId(authenticatedUserId);
+      return this.getRideHistoryForOwner(
+        eq(rides.passengerId, passenger.id),
+        pagination,
+      );
+    }
+
+    if (role === 'driver') {
+      const driver = await this.getDriverProfileByUserId(authenticatedUserId);
+      return this.getRideHistoryForOwner(
+        eq(rides.driverId, driver.id),
+        pagination,
+      );
+    }
+
+    throw new ForbiddenException(`Role "${role}" is not permitted to view personal ride history`);
   }
 
-  async getDriverRides(driverId: string, limit = 20) {
-    return this.db
-      .select()
+  private async getRideHistoryForOwner(
+    ownerFilter: SQL<unknown>,
+    pagination: { limit: number; offset: number },
+  ) {
+    const history = await this.db
+      .select({
+        id: rides.id,
+        pickupAddress: rides.pickupAddress,
+        dropoffAddress: rides.dropoffAddress,
+        pickupLatitude: rides.pickupLatitude,
+        pickupLongitude: rides.pickupLongitude,
+        dropoffLatitude: rides.dropoffLatitude,
+        dropoffLongitude: rides.dropoffLongitude,
+        actualFarePesewas: rides.actualFarePesewas,
+        estimatedFarePesewas: rides.estimatedFarePesewas,
+        status: rides.status,
+        createdAt: rides.createdAt,
+        rideType: rides.rideType,
+      })
       .from(rides)
-      .where(eq(rides.driverId, driverId))
-      .orderBy(desc(rides.createdAt))
-      .limit(limit);
+      .where(ownerFilter)
+      .orderBy(desc(rides.createdAt), desc(rides.id))
+      .limit(pagination.limit)
+      .offset(pagination.offset);
+
+    return history.map((ride) => ({
+      id: ride.id,
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      pickupLatitude: Number(ride.pickupLatitude),
+      pickupLongitude: Number(ride.pickupLongitude),
+      dropoffLatitude: Number(ride.dropoffLatitude),
+      dropoffLongitude: Number(ride.dropoffLongitude),
+      fare: (ride.actualFarePesewas ?? ride.estimatedFarePesewas) / 100,
+      status: ride.status,
+      createdAt: ride.createdAt,
+      rideType: ride.rideType,
+    }));
   }
 
   async getTrackingData(id: string) {
