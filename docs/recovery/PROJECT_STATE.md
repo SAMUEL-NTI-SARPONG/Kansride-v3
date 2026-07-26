@@ -1,9 +1,9 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section B
+**Operational status:** Autonomous recovery in progress; static recovery work is complete through Section C
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Section B at commit `9b89f47`
+**Latest recovery implementation:** Section C at commit `8ed1962`
 **Latest tagged checkpoint:** tag `phase3-task3a-complete` at commit `4189034`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `8ed1962` | Expiring passenger-authorized public tracking tokens, minimized REST/events, and dedicated public socket rooms |
 | `9b89f47` | Profile-derived private ride-room authorization, admin permission gate, UUID validation, and reconnect resubscription |
 | `bd4abe3` | Authenticated driver-specific offers, eligibility filtering, indexed expiry/cleanup, and non-optimistic acceptance |
 | `57f14de` | Post-persistence ride lifecycle broadcasts, conditional transition writes, and canonical client event handling |
@@ -136,7 +137,7 @@ Confirmed in current code and recovery history:
 - The backend defaults an omitted ride type to `standard_tricycle`, rejects unsupported values with HTTP 400 before database work, and uses the same validated value for fare calculation and persistence.
 - Ride fare persistence, backend calculations, shared types, API/event fields, and client state use numeric integer pesewas with explicit `Pesewas` suffixes.
 - `POST /rides` returns the backend-calculated `estimatedFarePesewas` and an explicitly named pesewa fare breakdown; the passenger app no longer substitutes a local estimate.
-- Passenger, driver, tracking, and admin fare displays convert pesewas to `GHS` once at the presentation boundary and handle missing or invalid values without displaying `NaN`.
+- Passenger, driver, and admin fare displays convert pesewas to `GHS` once at the presentation boundary and handle missing or invalid values without displaying `NaN`; public tracking intentionally exposes no fare.
 - Persisted ride lifecycle changes use one typed `ride:update` payload with canonical status names, integer-pesewa fare fields, and ISO timestamps.
 - Creation targets the authenticated passenger; later changes target the subscribed ride room; cancellation also retains the assigned-driver `ride:cancelled` notification.
 - Dispatch and HTTP transition writes are conditional, preventing stale dispatch work, duplicate cancellation/status emissions, and multiple concurrent driver assignments.
@@ -147,6 +148,9 @@ Confirmed in current code and recovery history:
 - Private ride-room joins resolve passenger/driver profiles from JWT `users.id` and allow only the owning passenger or assigned driver.
 - Administrative room membership requires explicit live-operations permissions; malformed identifiers are rejected without a database lookup.
 - Passenger and driver clients wait for socket connection and restore authorized subscriptions after reconnect.
+- Only the owning passenger can issue or revoke a public tracking link. Its 256-bit random token is stored only as a SHA-256-keyed Redis grant with a six-hour TTL.
+- Public REST/socket access resolves that token, uses dedicated `public-track:{tokenHash}` rooms, emits a separate minimized payload, and revokes/disconnects on terminal trip status.
+- Public tracking excludes ride/user/driver database IDs, contacts, verification PIN, exact pickup/drop coordinates, cancellation actor, and fare.
 
 ## Known Limitations
 
@@ -156,11 +160,10 @@ Confirmed in current code and recovery history:
 
 ### Confirmed incomplete or broken areas
 
-- The current recovery section is Section C: secure public tracking.
+- The current recovery section is Section D: restore the admin-web build.
 - Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
 - Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
 - Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
-- Tracking web connects to the authenticated `/rides` namespace without a token.
 - Four admin dashboard pages still import `../../../../lib/hooks`, which does not resolve from their current paths.
 - The admin login page is an unwired email/password form, while the recovered backend design uses pre-provisioned administrative users and the phone-OTP flow.
 - No admin route middleware or equivalent dashboard session gate was found.
@@ -190,11 +193,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Section B is complete at implementation commit `9b89f47`. The current autonomous boundary is Section C public tracking security, followed by Sections D–H.
+Section C is complete at implementation commit `8ed1962`. The current autonomous boundary is Section D admin-web build recovery, followed by Sections E–H.
 
 ## Planned Work
 
-The autonomous run continues with private room authorization, public tracking, admin build recovery, runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
+The autonomous run continues with admin build recovery, runtime services, migrations, end-to-end validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
 
 ## Validation Practices
 

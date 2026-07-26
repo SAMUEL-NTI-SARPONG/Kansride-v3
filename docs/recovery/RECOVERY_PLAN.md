@@ -2,7 +2,7 @@
 
 **Last verified:** 2026-07-26
 **Plan basis:** current code, `PHASE-2-AUDIT.md`, and `PHASE-2-RECOVERY-LOG.md`
-**Current next section:** Section C — public tracking security
+**Current next section:** Section D — admin-web build recovery
 
 ## Recovery Objective
 
@@ -47,6 +47,7 @@ Older audit findings must be reconciled before implementation. In particular:
 | Task 3a — broadcast committed ride state changes | Implemented; runtime pending | Typed canonical event, post-persistence emission, conditional transition writes, canonical client statuses |
 | Task 3b — authenticated driver offers | Implemented; runtime pending | Deterministic eligibility, private delivery, explicit expiry, Redis indexing/cleanup, atomic acceptance |
 | Section B — private realtime rooms | Implemented; runtime pending | Profile-derived ride ownership, permission-gated admin room, malformed-ID rejection, reconnect restoration |
+| Task 3d / Section C — public tracking security | Implemented; runtime pending | Passenger-owned expiring token, minimized REST/events, dedicated public namespace/rooms, terminal revocation |
 
 The latest tagged checkpoint is `phase3-task3a-complete` at `4189034`.
 
@@ -151,9 +152,11 @@ Acceptance:
 - The passenger store consumes that payload without type casts or field-name mismatches.
 - Private/internal driver data is not broadcast.
 
-### Task 3d — decide public tracking socket authentication
+### Task 3d — secure public tracking socket authentication (completed; runtime pending)
 
-Dependencies: explicit security decision; do not weaken the authenticated namespace incidentally.
+Current state: the owning passenger issues a 256-bit random capability with a six-hour Redis TTL. Public REST and the dedicated `/tracking` namespace accept only that capability, route by its hash, and never join private ride rooms. Terminal lifecycle events are sent through a separate minimized contract before all ride tokens are revoked.
+
+Dependencies: completed private-room authorization and the existing Redis abstraction.
 
 Acceptance:
 
@@ -161,6 +164,8 @@ Acceptance:
 - Tracking web can subscribe to only the authorized ride.
 - Anonymous clients cannot join arbitrary authenticated ride rooms.
 - REST tracking and WebSocket privacy exposure are consistent.
+- Raw ride IDs alone cannot retrieve or subscribe to tracking data.
+- Passenger revocation and terminal cleanup make later access fail generically.
 
 ## Phase C — Admin Web Recovery
 

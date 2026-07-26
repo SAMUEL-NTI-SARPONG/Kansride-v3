@@ -52,7 +52,7 @@ Scheduling supports subscription-expiry checks. Throttling is configured globall
 ### Web applications
 
 - `apps/admin-web`: Next.js App Router dashboard. REST base is `NEXT_PUBLIC_API_URL` or `http://localhost:3000/api/v1`. The client reads `admin_token` from browser local storage.
-- `apps/tracking-web`: Next.js App Router landing page and `/track/[rideId]`. REST tracking is public; its Socket.IO client currently sends no token.
+- `apps/tracking-web`: Next.js App Router landing page and `/track/[token]`. It uses a passenger-issued capability for public REST and the dedicated `/tracking` Socket.IO namespace.
 
 ### Mobile applications
 
@@ -275,10 +275,18 @@ Confirmed behavior:
 Confirmed gaps:
 
 - The canonical `driver_assigned` update has the assigned `driverId` but no passenger-approved driver/vehicle enrichment.
-- Tracking web supplies no JWT to an authenticated namespace.
-- Passenger emits `ride:unsubscribe`, but the gateway has no handler.
 - Rooms are process-local; no Socket.IO Redis adapter is configured.
 - There is no durable event log/outbox, delivery acknowledgement strategy, or reconnect replay.
+
+### Public tracking contract
+
+`POST /rides/:id/tracking-link` and `DELETE /rides/:id/tracking-links` are authenticated, passenger-owner-only operations. Issuance creates a 32-byte random base64url token; Redis stores the grant under its SHA-256 hash for six hours and indexes hashes by ride. Raw ride IDs do not authorize public access.
+
+`GET /rides/public-track/:token` returns `PublicTrackingSnapshot`, not a ride row. The public payload includes a derived reference, canonical status/type, permitted pickup/dropoff labels, safe driver first name, vehicle colour, masked plate, duration, and ISO timestamps. It excludes internal IDs, contact details, PIN, cancellation actor, fare, and exact endpoint coordinates.
+
+`PublicTrackingGateway` owns namespace `/tracking`; a valid token is required in the socket handshake, and the server—not the client—joins `public-track:{tokenHash}`. `tracking:update` and `tracking:driver-location` use separate public payload types. Expired grants are removed before emission. A terminal trip update is emitted, then all ride grants are revoked and their public sockets disconnected. Manual passenger revocation is also supported.
+
+Redis-backed grants survive only as long as the configured Redis instance. The in-memory development fallback loses links on backend restart and cannot coordinate multiple backend processes.
 
 ### Driver offer contract
 
@@ -303,7 +311,7 @@ Principal current routes:
 - Auth: `POST /auth/request-otp`, `POST /auth/verify-otp`, `POST /auth/refresh-token`
 - User: `GET /users/me`
 - Drivers: register, go-online/offline, location, subscribe, profile, earnings
-- Rides: create, actor-scoped own history, ownership-checked get by ID, cancel, update status, rate, public track
+- Rides: create, actor-scoped own history, ownership-checked get by ID, cancel, update status, rate, passenger-owned tracking-link issue/revoke, token-authorized public track
 - Admin: dashboard, drivers, rides, users, subscriptions
 - Health: `GET /health`
 
@@ -313,7 +321,6 @@ Known contract mismatches requiring recovery:
 - Passenger OTP response expects `user.phone` / `user.name`.
 - Passenger cancellation uses `POST`, while the backend declares `PATCH /rides/:id/cancel`.
 - Admin login UI does not implement the backend’s phone-OTP design.
-- Tracking socket authentication is absent.
 - End-to-end driver progression and passenger-verification behavior remain runtime-unverified.
 
 Do not “fix” one side without inspecting and approving the complete boundary.
@@ -324,7 +331,7 @@ The `POST /rides` response implements the shared `CreateRideResponse` contract. 
 
 `GET /rides/my-rides` uses the JWT role to resolve either `passengers.id` or `drivers.id`, returns a bounded deterministic history array, and accepts no profile identifier from the caller. Its selected actual-or-estimated value is transported as `farePesewas`; conversion to GHS occurs in the activity screen.
 
-Tracking uses `estimatedFarePesewas`; admin ride lists use `farePesewas` and `totalRevenuePesewas`; driver offer/state and earnings contracts use `estimatedFarePesewas`, `todayPesewas`, and `thisWeekPesewas`. These consumers format GHS at their UI boundary. The driver offer producer remains absent and belongs to Task 3b.
+Admin ride lists use `farePesewas` and `totalRevenuePesewas`; driver offer/state and earnings contracts use `estimatedFarePesewas`, `todayPesewas`, and `thisWeekPesewas`. These consumers format GHS at their UI boundary. Public tracking deliberately carries no fare.
 
 ## Environment Validation
 
@@ -397,15 +404,12 @@ Run only the commands appropriate to the approved scope and record static versus
 - Monetary API/event/state fields must be numeric integer pesewas and carry an explicit `Pesewas` suffix; currency strings belong only in presentation code.
 - The fare persisted and returned by ride creation must come from the backend `FareService`; a client estimate must never replace it after creation.
 - Migrations are append-only history; do not rewrite applied migration intent casually.
-- Do not weaken authenticated Socket.IO access to solve public tracking without an approved security design.
+- Public tracking must remain token-scoped and separated from authenticated private ride rooms and payloads.
 - Provider mocks must not be represented as production integrations.
 
 ## Areas Requiring Investigation
 
-- Complete dispatch event payload and Redis offer cleanup/indexing.
 - Reliable real-time delivery, multi-instance Socket.IO, and reconnect behavior.
-- Ride-room membership authorization for passenger, assigned driver, tracking, and administrative audiences.
-- Public tracking authorization model.
 - Admin user provisioning and admin-web login/session design.
 - Client auth navigation guards beyond root redirects.
 - Maintenance semantics for `drivers.completedRides` and `passengers.completedRides`.

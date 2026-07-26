@@ -1826,3 +1826,42 @@ Targeted offers remain direct user-socket events and do not grant unassigned dri
 - Focused mocked room probe — PASS for owner passenger, assigned driver, unrelated-user rejection, malformed input without DB access, permission-gated admin join, and leave.
 - `git diff --check` — PASS.
 
+## Autonomous Section C — Public tracking security and client integration
+
+**Date:** 2026-07-26
+**Status:** Implemented and statically/mocked validated; Redis/Socket.IO runtime integration remains pending.
+**Implementation commit:** `8ed1962` (`fix(tracking): secure public ride tracking flow`)
+
+### Defects and root cause
+
+- **C1 — Critical:** `GET /rides/:id/track` treated a raw ride UUID as public authorization.
+- **C2 — Critical:** tracking web connected anonymously to the authenticated `/rides` namespace and attempted private `ride:subscribe`.
+- **C3 — High:** there was no passenger-owned issuance, expiry, revocation, terminal cleanup, or sharing action.
+- **C4 — High:** the public response exposed the internal ride ID, exact endpoint coordinates, and fare beyond the required safety subset.
+- **C5 — Medium:** public consumers reused ad hoc private-like shapes rather than a typed, separate event contract.
+
+The root cause was an unfinished placeholder flow: public REST accepted the persistence identifier while the client reused a private socket API that had since become authenticated and ownership-gated.
+
+### Implementation and boundaries
+
+- The authenticated owning passenger can issue a 32-byte random tracking token and revoke all links for the ride.
+- Only a SHA-256 token hash is used in Redis keys/rooms. Each grant and ride index has a six-hour TTL; terminal status revokes all grants.
+- `GET /rides/public-track/:token` returns a typed minimized snapshot. Raw ride IDs, contacts, PIN, cancellation actor, fare, exact pickup/dropoff coordinates, and internal actor IDs are excluded.
+- Dedicated namespace `/tracking` validates the token server-side and joins only `public-track:{tokenHash}`. It emits separate `tracking:update` and `tracking:driver-location` payloads.
+- Expired token hashes are removed before event delivery. Terminal status is emitted once, then grants are revoked and sockets disconnected.
+- Passenger mobile now creates and shares the link; tracking web accepts a link/token and uses the corrected REST/socket contract.
+- No schema or migration changed. Redis is the existing repository-supported expiring-state layer.
+
+### Validation
+
+- Shared-types build — PASS.
+- Backend TypeScript and build — PASS.
+- Passenger TypeScript — PASS.
+- Tracking-web TypeScript and production build — PASS.
+- Focused in-memory probe — PASS for owner enforcement, unguessable token shape, raw-ID rejection, minimized response, dedicated room, terminal event, and revocation.
+- `git diff --check` — PASS.
+
+### Runtime limitation
+
+No database-backed REST or live Redis/Socket.IO browser flow ran because PostgreSQL access remains to be investigated in Section E. The in-memory Redis fallback intentionally loses public links on restart and is not multi-process coordination.
+
