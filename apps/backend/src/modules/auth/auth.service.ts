@@ -5,6 +5,7 @@ import { ISMSProvider } from '../../providers/sms/sms.interface';
 import { Database, users, otpRequests, passengers } from '@kansride/db';
 import { JWTService, OTPService, normalizeGhanaPhone, validateGhanaPhone } from '@kansride/auth';
 import { eq, and, gt, desc, count } from 'drizzle-orm';
+import { getEnv } from '@kansride/config';
 
 @Injectable()
 export class AuthService {
@@ -16,9 +17,10 @@ export class AuthService {
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     @Inject(SMS_PROVIDER) private readonly smsProvider: ISMSProvider,
   ) {
+    const env = getEnv();
     this.jwtService = new JWTService({
-      accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
-      refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
+      accessSecret: env.JWT_ACCESS_SECRET,
+      refreshSecret: env.JWT_REFRESH_SECRET,
       accessExpiry: '15m',
       refreshExpiry: '7d',
     });

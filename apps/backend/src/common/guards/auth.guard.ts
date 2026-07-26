@@ -2,15 +2,17 @@ import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from
 import { Reflector } from '@nestjs/core';
 import { JWTService } from '@kansride/auth';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { getEnv } from '@kansride/config';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly jwtService: JWTService;
 
   constructor(private readonly reflector: Reflector) {
+    const env = getEnv();
     this.jwtService = new JWTService({
-      accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
-      refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
+      accessSecret: env.JWT_ACCESS_SECRET,
+      refreshSecret: env.JWT_REFRESH_SECRET,
       accessExpiry: '15m',
       refreshExpiry: '7d',
     });

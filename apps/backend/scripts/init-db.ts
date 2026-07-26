@@ -1,7 +1,8 @@
 import { runMigrations } from '@kansride/db/src/migrate';
+import { getEnv } from '@kansride/config';
 
 async function main() {
-  const url = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/kansride';
+  const url = getEnv().DATABASE_URL;
   console.log('Initializing KansRide database...');
   console.log(`Connecting to: ${url.replace(/\/\/.*@/, '//***@')}`);
 

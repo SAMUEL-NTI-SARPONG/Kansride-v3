@@ -1,22 +1,41 @@
 import { z } from 'zod';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+let environmentLoaded = false;
+
+/**
+ * Load the repository-root .env for workspace commands without overwriting
+ * variables already supplied by the process or CI environment.
+ */
+export function loadRootEnv(): void {
+  if (environmentLoaded) return;
+  environmentLoaded = true;
+
+  const candidates = [
+    resolve(process.cwd(), '.env'),
+    resolve(process.cwd(), '..', '..', '.env'),
+  ];
+  const envPath = candidates.find((candidate) => existsSync(candidate));
+  if (envPath) {
+    process.loadEnvFile(envPath);
+  }
+}
 
 const envSchema = z.object({
   // Application
   NODE_ENV: z
     .enum(['development', 'production', 'test'])
     .default('development'),
-  APP_PORT: z.coerce.number().int().positive().default(3001),
+  APP_PORT: z.coerce.number().int().positive().default(3000),
 
   // Database (PostgreSQL + PostGIS)
   DATABASE_HOST: z.string().default('localhost'),
   DATABASE_PORT: z.coerce.number().int().positive().default(5432),
   DATABASE_NAME: z.string().default('kansride'),
   DATABASE_USER: z.string().default('postgres'),
-  DATABASE_PASSWORD: z.string().default('postgres'),
-  DATABASE_URL: z
-    .string()
-    .url()
-    .default('postgresql://postgres:postgres@localhost:5432/kansride'),
+  DATABASE_PASSWORD: z.string().default(''),
+  DATABASE_URL: z.string().url(),
 
   // Redis
   REDIS_HOST: z.string().default('localhost'),
@@ -55,6 +74,8 @@ let cachedEnv: Env | null = null;
  * if required variables are missing.
  */
 export function getEnv(): Env {
+  loadRootEnv();
+
   if (cachedEnv) {
     return cachedEnv;
   }
@@ -67,7 +88,6 @@ export function getEnv(): Env {
       'JWT_ACCESS_SECRET',
       'JWT_REFRESH_SECRET',
       'DATABASE_URL',
-      'DATABASE_PASSWORD',
     ] as const;
 
     const missing = requiredInProduction.filter(

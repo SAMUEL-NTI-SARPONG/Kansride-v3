@@ -160,6 +160,10 @@ See [`.env.example`](.env.example) for the full list. Key variables:
 | `SMS_PROVIDER` | SMS gateway (`mock` for development) |
 | `MAPS_PROVIDER` | Maps service (default: `openstreetmap`) |
 
+The backend and migration commands load the ignored repository-root `.env`.
+Replace every `change-me` placeholder locally before starting services; never
+commit that file.
+
 ---
 
 ## License

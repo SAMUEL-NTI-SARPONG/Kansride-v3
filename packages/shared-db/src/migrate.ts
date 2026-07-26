@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
+import { getDatabaseUrl } from './database-env';
 
 export async function runMigrations(connectionString: string): Promise<void> {
   const pool = new Pool({ connectionString, max: 1 });
@@ -15,11 +16,7 @@ export async function runMigrations(connectionString: string): Promise<void> {
 
 // CLI entry point
 if (require.main === module) {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error('DATABASE_URL environment variable is required');
-    process.exit(1);
-  }
+  const url = getDatabaseUrl();
   runMigrations(url)
     .then(() => process.exit(0))
     .catch((err) => {

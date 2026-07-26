@@ -1,5 +1,6 @@
 import { Module, Global, OnModuleDestroy } from '@nestjs/common';
 import { getDb, closeDb, Database } from '@kansride/db';
+import { getEnv } from '@kansride/config';
 
 export const DATABASE_TOKEN = 'DATABASE_CONNECTION';
 
@@ -9,8 +10,7 @@ export const DATABASE_TOKEN = 'DATABASE_CONNECTION';
     {
       provide: DATABASE_TOKEN,
       useFactory: (): Database => {
-        const url = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/kansride';
-        return getDb(url);
+        return getDb(getEnv().DATABASE_URL);
       },
     },
   ],

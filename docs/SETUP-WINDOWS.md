@@ -105,8 +105,8 @@ DATABASE_HOST=localhost
 DATABASE_PORT=5432
 DATABASE_NAME=kansride
 DATABASE_USER=postgres
-DATABASE_PASSWORD=postgres
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/kansride
+DATABASE_PASSWORD=<your-local-postgres-password>
+DATABASE_URL=postgresql://postgres:<URL-encoded-local-password>@localhost:5432/kansride
 
 # Redis
 REDIS_HOST=localhost
@@ -123,6 +123,10 @@ SMS_PROVIDER=mock
 # Maps
 MAPS_PROVIDER=openstreetmap
 ```
+
+The backend and migration scripts load this ignored root `.env` automatically.
+If the password contains reserved URL characters, URL-encode it in
+`DATABASE_URL`. Do not commit `.env`.
 
 ---
 

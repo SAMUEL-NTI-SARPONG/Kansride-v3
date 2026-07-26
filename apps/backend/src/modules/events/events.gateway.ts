@@ -19,6 +19,7 @@ import { isUUID } from 'class-validator';
 import { DispatchService } from '../rides/dispatch.service';
 import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
 import { PublicTrackingGateway } from './public-tracking.gateway';
+import { getEnv } from '@kansride/config';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 const LOCATION_DB_DEBOUNCE_MS = 5000;
@@ -52,9 +53,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(forwardRef(() => DispatchService)) private readonly dispatchService: DispatchService,
     private readonly publicTrackingGateway: PublicTrackingGateway,
   ) {
+    const env = getEnv();
     this.jwtService = new JWTService({
-      accessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
-      refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
+      accessSecret: env.JWT_ACCESS_SECRET,
+      refreshSecret: env.JWT_REFRESH_SECRET,
       accessExpiry: '15m',
       refreshExpiry: '7d',
     });

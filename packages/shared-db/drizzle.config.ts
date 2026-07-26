@@ -1,11 +1,14 @@
 import { defineConfig } from 'drizzle-kit';
+import { getDatabaseUrl } from './src/database-env';
+
+const databaseUrl = getDatabaseUrl();
 
 export default defineConfig({
   schema: './src/schema',
   out: './src/migrations',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/kansride',
+    url: databaseUrl,
   },
   verbose: true,
   strict: true,
