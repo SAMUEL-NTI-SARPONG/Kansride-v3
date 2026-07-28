@@ -1,13 +1,36 @@
 name: CI
 
+# Active development workflow for the KansRide monorepo.
+#
+# Phase 0B consolidates CI to cover: install, lint, focused root + per-
+# workspace type-checking, unit tests, build of packages / backend / web, and
+# a meaningful migration + backend /health smoke against the provisioned
+# PostGIS + Redis services.
+#
+# Trigger wording matches the active development branch (`product-governance`)
+# plus the legacy `recovery/phase-2-opencode`, `main`, and `develop` so CI runs
+# on the branch the work actually happens on. Per
+# `docs/engineering/DELIVERY_STRATEGIES.md` §1.4 the active branch must not be
+# switched without explicit instruction; CI fires on every push to these
+# branches and every PR targeting them.
+#
+# Backend / web / shared-package validation is explicit; mobile workspaces are
+# validated via lint + type-check (Expo EAS/build is heavy and gated by owner
+# decision D1 — not part of Phase 0).
+
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, product-governance, recovery/phase-2-opencode]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, product-governance, recovery/phase-2-opencode]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   lint-and-typecheck:
+    name: Lint + per-workspace type-check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,12 +39,18 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      # Root `npm run lint` delegates to every workspace `lint` script via
+      # `--workspaces --if-present`. Phase 0A's ESLint 9 flat config is the
+      # single source of truth; this job fails onlint errors, not warnings.
       - run: npm run lint
+      # Per-workspace `type-check` scripts (tsconfig.check.json) focus each
+      # workspace's tsc invocation. Root delegates via --workspaces --if-present
+      # so this is the real all-app signal, NOT a bare `tsc --noEmit`.
       - run: npm run type-check
 
-  build-packages:
+  test:
+    name: Unit invariant tests (vitest)
     runs-on: ubuntu-latest
-    needs: lint-and-typecheck
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,12 +58,34 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+      # Root `npm run test` runs `vitest run` against the single root
+      # vitest.config.mts. Phase 0B tests are pure and require no DB; no
+      # services are provisioned here. Postgres + Redis provisioning lives in
+      # the build-backend job below where it is genuinely exercised.
+      - run: npm test
+
+  build-packages:
+    name: Build shared packages
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      # Shared packages compile to CommonJS dist/index.js. Apps depend on
+      # these dist outputs at runtime, so build them first (see
+      # `fix(shared): prevent stale shared-package outputs`).
       - run: npm run build --workspace=packages/shared-types
       - run: npm run build --workspace=packages/shared-config
       - run: npm run build --workspace=packages/shared-db
       - run: npm run build --workspace=packages/shared-auth
+      - run: npm run build --workspace=packages/design-system
 
   build-backend:
+    name: Build backend + migrate + /health smoke
     runs-on: ubuntu-latest
     needs: build-packages
     services:
@@ -60,6 +111,13 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kansride_test
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: ci-access-secret-not-used-in-prod
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-used-in-prod
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -67,12 +125,49 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm ci
+
+      # Apply migrations to a fresh PostGIS database. This is the genuine
+      # migration-sql validation: `tsx src/migrate.ts` executes every checked-in
+      # migration against the provisioned service. PostGIS extension is created
+      # by 0000 migration SQL itself.
+      - run: npm run db:migrate --workspace=packages/shared-db
+
+      # Build the backend (prebuild wires shared-package dist outputs first).
       - run: npm run build --workspace=@kansride/backend
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kansride_test
-          REDIS_URL: redis://localhost:6379
+
+      # Boot the backend in the background, wait for it to bind, then probe the
+      # public health endpoint. The health handler (`HealthController`) is NOT
+      # guarded by AuthGuard so an unauthenticated GET suffices. The endpoint
+      # exercises only the request pipeline (no DB query in this controller),
+      # so success also proves `getEnv()` validated the supplied DATABASE_URL /
+      # JWT secrets and that the AppModule wired cleanly with the live Redis.
+      - name: Start backend and smoke /api/v1/health
+        run: |
+          set -euo pipefail
+          node apps/backend/dist/main.js > /tmp/backend.log 2>&1 &
+          BACKEND_PID=$!
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/api/v1/health > /tmp/health.json; then
+              echo "Health probe succeeded on attempt $i:"
+              cat /tmp/health.json
+              echo
+              kill $BACKEND_PID
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend did not respond healthy within 30s."
+          echo "----- backend log -----"
+          cat /tmp/backend.log || true
+          kill $BACKEND_PID 2>/dev/null || true
+          exit 1
+
+      # Migration `0000` runs `CREATE EXTENSION IF NOT EXISTS postgis`,
+      # so a successful migration already proves the extension installed
+      # (the migrate.ts step above throws on any statement failure).
 
   build-web:
+    name: Build admin + tracking web
     runs-on: ubuntu-latest
     needs: build-packages
     steps:
