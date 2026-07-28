@@ -1,1 +1,0 @@
-TypeScript 5.6+, ESLint 9 + @typescript-eslint v8, Prettier 3, Node ≥22 (`.nvmrc` pins 24 for CI), npm workspaces for monorepo orchestration; NestJS backend, Next.js 15 web apps, Expo mobile apps, PostgreSQL 16+PostGIS, Redis 7, Drizzle ORM, Socket.IO, JWT/OTP auth.

@@ -5,6 +5,7 @@ build/
 .env.local
 .env.*.local
 *.log
+.tmp-*
 npm-debug.log*
 .DS_Store
 .vscode/settings.json
@@ -17,3 +18,7 @@ out/
 *.apk
 *.jks
 *.tsbuildinfo
+
+# Editor / AI-tool generated artifacts (not part of the KansRide product source)
+.qoder/
+opencode.backup.json
