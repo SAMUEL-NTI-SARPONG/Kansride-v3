@@ -2,14 +2,15 @@
   "name": "@kansride/backend",
   "version": "0.1.0",
   "private": true,
-  "scripts": {
+"scripts": {
     "build": "nest build",
+    "prebuild": "npm run build --workspace=@kansride/types && npm run build --workspace=@kansride/config && npm run build --workspace=@kansride/db && npm run build --workspace=@kansride/auth",
     "dev": "nest start --watch",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
     "lint": "eslint .",
-    "type-check": "tsc --noEmit -p tsconfig.json"
+    "type-check": "tsc --noEmit -p tsconfig.check.json"
   },
   "dependencies": {
     "@kansride/auth": "*",
