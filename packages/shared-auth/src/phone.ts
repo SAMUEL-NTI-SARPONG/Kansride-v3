@@ -8,7 +8,7 @@ const GHANA_PHONE_REGEX = /^\+233[2-5][0-9]{8}$/;
 
 export function normalizeGhanaPhone(phone: string): string {
   // Remove all whitespace, dashes, dots
-  let cleaned = phone.replace(/[\s\-\.()]/g, '');
+  let cleaned = phone.replace(/[\s\-.()]/g, '');
 
   // Handle various formats
   if (cleaned.startsWith('+233')) {

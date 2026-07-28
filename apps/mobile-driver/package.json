@@ -4,10 +4,11 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "start": "expo start",
+"start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "lint": "eslint . --ext .ts,.tsx"
+    "web": "expo start --web",
+    "lint": "eslint ."
   },
   "dependencies": {
     "expo": "~52.0.0",
