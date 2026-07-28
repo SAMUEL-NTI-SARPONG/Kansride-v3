@@ -12,6 +12,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "type-check": "tsc --noEmit -p tsconfig.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""

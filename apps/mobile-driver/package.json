@@ -8,7 +8,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "expo": "~52.0.0",

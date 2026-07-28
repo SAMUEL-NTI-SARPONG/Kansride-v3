@@ -8,7 +8,8 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "type-check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@kansride/auth": "*",
