@@ -145,9 +145,11 @@ Acceptance:
 - No subscription, expired offer, or already-assigned ride can be accepted.
 - Concurrent accept attempts assign at most one driver.
 
-### Task 3c — enrich driver assignment
+### Task 3c — enrich driver assignment (completed; runtime pending)
 
 Dependencies: successful offer acceptance and a privacy-reviewed response shape.
+
+Current state: the private canonical `driver_assigned` update contains a typed passenger-safe display name, rating, vehicle make/model/colour, and registration. Contact details, user IDs, passenger data, and the verification PIN are excluded.
 
 Acceptance:
 
@@ -184,9 +186,11 @@ Acceptance:
 - Admin TypeScript check and Next.js production build pass.
 - No unrelated dashboard refactor is included.
 
-### Tasks 4b–4c — implement legitimate admin sign-in and route protection
+### Tasks 4b–4c — implement legitimate admin sign-in and route protection (completed; runtime pending)
 
-Current backend decision: pre-provisioned administrative users authenticate through phone OTP. Current web page is an unwired email/password form.
+Current backend decision: pre-provisioned administrative users authenticate through phone OTP.
+
+Current state: admin web implements phone request/verification, permits only pre-provisioned dashboard-capable staff roles, stores and refreshes the access/refresh pair, clears both on sign-out/failure, and gates dashboard routes client-side. Backend per-route RBAC remains authoritative. First-admin provisioning is still controlled out of band.
 
 Dependencies: explicit approval of the existing phone-OTP design or a replacement; a provisioning procedure for the first admin.
 
@@ -199,7 +203,7 @@ Acceptance:
 - Backend RBAC remains authoritative even if client-side gating fails.
 - Provisioning is documented without hardcoded accounts or secrets.
 
-## Phase D — Passenger Application Contract Recovery
+## Phase D — Passenger Application Contract Recovery (completed; runtime pending)
 
 The audit labels these as Step 5a–5e. Reconcile them with Tasks 2d–2f to avoid editing the same contract twice.
 
@@ -214,7 +218,7 @@ Acceptance for the phase:
 - Authentication hydration gates both auth and main route groups, not only the root redirect.
 - Passenger login → profile → ride request → live update → cancellation/completion → rating is validated end to end when the database is available.
 
-## Phase E — Driver Application Contract Recovery
+## Phase E — Driver Application Contract Recovery (completed; runtime pending)
 
 The audit labels these as Step 6a–6d.
 
@@ -314,6 +318,17 @@ Recovery is complete when all of the following are true:
 - setup/demo documentation is reproducible;
 - CI passes and the repository is clean except explicitly accepted generated artifacts;
 - a reviewed recovery checkpoint is committed and, if instructed, tagged.
+
+### Autonomous run disposition
+
+The credential-free repository scope is statically complete through Section G. The following definition items remain blocked or intentionally deferred:
+
+- PostgreSQL/PostGIS migration and persistence verification requires valid local credentials and service-version reconciliation.
+- Redis/Socket.IO/dispatch/tracking runtime verification requires a Redis-compatible service.
+- Test-account provisioning, driver approval, and first-admin provisioning require controlled local data operations.
+- Automated tests, ESLint 9 migration, seed automation, root orchestration, CI integration, EAS/mobile distribution, and pilot operations remain the next product/release phase rather than hidden completion claims.
+
+Until the runtime matrix passes, the correct checkpoint is **static recovery complete**, not full runtime recovery or pilot readiness.
 
 ## Post-Recovery Transition
 

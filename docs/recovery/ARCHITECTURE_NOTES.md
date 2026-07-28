@@ -51,7 +51,7 @@ Scheduling supports subscription-expiry checks. Throttling is configured globall
 
 ### Web applications
 
-- `apps/admin-web`: Next.js App Router dashboard. REST base is `NEXT_PUBLIC_API_URL` or `http://localhost:3000/api/v1`. The client reads `admin_token` from browser local storage. Dashboard pages import the existing typed React Query hooks through the configured `@/lib/hooks` alias; TypeScript and production build pass.
+- `apps/admin-web`: Next.js App Router dashboard. REST base is `NEXT_PUBLIC_API_URL` or `http://localhost:3000/api/v1`. Pre-provisioned staff authenticate through phone OTP; access/refresh tokens are stored and cleared together, `/dashboard/*` has a client session gate, and backend RBAC remains authoritative. Dashboard pages use typed React Query hooks through `@/lib/hooks`; TypeScript and production build pass.
 - `apps/tracking-web`: Next.js App Router landing page and `/track/[token]`. It uses a passenger-issued capability for public REST and the dedicated `/tracking` Socket.IO namespace.
 
 ### Mobile applications
@@ -100,7 +100,7 @@ Administrative REST routes use per-resource permissions:
 | `GET /admin/users` | `admin:manage_users` |
 | `GET /admin/subscriptions` | `admin:manage_subscriptions` |
 
-The recovered admin authentication design assumes an already provisioned administrative `users` row authenticates through the normal phone-OTP flow. Provisioning and the admin-web login UI still require investigation.
+The admin authentication design requires an already provisioned staff `users` row. `apps/admin-web/src/app/login/page.tsx` uses the normal phone-OTP flow, admits only staff roles that can open the dashboard, and never promotes a user. First-admin provisioning remains an out-of-band controlled operation.
 
 ## Identity Mapping
 
@@ -171,7 +171,7 @@ Important qualifications:
 
 - Presence in the schema does not prove a status is reachable. `driver_no_show` and `disputed` have no inbound transition in the current table.
 - Rating is persisted on a completed ride; it is not a ride status transition.
-- The driver client progression now includes `driver_assigned`, `driver_en_route`, `driver_arrived`, `waiting_for_passenger`, `passenger_verified`, `in_progress`, and `completed`; product-level passenger verification is still not runtime-validated.
+- The driver client progression includes `driver_assigned`, `driver_en_route`, `driver_arrived`, `waiting_for_passenger`, `passenger_verified`, `in_progress`, and `completed`. The passenger receives the PIN only in the authenticated create/detail contract; assigned-driver detail omits it. `POST /rides/:id/verify-passenger` resolves the assigned driver from JWT `users.id`, validates a four-digit PIN, rate-limits attempts, conditionally persists `passenger_verified`, then emits.
 - `PATCH /rides/:id/status` passes the authenticated user and role. Driver calls resolve `drivers.id`, enforce assignment ownership, and use the `driver` state-machine actor; `super_admin` uses the `admin` actor.
 
 ## Cancellation Semantics
@@ -274,7 +274,7 @@ Confirmed behavior:
 
 Confirmed gaps:
 
-- The canonical `driver_assigned` update has the assigned `driverId` but no passenger-approved driver/vehicle enrichment.
+- The canonical private `driver_assigned` update adds a safe `AssignedDriverSummary`: display name, rating, vehicle make/model/colour, and registration. It excludes phone, user ID, passenger data, and PIN.
 - Rooms are process-local; no Socket.IO Redis adapter is configured.
 - There is no durable event log/outbox, delivery acknowledgement strategy, or reconnect replay.
 
@@ -311,19 +311,19 @@ Principal current routes:
 - Auth: `POST /auth/request-otp`, `POST /auth/verify-otp`, `POST /auth/refresh-token`
 - User: `GET /users/me`
 - Drivers: register, go-online/offline, location, subscribe, profile, earnings
-- Rides: create, actor-scoped own history, ownership-checked get by ID, cancel, update status, rate, passenger-owned tracking-link issue/revoke, token-authorized public track
+- Rides: create, actor-scoped own history, ownership-checked get by ID, cancel, update status, assigned-driver passenger-PIN verification, rate, passenger-owned tracking-link issue/revoke, token-authorized public track
 - Admin: dashboard, drivers, rides, users, subscriptions
 - Health: `GET /health`
 
-Known contract mismatches requiring recovery:
+Recovered integration contracts:
 
-- Passenger auth uses `phone` instead of `phoneNumber`.
-- Passenger OTP response expects `user.phone` / `user.name`.
-- Passenger cancellation uses `POST`, while the backend declares `PATCH /rides/:id/cancel`.
-- Admin login UI does not implement the backend’s phone-OTP design.
-- End-to-end driver progression and passenger-verification behavior remain runtime-unverified.
+- Passenger and driver OTP callers use `phoneNumber`; passenger response mapping consumes `phoneNumber`, `firstName`, and `lastName`.
+- Passenger cancellation uses `PATCH /rides/:id/cancel`.
+- Driver registration is an atomic passenger-to-applicant transition with real driver/vehicle fields; the resulting driver remains inactive until controlled approval.
+- Admin web uses the backend’s phone-OTP design and a dashboard session gate.
+- End-to-end progression and PIN verification are statically/mocked validated but remain database/Redis runtime-unverified.
 
-Do not “fix” one side without inspecting and approving the complete boundary.
+Future changes must still inspect and validate both sides of each boundary.
 
 `POST /rides` accepts only the schema-supported `RideType` values: `standard_tricycle`, `priority_tricycle`, `shared`, and `parcel_delivery`. An omitted type defaults to `standard_tricycle`; any supplied unsupported value is rejected before fare or database work. The passenger selector currently exposes Standard and Priority, mapped directly to the first two canonical values. `priority_tricycle` retains the implemented 1.5× fare multiplier.
 
@@ -412,8 +412,7 @@ Run only the commands appropriate to the approved scope and record static versus
 ## Areas Requiring Investigation
 
 - Reliable real-time delivery, multi-instance Socket.IO, and reconnect behavior.
-- Admin user provisioning and admin-web login/session design.
-- Client auth navigation guards beyond root redirects.
+- Controlled first-admin provisioning and driver approval procedures for each deployment environment.
 - Maintenance semantics for `drivers.completedRides` and `passengers.completedRides`.
 - Reachability/meaning of `driver_no_show`, `disputed`, and post-completion payment statuses.
 - PostGIS usage: migration enables PostGIS, but current driver/ride coordinates are numeric columns and Redis geo search performs dispatch.

@@ -1,9 +1,9 @@
 # KansRide Project State
 
 **Last verified:** 2026-07-26
-**Operational status:** Autonomous recovery in progress; repository runtime configuration is recovered through Section E, with external services blocked
+**Operational status:** Static recovery complete; PostgreSQL/Redis runtime action required
 **Current branch:** `recovery/phase-2-opencode`
-**Latest recovery implementation:** Section E at commit `4dc613a`
+**Latest recovery implementation:** Section G at commit `6dc409f`
 **Latest tagged checkpoint:** tag `phase3-task3a-complete` at commit `4189034`
 **Context documentation checkpoint:** tag `phase2-context-docs-complete`
 
@@ -19,7 +19,7 @@ Use `RECOVERY_PLAN.md` for recovery sequencing and acceptance criteria. Use `ARC
 
 KansRide is an npm-workspaces monorepo for a Ghanaian tricycle ride-hailing platform. It contains passenger and driver mobile clients, an administrative web client, a public ride-tracking web client, and a NestJS backend.
 
-The active recovery branch contains completed static recovery work through Task 3a. Work through this point has repaired backend environment startup, identity mapping, profile handling, authorization, cancellation, rating, actor-scoped ride history, canonical ride types, the integer-pesewa fare contract, and committed-state realtime broadcasting. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
+The active recovery branch contains the complete credential-free recovery scope through autonomous Section G. It includes backend configuration, identity/profile handling, authorization, cancellation, rating, history, canonical ride types and fares, committed-state realtime events, targeted dispatch, private-room authorization, secure public tracking, web builds, client/API contract alignment, driver application, assignment enrichment, passenger PIN verification, and admin OTP/session integration. Database-dependent runtime verification remains blocked; therefore, “complete” recovery tasks below mean implemented and statically validated unless stated otherwise.
 
 No completion percentage is assigned.
 
@@ -61,7 +61,7 @@ The design-system currently exports `Button`, `TextInput`, `OTPInput`, `Card`, a
 The current recovery checkpoints are:
 
 - `phase2-task2f-complete` points to the Task 2f documentation checkpoint `16bceb1`.
-- Task 3a is implemented at `57f14de`; no Task 3a tag exists.
+- `phase3-task3a-complete` points to the Task 3a documentation checkpoint `4189034`.
 - `phase2-task2e-complete` remains immutable at `87eea07`.
 - `phase2-task2d-complete` remains immutable at `1eff349`.
 - `phase2-task2c-complete` remains immutable at `db5576f`.
@@ -73,6 +73,7 @@ Recent recovery commits, newest first:
 
 | Commit | Completed work |
 | --- | --- |
+| `6dc409f` | End-to-end client/API alignment, safe assignment summary, PIN verification, final fare, driver application, and admin OTP/session flow |
 | `4dc613a` | Root environment loading, fail-fast database URL, aligned JWT/database config, runtime package entrypoints, and startup docs |
 | `d6d9d44` | Admin dashboard hook imports restored through the configured alias; TypeScript and production build pass |
 | `8ed1962` | Expiring passenger-authorized public tracking tokens, minimized REST/events, and dedicated public socket rooms |
@@ -153,6 +154,13 @@ Confirmed in current code and recovery history:
 - Only the owning passenger can issue or revoke a public tracking link. Its 256-bit random token is stored only as a SHA-256-keyed Redis grant with a six-hour TTL.
 - Public REST/socket access resolves that token, uses dedicated `public-track:{tokenHash}` rooms, emits a separate minimized payload, and revokes/disconnects on terminal trip status.
 - Public tracking excludes ride/user/driver database IDs, contacts, verification PIN, exact pickup/drop coordinates, cancellation actor, and fare.
+- Passenger OTP, resend, cancellation, status, fare, assignment, and rating callers now match backend methods and response fields.
+- Driver application is transactional, records real driver/vehicle fields, remains inactive pending approval, and requires a fresh OTP session after the role change.
+- `driver_assigned` private updates include a passenger-safe driver/vehicle summary without contact data or verification PIN.
+- The passenger-only create response carries the four-digit verification PIN; assigned-driver ride detail omits it. Only the assigned driver can submit the PIN, with a five-attempt-per-minute route limit and a conditional post-validation transition.
+- Completion stores `actualFarePesewas` from the authoritative estimate when no separate actual value exists.
+- Mobile auth/main route groups wait for token hydration and reject inappropriate direct navigation.
+- Admin web uses phone OTP for pre-provisioned staff, stores/refreshes/clears its session consistently, and gates `/dashboard/*` client-side while backend RBAC remains authoritative.
 
 ## Known Limitations
 
@@ -160,17 +168,14 @@ Confirmed in current code and recovery history:
 
 The local machine has no root `.env` and no database/Redis process variables. PostgreSQL 13 currently owns port 5432 while the documented PostgreSQL 16 service is stopped; the server accepts TCP, but valid local authentication is unavailable. Redis is not listening on 6379. Database migrations and backend flows therefore remain runtime-unverified. The repository now fails fast on a missing `DATABASE_URL` instead of silently using a guessed password.
 
-### Confirmed incomplete or broken areas
+### Confirmed remaining limitations
 
-- The current recovery section is Section G: credential-free end-to-end contract reconciliation; Section F database/Redis runtime checks are externally blocked.
-- Passenger auth requests use `phone` while the backend expects `phoneNumber`; passenger OTP response mapping also differs.
-- Passenger cancellation calls `POST`, while the backend cancellation route is `PATCH`.
-- Assignment is now broadcast as canonical `ride:update` with status `driver_assigned`, but it does not yet contain the passenger-approved driver/vehicle details planned for Task 3c.
-- The admin login page is an unwired email/password form, while the recovered backend design uses pre-provisioned administrative users and the phone-OTP flow.
-- No admin route middleware or equivalent dashboard session gate was found.
-- Driver and passenger client state/status contracts still contain mismatches described in the recovery plan.
+- PostgreSQL migration/application and database-backed flows require valid local authentication and a reconciled PostgreSQL service/version.
+- Redis-backed multi-process dispatch, Socket.IO, tracking, and cleanup behavior require a running Redis-compatible service.
+- Driver approval and first administrative-user provisioning remain controlled out-of-band operations; no public promotion path exists.
 - The root has no orchestration `dev` script, and no workspace defines a `test` script.
 - The installed ESLint 9 setup and legacy `.eslintrc.json` remain incompatible for backend linting.
+- Socket delivery remains best effort; there is no outbox/replay or multi-instance Socket.IO adapter.
 
 ## Pending Verification
 
@@ -194,11 +199,11 @@ These generated files were present before this task and must remain unmodified, 
 
 ## Current Recovery Boundary
 
-Section E repository work is complete at implementation commit `4dc613a`. Section F migration/runtime validation is externally blocked by local PostgreSQL credentials/version selection and Redis availability; independent static Section G reconciliation can continue.
+Credential-free repository recovery is complete through Section G at implementation commit `6dc409f`. Sections F and the runtime portion of G remain externally blocked by local PostgreSQL credentials/version selection and Redis availability. Section H records the static-complete readiness decision.
 
 ## Planned Work
 
-The autonomous run continues with the safely available portions of migrations/runtime validation, end-to-end contract validation, and completion documentation. `AUTONOMOUS_RUN_STATE.md` is the resumable operational checkpoint.
+The next phase is controlled local runtime enablement: configure ignored local credentials, start PostgreSQL/PostGIS and Redis, apply existing migrations without reset, provision test roles, and execute the documented end-to-end matrix. Product work such as seed automation, lint/test infrastructure, CI integration, mobile distribution, and pilot operations follows separately.
 
 ## Validation Practices
 

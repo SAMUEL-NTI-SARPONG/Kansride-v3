@@ -1941,3 +1941,55 @@ Migration status/application, PostGIS version, live tables/enums/foreign keys/in
 
 No migration was applied, generated, reset, edited, or created. No database or service state was changed.
 
+## Autonomous Section G — First end-to-end ride-flow reconciliation
+
+**Date:** 2026-07-26  
+**Status:** Implemented and statically/mocked validated; database/Redis runtime execution remains externally blocked.  
+**Implementation commit:** `6dc409f` (`fix(integration): stabilize end-to-end ride lifecycle`)
+
+### Defects and root causes
+
+- **G1 — Critical:** passenger OTP request, verify, and resend used `phone`, while the backend requires `phoneNumber`; response mapping read nonexistent `phone` and `name` fields.
+- **G2 — High:** passenger cancellation used `POST` against the backend’s `PATCH` route.
+- **G3 — High:** direct mobile route navigation bypassed root-only hydration redirects.
+- **G4 — High:** the driver app sent new passenger-role users to a registration endpoint they lacked permission to call and mapped a person’s name into `vehicleModel`.
+- **G5 — High:** assignment events lacked the passenger-approved driver/vehicle summary expected by the passenger store.
+- **G6 — Critical:** a driver could mark `passenger_verified` without the passenger’s PIN, and assigned-driver ride detail exposed that PIN.
+- **G7 — High:** admin web presented an unwired email/password form despite the approved pre-provisioned phone-OTP design and had no dashboard session gate.
+- **G8 — Medium:** completion left `actualFarePesewas` null even though the current V1 flow has no separate final-fare adjustment.
+
+### Implementation
+
+- Aligned passenger OTP/resend response fields and cancellation method; added authenticated API `PATCH`.
+- Added hydration-aware auth/main route-group gates in both mobile applications.
+- Made driver application transactional, allowed a passenger account to submit exactly that inactive application, captured real driver/vehicle fields, and required a fresh OTP session after the role change.
+- Added typed `AssignedDriverSummary` to only the private assignment update. It contains display name, rating, and vehicle make/model/colour/registration; no phone, user ID, passenger details, or PIN.
+- Added the passenger-only create-response PIN. Driver ride detail removes it. `POST /rides/:id/verify-passenger` is assigned-driver-only, accepts exactly four digits, is limited to five attempts per minute, uses a conditional `waiting_for_passenger → passenger_verified` write, and emits only after persistence.
+- Completion writes `actualFarePesewas = existing actual ?? estimatedFarePesewas` in the same conditional lifecycle update.
+- Replaced admin email/password placeholder with phone OTP for pre-provisioned dashboard-capable roles, paired access/refresh storage and refresh, clear-on-failure/sign-out, and a client dashboard gate. Backend RBAC remains authoritative.
+
+### Files changed
+
+- Shared: `packages/shared-types/src/ride.types.ts`, `packages/shared-auth/src/rbac.ts`
+- Backend: ride controller/service/dispatch and driver controller/service
+- Passenger: auth screens/store/client/socket, route layouts, home, and active ride
+- Driver: auth/main layouts, registration, home, and driver store
+- Admin: login, dashboard layout, and API client
+
+No schema, migration, credential, provider, or generated `next-env.d.ts` file changed.
+
+### Validation
+
+- Shared-types and shared-auth builds — PASS.
+- Backend TypeScript and production build — PASS.
+- Passenger and driver TypeScript checks — PASS.
+- Admin TypeScript and production build — PASS.
+- Protected admin `next-env.d.ts` SHA-256 unchanged across the build.
+- Focused in-memory ride probe — PASS: valid PIN persisted/emitted once; invalid PIN persisted/emitted zero times; the bypass transition was rejected; completion persisted/emitted integer `actualFarePesewas`.
+- Full reviewed diff and `git diff --check` — PASS.
+- No workspace has a configured automated test script.
+
+### Runtime limitation
+
+No OTP, registration, approval, migration, ride, Redis offer, live Socket.IO, public tracking, cancellation, completion, history, or rating request was executed against PostgreSQL. Valid local authentication is unavailable, PostgreSQL versions remain unreconciled, and no Redis-compatible service is listening. No password, database content, or service security setting was changed.
+
