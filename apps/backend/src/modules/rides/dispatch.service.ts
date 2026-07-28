@@ -9,15 +9,18 @@ import type {
   RideOfferPayload,
   RideUpdatePayload,
 } from '@kansride/types';
+import {
+  DISPATCH_INITIAL_RADIUS_KM,
+  DRIVER_LOCATION_MAX_AGE_MS,
+  DRIVER_RESPONSE_TIMEOUT_SECONDS,
+  MAX_DISPATCH_RADIUS_KM,
+  MAX_OFFERED_DRIVERS,
+  OFFER_TTL_SECONDS,
+} from '@kansride/config';
 import { EventsGateway } from '../events/events.gateway';
 import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
-const DISPATCH_INITIAL_RADIUS_KM = 2;
-const DISPATCH_MAX_RADIUS_KM = 5;
-const OFFER_TTL_SECONDS = 30;
-const MAX_OFFERED_DRIVERS = 5;
-const DRIVER_LOCATION_MAX_AGE_MS = 60_000;
 const ACTIVE_DRIVER_RIDE_STATUSES = [
   'driver_assigned',
   'driver_en_route',
@@ -80,22 +83,23 @@ export class DispatchService {
       await this.offerToDrivers(rideId, nearbyDrivers);
     }
 
-    // Set timeout: expand radius after 15 seconds if no acceptance
+// Set timeout: expand radius after the configured driver-response timeout
+    // if no acceptance has occurred.
     const expandTimeout = setTimeout(async () => {
       const rideData = await this.db.select().from(rides).where(eq(rides.id, rideId)).limit(1);
       if (rideData[0] && rideData[0].status === 'searching') {
-        this.logger.log(`Expanding search radius for ride ${rideId} to ${DISPATCH_MAX_RADIUS_KM}km`);
+        this.logger.log(`Expanding search radius for ride ${rideId} to ${MAX_DISPATCH_RADIUS_KM}km`);
         const expandedDrivers = await this.redis.geoSearch(
           DRIVERS_GEO_KEY,
           pickupLongitude,
           pickupLatitude,
-          DISPATCH_MAX_RADIUS_KM,
+          MAX_DISPATCH_RADIUS_KM,
         );
         if (expandedDrivers.length > 0) {
           await this.offerToDrivers(rideId, expandedDrivers);
         }
       }
-    }, 15000);
+    }, DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000);
 
     // Set timeout: no driver found after 30 seconds total
     const noDriverTimeout = setTimeout(async () => {
