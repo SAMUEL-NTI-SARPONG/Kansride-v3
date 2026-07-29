@@ -95,6 +95,12 @@ export class AdminService {
         const vehicle = driver.vehicleId
           ? await this.db.select().from(vehicles).where(eq(vehicles.id, driver.vehicleId)).limit(1)
           : [];
+        // drivers.completedRides is an unmaintained column (never incremented
+        // on ride completion) and would render 0 for every driver forever.
+        // Compute the live count of completed rides per driver instead, the
+        // same approach users.service uses for totalRides. The column is kept
+        // for potential future maintenance but is not trusted as a counter.
+        const completedRides = await this.getDriverCompletedRides(driver.id);
         return {
           id: driver.id,
           name: user[0] ? `${user[0].firstName || ''} ${user[0].lastName || ''}`.trim() || user[0].phoneNumber : 'Unknown',
@@ -105,7 +111,7 @@ export class AdminService {
           vehicleColour: vehicle[0]?.colour || null,
           subscriptionExpiresAt: driver.subscriptionExpiresAt?.toISOString() || null,
           rating: driver.rating,
-          completedRides: driver.completedRides,
+          completedRides,
           createdAt: driver.createdAt.toISOString(),
         };
       }),
@@ -237,5 +243,13 @@ export class AdminService {
     const user = await this.db.select().from(users).where(eq(users.id, driver[0].userId)).limit(1);
     if (!user[0]) return 'Unknown';
     return `${user[0].firstName || ''} ${user[0].lastName || ''}`.trim() || user[0].phoneNumber;
+  }
+
+  private async getDriverCompletedRides(driverId: string): Promise<number> {
+    const [result] = await this.db
+      .select({ value: count() })
+      .from(rides)
+      .where(and(eq(rides.driverId, driverId), eq(rides.status, 'completed')));
+    return result?.value ?? 0;
   }
 }
