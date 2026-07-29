@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuthStore } from '../stores/auth-store';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
@@ -71,7 +72,13 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // Auto-refresh on 401
+  // Auto-refresh on 401. If the refresh fails (expired/revoked refresh
+  // token), the session is over: clear storage, reset the auth store so the
+  // (main) route guard redirects to the auth flow, and throw a typed
+  // SESSION_EXPIRED error. Previously the client fell through and re-threw
+  // the original 401 while leaving the auth store's isAuthenticated = true,
+  // so the driver stayed stuck on the main tabs with a per-call Alert and no
+  // redirect to login.
   if (response.status === 401 && !skipAuth) {
     const newToken = await refreshAccessToken();
     if (newToken) {
@@ -81,6 +88,12 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
       });
+    } else {
+      await clearTokens();
+      await useAuthStore.getState().logout();
+      const error = new Error('Session expired. Please sign in again.');
+      error.name = 'SESSION_EXPIRED';
+      throw error;
     }
   }
 

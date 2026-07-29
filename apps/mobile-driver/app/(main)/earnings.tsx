@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
 import { useState, useEffect } from 'react';
 import { api } from '../../src/api/client';
 
@@ -19,6 +19,7 @@ function formatGhsFromPesewas(pesewas: number | null | undefined): string {
 export default function EarningsScreen() {
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchEarnings();
@@ -26,16 +27,20 @@ export default function EarningsScreen() {
 
   const fetchEarnings = async () => {
     try {
+      setError(null);
       const data = await api.get<EarningsData>('/drivers/earnings');
       setEarnings(data);
-    } catch {
-      // Use defaults if fetch fails
-      setEarnings({
-        todayPesewas: 0,
-        thisWeekPesewas: 0,
-        todayRides: 0,
-        weekRides: 0,
-      });
+    } catch (err) {
+      // A failed earnings fetch must not be reported as a successful
+      // GHS 0.00 / 0 rides — a driver who actually earned today would be
+      // falsely told they earned nothing, with no signal anything failed.
+      // Keep earnings null and surface an honest error/retry row instead;
+      // the empty (zero) state is only shown when the API genuinely returns
+      // zeros.
+      setEarnings(null);
+      setError(err instanceof Error && err.name !== 'SESSION_EXPIRED'
+        ? 'Could not load earnings. Pull to try again.'
+        : null);
     } finally {
       setLoading(false);
     }
@@ -52,28 +57,40 @@ export default function EarningsScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Earnings</Text>
-      <View style={styles.card}>
-        <Text style={styles.label}>Today's Earnings</Text>
-        <Text style={styles.amount}>
-          {formatGhsFromPesewas(earnings?.todayPesewas)}
-        </Text>
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.label}>This Week</Text>
-        <Text style={styles.amount}>
-          {formatGhsFromPesewas(earnings?.thisWeekPesewas)}
-        </Text>
-      </View>
-      <View style={styles.row}>
-        <View style={[styles.card, styles.halfCard]}>
-          <Text style={styles.label}>Rides Today</Text>
-          <Text style={styles.count}>{earnings?.todayRides || 0}</Text>
+      {error && !earnings && (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchEarnings} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
         </View>
-        <View style={[styles.card, styles.halfCard]}>
-          <Text style={styles.label}>Rides This Week</Text>
-          <Text style={styles.count}>{earnings?.weekRides || 0}</Text>
-        </View>
-      </View>
+      )}
+      {!error && earnings && (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.label}>Today's Earnings</Text>
+            <Text style={styles.amount}>
+              {formatGhsFromPesewas(earnings.todayPesewas)}
+            </Text>
+          </View>
+          <View style={styles.card}>
+            <Text style={styles.label}>This Week</Text>
+            <Text style={styles.amount}>
+              {formatGhsFromPesewas(earnings.thisWeekPesewas)}
+            </Text>
+          </View>
+          <View style={styles.row}>
+            <View style={[styles.card, styles.halfCard]}>
+              <Text style={styles.label}>Rides Today</Text>
+              <Text style={styles.count}>{earnings.todayRides}</Text>
+            </View>
+            <View style={[styles.card, styles.halfCard]}>
+              <Text style={styles.label}>Rides This Week</Text>
+              <Text style={styles.count}>{earnings.weekRides}</Text>
+            </View>
+          </View>
+        </>
+      )}
     </View>
   );
 }
@@ -95,4 +112,8 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, color: '#64748B' },
   amount: { fontSize: 28, fontWeight: '700', color: '#1B8B4B', marginTop: 4 },
   count: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', marginTop: 4 },
+  errorCard: { backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#FECACA', alignItems: 'center' },
+  errorText: { color: '#B91C1C', fontSize: 14, marginBottom: 12, textAlign: 'center' },
+  retryBtn: { backgroundColor: '#1B8B4B', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  retryText: { color: '#FFF', fontWeight: '600' },
 });
