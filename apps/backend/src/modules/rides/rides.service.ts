@@ -3,6 +3,7 @@ import { DATABASE_TOKEN } from '../../database';
 import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, passengers } from '@kansride/db';
+import { RBACService } from '@kansride/auth';
 import { eq, desc, avg, and, isNull, isNotNull, type SQL } from 'drizzle-orm';
 import type {
   CreateRideResponse,
@@ -55,6 +56,11 @@ function resolveRideType(value: unknown): RideType {
 @Injectable()
 export class RidesService {
   private readonly logger = new Logger(RidesService.name);
+  // Used to resolve whether an arbitrary staff role carries the ride:view_all
+  // permission, so getRideForActor can admit dispatcher/support/safety/audit/
+  // ops/system-admin staff who pass the controller's @RequirePermissions guard
+  // but were previously rejected by the terminal forbidden-branch below.
+  private readonly rbacService = new RBACService();
 
   constructor(
     @Inject(DATABASE_TOKEN) private readonly db: Database,
@@ -215,8 +221,22 @@ export class RidesService {
       return driverSafeRide;
     }
 
-    if (role === 'super_admin') {
+if (role === 'super_admin') {
       return ride;
+    }
+
+    // Staff roles carrying ride:view_all (dispatcher, support_agent,
+    // safety_officer, finance_officer does NOT carry it, ops_admin,
+    // system_admin, auditor) may view any single ride. The controller's
+    // @RequirePermissions('ride:view') gate was previously the only check, so
+    // these roles could list rides via /admin/rides but were forbidden from
+    // `GET /rides/:id`, breaking the admin dashboard's row drill-down. The
+    // verification PIN is stripped for non-super_admin staff: the PIN is the
+    // passenger/driver pickup handshake and is not needed for staff ride
+    // review, matching the driver-branch protection above.
+    if (this.rbacService.hasPermission(role, 'ride:view_all')) {
+      const { verificationPin: _verificationPin, ...staffSafeRide } = ride;
+      return staffSafeRide;
     }
 
     throw new ForbiddenException(`Role "${role}" is not permitted to view this ride`);
