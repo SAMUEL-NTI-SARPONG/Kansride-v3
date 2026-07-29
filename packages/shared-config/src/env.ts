@@ -29,13 +29,22 @@ const envSchema = z.object({
     .default('development'),
   APP_PORT: z.coerce.number().int().positive().default(3000),
 
-  // Database (PostgreSQL + PostGIS)
+// Database (PostgreSQL + PostGIS). DATABASE_URL must use the postgres(ql)
+  // scheme — a generic URL would otherwise pass schema validation here and
+  // fail later inside Drizzle with an opaque error. The shared-db loader has
+  // its own equivalent check; this is the authoritative, fail-fast gate.
   DATABASE_HOST: z.string().default('localhost'),
   DATABASE_PORT: z.coerce.number().int().positive().default(5432),
   DATABASE_NAME: z.string().default('kansride'),
   DATABASE_USER: z.string().default('postgres'),
   DATABASE_PASSWORD: z.string().default(''),
-  DATABASE_URL: z.string().url(),
+  DATABASE_URL: z
+    .string()
+    .url()
+    .refine(
+      (value) => value.startsWith('postgres://') || value.startsWith('postgresql://'),
+      'DATABASE_URL must use the postgresql:// scheme',
+    ),
 
   // Redis
   REDIS_HOST: z.string().default('localhost'),
@@ -49,14 +58,33 @@ const envSchema = z.object({
     .min(1)
     .default('change-this-refresh-secret-in-production'),
 
-  // SMS Provider
-  SMS_PROVIDER: z.enum(['mock', 'hubtel', 'arkesel']).default('mock'),
+  // SMS Provider. Only adapters that are actually implemented are enumerated;
+  // an unrecognized value now fails fast at config load instead of silently
+  // degrading to the mock sender (which would report OTP delivery as
+  // successful when no real SMS was sent). The Hubtel provider reads
+  // HUBTEL_SMS_API_KEY / HUBTEL_SENDER_ID directly (not the generic
+  // SMS_API_KEY / SMS_API_SECRET below, which are reserved for future
+  // providers); they are declared here so the schema validates and documents
+  // them and so production can require the live secret.
+  SMS_PROVIDER: z.enum(['mock', 'hubtel']).default('mock'),
   SMS_API_KEY: z.string().default(''),
   SMS_API_SECRET: z.string().default(''),
+  HUBTEL_SMS_API_KEY: z.string().default(''),
+  HUBTEL_SENDER_ID: z.string().default('KansRide'),
 
-  // Maps
+  // Maps. Only the Haversine (straight-line) adapter is implemented today and
+  // it is selected by the default 'openstreetmap' value; 'google' is retained
+  // in the enum because a real Google adapter is planned behind the same
+  // interface, but the providers factory still falls back to Haversine until
+  // that adapter exists.
   MAPS_PROVIDER: z.enum(['openstreetmap', 'google']).default('openstreetmap'),
   MAPS_API_KEY: z.string().default(''),
+
+  // Web CORS. Optional comma-separated list of allowed origins. When unset,
+  // the API serves any origin without credentials (the V1 default). When set,
+  // the API serves only those origins with credentials, which is required for
+  // cookie/header-authenticated cross-origin web clients.
+  WEB_CORS_ORIGINS: z.string().default(''),
 
   // Logging
   LOG_LEVEL: z
@@ -82,7 +110,7 @@ export function getEnv(): Env {
 
   const isProduction = process.env['NODE_ENV'] === 'production';
 
-  // In production, require critical secrets to be explicitly set
+// In production, require critical secrets to be explicitly set
   if (isProduction) {
     const requiredInProduction = [
       'JWT_ACCESS_SECRET',
@@ -93,6 +121,14 @@ export function getEnv(): Env {
     const missing = requiredInProduction.filter(
       (key) => !process.env[key] || process.env[key] === ''
     );
+
+    // When a real SMS provider is selected in production, require its live
+    // secret. Without it the Hubtel adapter would send an empty Authorization
+    // header, get a 401, and requestOTP would have surfaced the failure as a
+    // successful "OTP sent" response (a real V1 defect — see the auth fix).
+    if (process.env['SMS_PROVIDER'] === 'hubtel' && (!process.env['HUBTEL_SMS_API_KEY'] || process.env['HUBTEL_SMS_API_KEY'] === '')) {
+      (missing as string[]).push('HUBTEL_SMS_API_KEY');
+    }
 
     if (missing.length > 0) {
       throw new Error(
