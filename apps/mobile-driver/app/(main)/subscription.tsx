@@ -3,10 +3,24 @@ import { useState, useEffect } from 'react';
 import { api } from '../../src/api/client';
 import { useDriverStore } from '../../src/stores/driver-store';
 
+// Canonical Mobile Money methods. The backend PaymentMethod union (and the
+// real Hubtel-style provider) only accepts these exact string values; the
+// previous screen sent 'mobile_money', which is NOT a member — the mock
+// provider silently accepted it, but a real provider would reject it and the
+// driver could never activate a subscription. Let the driver pick their
+// provider so the value sent is always canonical.
+type MobileMoneyMethod = 'mtn_mobile_money' | 'telecel_cash' | 'at_money';
+const PAYMENT_METHODS: Array<{ value: MobileMoneyMethod; label: string }> = [
+  { value: 'mtn_mobile_money', label: 'MTN MoMo' },
+  { value: 'telecel_cash', label: 'Telecel Cash' },
+  { value: 'at_money', label: 'AirtelTigo Money' },
+];
+
 export default function SubscriptionScreen() {
   const { subscriptionActive, subscriptionExpiresAt, setSubscription } = useDriverStore();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<MobileMoneyMethod>('mtn_mobile_money');
 
   useEffect(() => {
     refreshStatus();
@@ -37,7 +51,7 @@ export default function SubscriptionScreen() {
         message: string;
         expiresAt?: string;
         status?: string;
-      }>('/drivers/subscribe', { paymentMethod: 'mobile_money' });
+      }>('/drivers/subscribe', { paymentMethod });
 
       if (result.expiresAt) {
         setSubscription(true, result.expiresAt);
@@ -83,6 +97,31 @@ export default function SubscriptionScreen() {
         <Text style={styles.infoText}>- No commission per trip</Text>
         <Text style={styles.infoText}>- Pay via Mobile Money</Text>
       </View>
+
+      {!subscriptionActive && (
+        <View style={styles.methodRow}>
+          {PAYMENT_METHODS.map((method) => (
+            <TouchableOpacity
+              key={method.value}
+              style={[
+                styles.methodTile,
+                paymentMethod === method.value && styles.methodTileSelected,
+              ]}
+              onPress={() => setPaymentMethod(method.value)}
+              disabled={loading}
+            >
+              <Text
+                style={[
+                  styles.methodText,
+                  paymentMethod === method.value && styles.methodTextSelected,
+                ]}
+              >
+                {method.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {!subscriptionActive && (
         <TouchableOpacity
@@ -141,6 +180,11 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  methodRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  methodTile: { flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: '#FFF' },
+  methodTileSelected: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
+  methodText: { color: '#64748B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
+  methodTextSelected: { color: '#1B8B4B' },
   activeCard: {
     backgroundColor: '#F0FDF4',
     borderRadius: 12,
