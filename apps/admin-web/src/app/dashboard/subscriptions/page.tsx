@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useSubscriptions } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
-import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS } from '@kansride/config';
+import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS } from '@kansride/config/constants';
 import { formatDateTime } from '@/lib/datetime';
 
 export default function SubscriptionsPage() {

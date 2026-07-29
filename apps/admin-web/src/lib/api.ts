@@ -16,6 +16,28 @@ export function hasAdminSession(): boolean {
   return typeof window !== 'undefined' && Boolean(localStorage.getItem(ACCESS_TOKEN_KEY));
 }
 
+// Decode the role from the stored access token's JWT payload so client-side
+// UI (e.g. dashboard nav gating) can hide routes the signed-in role cannot
+// use, instead of rendering them and letting the user hit a 403. The backend
+// remains the authoritative authorizer; this is purely to avoid the
+// misleading 'Failed to load …' banners on pages a role should never reach.
+// Returns null on any decode failure — callers fall back to showing all nav
+// items (preserving prior behaviour) rather than locking a valid session out.
+export function getAdminRole(): string | null {
+  if (typeof window === 'undefined') return null;
+  const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!token) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64)) as { role?: unknown };
+    return typeof payload.role === 'string' ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
 class ApiError extends Error {
   constructor(
     public status: number,
