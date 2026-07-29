@@ -16,7 +16,14 @@ export default function DriversPage() {
           {['all', 'online', 'offline'].map((s) => (
             <button
               key={s}
-              onClick={() => setStatusFilter(s === 'all' ? undefined : s)}
+              onClick={() => {
+                setStatusFilter(s === 'all' ? undefined : s);
+                // Reset to the first page when the filter changes, mirroring
+                // the Rides page: otherwise page=N persists and the new
+                // filtered result set may have fewer pages, leaving the user
+                // on an empty intersection with a stale pager.
+                setPage(1);
+              }}
               className={`px-3 py-1.5 text-sm rounded-lg font-medium transition ${
                 (s === 'all' && !statusFilter) || statusFilter === s
                   ? 'bg-primary text-white'
