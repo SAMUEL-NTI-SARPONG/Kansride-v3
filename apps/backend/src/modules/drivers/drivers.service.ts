@@ -6,6 +6,7 @@ import { PAYMENT_PROVIDER } from '../../providers';
 import { IRedisService } from '../../redis/redis.interface';
 import { IPaymentProvider, PaymentMethod } from '../../providers/payments/payment.interface';
 import { Database, users, drivers, vehicles, subscriptions, rides } from '@kansride/db';
+import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS, DRIVER_SUBSCRIPTION_DURATION_HOURS } from '@kansride/config';
 import { eq, and, lt, gt } from 'drizzle-orm';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
@@ -269,8 +270,12 @@ export class DriversService {
     const user = await this.db.select().from(users).where(eq(users.id, driver[0].userId)).limit(1);
     if (!user[0]) throw new NotFoundException('User not found');
 
-    // Initiate payment (1000 pesewas = GHS 10.00)
-    const amountPesewas = 1000;
+    // Initiate payment. The amount (1000 pesewas = GHS 10.00) and duration
+    // (24 hours) are the canonical business constants in shared-config; import
+    // them so this service never drifts from the single source of truth (the
+    // same constants are surfaced to the admin web for display). Today the
+    // values match the previous literals exactly, so no behaviour change.
+    const amountPesewas = DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS;
     const payResult = await this.paymentProvider.initiate(
       amountPesewas,
       paymentMethod as PaymentMethod,
@@ -281,7 +286,7 @@ export class DriversService {
     if (payResult.status === 'success') {
       // Create subscription
       const startDate = new Date();
-      const endDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      const endDate = new Date(Date.now() + DRIVER_SUBSCRIPTION_DURATION_HOURS * 60 * 60 * 1000);
 
       await this.db.insert(subscriptions).values({
         driverId,
