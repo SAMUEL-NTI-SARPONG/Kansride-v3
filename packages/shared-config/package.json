@@ -11,7 +11,7 @@
     },
     "./constants": {
       "types": "./src/constants.ts",
-      "default": "./dist/constants.js"
+      "default": "./src/constants.ts"
     }
   },
   "scripts": {
