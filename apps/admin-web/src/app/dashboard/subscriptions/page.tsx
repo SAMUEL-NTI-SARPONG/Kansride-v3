@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useSubscriptions } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
+import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS } from '@kansride/config';
+import { formatDateTime } from '@/lib/datetime';
 
 export default function SubscriptionsPage() {
   const [page, setPage] = useState(1);
@@ -13,7 +15,7 @@ export default function SubscriptionsPage() {
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Subscriptions</h2>
 
       <div className="mb-4 bg-white rounded-xl border border-gray-200 p-4">
-        <p className="text-gray-500">Daily subscription fee: <span className="font-bold text-primary">GHS 10.00</span></p>
+        <p className="text-gray-500">Daily subscription fee: <span className="font-bold text-primary">{formatGhsFromPesewas(DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS)}</span></p>
       </div>
 
       {error && (
@@ -44,8 +46,8 @@ export default function SubscriptionsPage() {
               data.data.map((sub) => (
                 <tr key={sub.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{sub.driverName}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(sub.startDate).toLocaleString()}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(sub.endDate).toLocaleString()}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{formatDateTime(sub.startDate)}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{formatDateTime(sub.endDate)}</td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
                       sub.status === 'active' ? 'bg-green-100 text-green-700' :

@@ -2,6 +2,7 @@
 
 import { useDashboardStats } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
+import { formatDateTime } from '@/lib/datetime';
 
 export default function DashboardPage() {
   const { data, isLoading, error } = useDashboardStats();
@@ -78,7 +79,7 @@ export default function DashboardPage() {
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {formatGhsFromPesewas(ride.farePesewas)}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(ride.createdAt).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{formatDateTime(ride.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

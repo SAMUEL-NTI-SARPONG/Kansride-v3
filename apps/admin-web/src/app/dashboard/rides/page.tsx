@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRides } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
+import { formatDateTime } from '@/lib/datetime';
 
 const STATUS_TABS = [
   { key: undefined, label: 'All' },
@@ -78,7 +79,7 @@ export default function RidesPage() {
                   <td className="px-6 py-4 text-sm text-gray-900">
                     {formatGhsFromPesewas(ride.farePesewas)}
                   </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(ride.createdAt).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">{formatDateTime(ride.createdAt)}</td>
                 </tr>
               ))
             ) : (

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useUsers } from '@/lib/hooks';
+import { formatDateTime } from '@/lib/datetime';
 
 export default function UsersPage() {
   const [page, setPage] = useState(1);
@@ -57,7 +58,7 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    {new Date(user.createdAt).toLocaleDateString()}
+                    {formatDateTime(user.createdAt)}
                   </td>
                 </tr>
               ))
