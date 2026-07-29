@@ -6,6 +6,7 @@ import { useDriverStore } from '../../src/stores/driver-store';
 import { api } from '../../src/api/client';
 import { clearTokens } from '../../src/api/client';
 import * as socketClient from '../../src/api/socket';
+import { stopLocationWatch } from '../../src/services/location';
 
 interface UserProfile {
   id: string;
@@ -54,7 +55,8 @@ export default function DriverProfileScreen() {
   };
 
   const handleLogout = async () => {
-    socketClient.disconnect();
+    socketClient.disconnect(); // also stops location emission
+    stopLocationWatch();
     driverReset();
     await logout();
     router.replace('/(auth)/login');

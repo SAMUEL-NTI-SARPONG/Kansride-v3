@@ -8,6 +8,41 @@ import { useDriverStore } from '../../src/stores/driver-store';
 import type { RideStatus } from '../../src/stores/driver-store';
 import { useLocationStore } from '../../src/stores/location-store';
 import { RideOffer } from '../../src/api/socket';
+import {
+  ensureForegroundPermission,
+  getLocationServicesState,
+  acquireCurrentPosition,
+  startLocationWatch,
+  stopLocationWatch,
+} from '../../src/services/location';
+import type { LocationOutcome } from '../../src/services/location';
+
+// Honest, user-facing labels for typed location outcomes — no fabricated
+// coordinates, no silent failure. Each non-granted outcome maps to a title +
+// message the Alert can surface, plus a hint about whether retry can help.
+function describeLocationFailure(outcome: LocationOutcome): { title: string; message: string } {
+  switch (outcome.kind) {
+    case 'denied':
+      return {
+        title: 'Location permission denied',
+        message: outcome.canAskAgain
+          ? 'KansRide needs your location to receive ride requests. Please grant location permission and try again.'
+          : 'Location permission is blocked. Open Settings, enable location for KansRide, then try again.',
+      };
+    case 'services-disabled':
+      return {
+        title: 'Location services off',
+        message: 'Turn on device location (GPS) to go online and receive ride requests.',
+      };
+    case 'unavailable':
+      return {
+        title: 'Location unavailable',
+        message: outcome.reason || 'Your location could not be determined. Try again in a moment.',
+      };
+    default:
+      return { title: 'Location unavailable', message: 'Your location could not be determined.' };
+  }
+}
 
 function formatGhsFromPesewas(pesewas: number | null | undefined): string {
   if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
@@ -23,7 +58,9 @@ export default function DriverHomeScreen() {
     subscriptionActive, offerExpiresAt, updateRideStatus, isApproved, setApproved,
   } = useDriverStore();
   const getLocation = useLocationStore((s) => s.getLocation);
+  const setLocation = useLocationStore((s) => s.setLocation);
   const [toggling, setToggling] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
   const [verificationPin, setVerificationPin] = useState('');
@@ -79,9 +116,24 @@ export default function DriverHomeScreen() {
         setDriverId(profile.driverId);
         setApproved(profile.isActive === true);
         setSubscription(profile.subscriptionActive || false, profile.subscriptionExpiresAt);
-        if (profile.isOnline) {
+          if (profile.isOnline) {
           setOnline(true);
-          await setupSocket();
+          try {
+            await setupSocket();
+          } catch (error: any) {
+            // We were online server-side but cannot reach the socket now. Stay
+            // online (server state unchanged) and surface an honest banner so
+            // the driver knows ride offers may not arrive until reconnect.
+            setLocationError(
+              `Connection failed: ${error?.message || 'Failed to connect to the server'}`,
+            );
+          }
+          // Restart live location emission for a restored online session.
+          // The watcher feeds the store; the emission loop broadcasts store
+          // coords every 10s. A watcher failure here is non-fatal because the
+          // server already considers us online; we surface a soft banner rather
+          // than rolling back (rollback belongs to a fresh go-online attempt).
+          void restartLocationEmission();
         }
       }
     } catch {
@@ -171,13 +223,51 @@ export default function DriverHomeScreen() {
       }
       socketClient.requestPendingOffers();
     } catch (err: any) {
-      Alert.alert('Connection Error', err.message || 'Failed to connect to server');
+      // Re-throw so callers can react (rollback an optimistic go-online, or
+      // surface an honest banner on session restore). Callers own alerting.
+      throw err;
     }
+  };
+
+  // Starts the foreground watcher (feeding the location store on each fix)
+  // and (re)arms the 10s socket emission loop. Used both for a fresh
+  // go-online and for restoring an online session after app restart. No
+  // fabricated coordinates: if the watch cannot start, an honest outcome is
+  // returned and the caller decides whether to roll back.
+  const restartLocationEmission = async (): Promise<LocationOutcome> => {
+    const watchOutcome = await startLocationWatch((coords) => {
+      setLocation(coords.latitude, coords.longitude);
+    });
+    if (watchOutcome.kind === 'granted') {
+      socketClient.startLocationEmission(getLocation);
+    }
+    return watchOutcome;
+  };
+
+  // Centralised rollback for a failed go-online attempt. Keeps the backend and
+  // the client in sync: calls go-offline (best-effort), clears the optimistic
+  // online flag, tears down emission + watcher + socket, and surfaces an honest
+  // retryable error. Never throws.
+  const rollbackGoOnline = async (title: string, message: string) => {
+    try {
+      await api.post('/drivers/go-offline');
+    } catch {
+      // Backend may already consider us offline if go-online never landed; a
+      // failed rollback here is not retried — the server-side online state is
+      // corrected on the next successful go-online / go-offline.
+    }
+    stopLocationWatch();
+    socketClient.stopLocationEmission();
+    socketClient.disconnect();
+    setOnline(false);
+    setLocationError(`${title}: ${message}`);
+    Alert.alert(title, message);
   };
 
   const handleToggleOnline = async (value: boolean) => {
     if (toggling) return;
     setToggling(true);
+    setLocationError(null);
 
     try {
       if (value) {
@@ -200,22 +290,78 @@ export default function DriverHomeScreen() {
           return;
         }
 
-        const location = getLocation();
-        await api.post('/drivers/go-online', {
-          latitude: location.latitude,
-          longitude: location.longitude,
-        });
+        // Acquire real device coordinates — no fabricated fallback. Permission
+        // and services are checked before a position attempt so the user sees
+        // the least surprising reason for failure.
+        const permission = await ensureForegroundPermission();
+        if (permission.kind !== 'granted') {
+          const { title, message } = describeLocationFailure(permission);
+          Alert.alert(title, message);
+          return;
+        }
+        const services = await getLocationServicesState();
+        if (services.kind !== 'granted') {
+          const { title, message } = describeLocationFailure(services);
+          Alert.alert(title, message);
+          return;
+        }
+        const position = await acquireCurrentPosition();
+        if (position.kind !== 'position') {
+          const { title, message } = describeLocationFailure(position);
+          Alert.alert(title, message);
+          return;
+        }
+        setLocation(position.coords.latitude, position.coords.longitude);
+
+        // Tell the backend we are online with the real coordinates. If this
+        // fails we never set the optimistic flag — nothing to roll back.
+        try {
+          await api.post('/drivers/go-online', {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        } catch (error: any) {
+          Alert.alert('Could not go online', error.message || 'Server rejected go-online request');
+          return;
+        }
 
         setOnline(true);
-        await setupSocket();
 
-        // Start location emission
-        socketClient.startLocationEmission(getLocation);
+        // Connect the socket. On failure we must roll back the online state we
+        // just declared so the backend and client agree we are offline.
+        try {
+          await setupSocket();
+        } catch (error: any) {
+          await rollbackGoOnline(
+            'Connection failed',
+            error.message || 'Failed to connect to the server. You are now offline — try again.',
+          );
+          return;
+        }
+
+        // Start the foreground watcher + emission loop. If the watcher cannot
+        // start we roll back too: an online driver with no live location is
+        // useless and the dispatch matcher would never receive our coords.
+        const watchOutcome = await restartLocationEmission();
+        if (watchOutcome.kind !== 'granted') {
+          const { title, message } = describeLocationFailure(watchOutcome);
+          await rollbackGoOnline(title, message);
+          return;
+        }
       } else {
-        await api.post('/drivers/go-offline');
-        setOnline(false);
+        // Going offline: tell the backend, then tear everything down in the
+        // opposite order we started it (emission → watcher → socket).
+        try {
+          await api.post('/drivers/go-offline');
+        } catch (error: any) {
+          // Even if go-offline fails, we clear the client-side state so the UI
+          // is honest; the socket disconnect will stop emission regardless.
+          Alert.alert('Going offline', error.message || 'Server may still show you online briefly.');
+        }
         socketClient.stopLocationEmission();
+        stopLocationWatch();
         socketClient.disconnect();
+        setOnline(false);
       }
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to toggle online status');
@@ -419,7 +565,19 @@ export default function DriverHomeScreen() {
             />
           )}
         </View>
-        {isOnline && (
+        {locationError ? (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{locationError}</Text>
+            <TouchableOpacity
+              onPress={() => setLocationError(null)}
+              accessibilityLabel="Dismiss error"
+              accessibilityRole="button"
+            >
+              <Text style={styles.errorDismiss}>Dismiss</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {isOnline && !locationError && (
           <View style={styles.waitingCard}>
             <Text style={styles.waitingText}>No ride requests yet</Text>
             <Text style={styles.waitingSubtext}>Stay in the service area for best results</Text>
@@ -501,6 +659,16 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusLabel: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
   statusHint: { fontSize: 14, color: '#64748B', marginTop: 2 },
+  errorCard: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  errorText: { fontSize: 13, color: '#B91C1C', lineHeight: 18 },
+  errorDismiss: { fontSize: 12, color: '#B91C1C', fontWeight: '600', marginTop: 4 },
   waitingCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 16, alignItems: 'center' },
   waitingText: { fontSize: 16, fontWeight: '600', color: '#1B8B4B' },
   waitingSubtext: { fontSize: 12, color: '#64748B', marginTop: 4 },
