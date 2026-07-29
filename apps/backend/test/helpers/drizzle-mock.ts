@@ -50,6 +50,7 @@ export interface DbStub {
   select(..._: unknown[]): Chain;
   insert(..._: unknown[]): Chain;
   update(..._: unknown[]): Chain;
+  delete(..._: unknown[]): Chain;
   transaction: <R>(fn: (tx: TxStub) => Promise<R>) => Promise<R>;
 }
 
@@ -110,6 +111,7 @@ export function makeDbStub(): DbStub & {
     select(..._: unknown[]) { return next('select'); },
     insert(..._: unknown[]) { return next('insert'); },
     update(..._: unknown[]) { return next('update'); },
+    delete(..._: unknown[]) { return next('delete'); },
     transaction: async <R>(fn: (tx: TxStub) => Promise<R>): Promise<R> => {
       calls.push('transaction');
       return fn(makeTx());
