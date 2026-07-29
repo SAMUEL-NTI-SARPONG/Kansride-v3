@@ -10,7 +10,34 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
 
     const status = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
-    const message = exception instanceof HttpException ? exception.message : 'Internal server error';
+
+    // Nest's HttpException stores a structured response (the per-field
+    // validation messages, a custom error code, etc.) on `getResponse()`.
+    // Surfacing the string `exception.message` here would drop that detail and
+    // emit only "Bad Request" for class-validator payloads. Resolve the
+    // structured response and extract its `message` field when present; fall
+    // back to the exception message for plain HttpExceptions and to a generic
+    // string for unknown errors.
+    let message: string;
+    if (exception instanceof HttpException) {
+      const exceptionResponse = exception.getResponse();
+      if (
+        typeof exceptionResponse === 'object'
+        && exceptionResponse !== null
+        && 'message' in exceptionResponse
+      ) {
+        const messageValue = (exceptionResponse as { message: unknown }).message;
+        message = Array.isArray(messageValue)
+          ? messageValue.join(', ')
+          : typeof messageValue === 'string'
+            ? messageValue
+            : exception.message;
+      } else {
+        message = exception.message;
+      }
+    } else {
+      message = 'Internal server error';
+    }
 
     this.logger.error(`${status} - ${message}`, exception instanceof Error ? exception.stack : '');
 
