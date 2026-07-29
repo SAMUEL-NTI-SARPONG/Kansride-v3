@@ -18,6 +18,7 @@ export default function VerifyOTPScreen() {
   const { phone } = useLocalSearchParams<{ phone: string }>();
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const setTokens = useAuthStore((s) => s.setTokens);
 
@@ -117,15 +118,34 @@ export default function VerifyOTPScreen() {
           <Text style={styles.buttonText}>Verify</Text>
         )}
       </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.resendBtn}
-        onPress={() => {
-          postPublic('/auth/request-otp', { phoneNumber: phone }).catch(() => {});
-          Alert.alert('OTP Resent', 'A new code has been sent to your phone');
+<TouchableOpacity
+        style={[styles.resendBtn, (loading || resending) && styles.resendDisabled]}
+        onPress={async () => {
+          // Surface the real outcome of the resend instead of always telling
+          // the user a new code was sent. Previously a network failure or a
+          // rate-limit rejection was swallowed and the success alert was shown
+          // anyway, leaving the user waiting for an SMS that would never
+          // arrive. Await the request and branch on the result; disable the
+          // button while the resend is in flight.
+          if (resending) return;
+          setResending(true);
+          try {
+            await postPublic('/auth/request-otp', { phoneNumber: phone });
+            Alert.alert('OTP Resent', 'A new code has been sent to your phone');
+          } catch (err) {
+            Alert.alert(
+              'Resend failed',
+              err instanceof Error && err.message
+                ? err.message
+                : 'Could not send a new code. Please try again in a moment.',
+            );
+          } finally {
+            setResending(false);
+          }
         }}
-        disabled={loading}
+        disabled={loading || resending}
       >
-        <Text style={styles.resendText}>Resend Code</Text>
+        <Text style={styles.resendText}>{resending ? 'Sending…' : 'Resend Code'}</Text>
       </TouchableOpacity>
     </KeyboardAvoidingView>
   );
@@ -169,5 +189,6 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
   resendBtn: { alignItems: 'center', marginTop: 16 },
+  resendDisabled: { opacity: 0.5 },
   resendText: { color: '#1B8B4B', fontSize: 14, fontWeight: '600' },
 });

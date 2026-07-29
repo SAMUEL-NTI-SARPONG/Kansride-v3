@@ -33,15 +33,10 @@ export async function connectSocket(): Promise<Socket> {
       reconnectionDelayMax: 10000,
     });
 
-    socket.on('connect', () => {
-      console.log('[Socket] Connected to rides namespace');
+socket.on('connect', () => {
       for (const rideId of subscribedRideIds) {
         socket?.emit('ride:subscribe', { rideId });
       }
-    });
-
-    socket.on('disconnect', (reason) => {
-      console.log('[Socket] Disconnected:', reason);
     });
   } else {
     socket.auth = { token };
@@ -57,19 +52,17 @@ export function getSocket(): Socket | null {
 }
 
 export function subscribeToRide(rideId: string): void {
-  subscribedRideIds.add(rideId);
+subscribedRideIds.add(rideId);
   if (!socket?.connected) {
     return;
   }
   socket.emit('ride:subscribe', { rideId });
-  console.log('[Socket] Subscribed to ride:', rideId);
 }
 
 export function unsubscribeFromRide(rideId: string): void {
   subscribedRideIds.delete(rideId);
   if (!socket?.connected) return;
   socket.emit('ride:unsubscribe', { rideId });
-  console.log('[Socket] Unsubscribed from ride:', rideId);
 }
 
 export function onRideUpdate(callback: (data: RideUpdate) => void): () => void {

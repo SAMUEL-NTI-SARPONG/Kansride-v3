@@ -31,8 +31,7 @@ export default function ProfileScreen() {
         const data = await get<UserProfile>('/users/me');
         setProfile(data);
         setUser({ id: data.id, phone: data.phone, name: data.name, totalRides: data.totalRides });
-      } catch (error) {
-        console.log('Failed to fetch profile:', error);
+      } catch {
         // Use cached user data if available
         if (user) {
           setProfile({ id: user.id, phone: user.phone, name: user.name });

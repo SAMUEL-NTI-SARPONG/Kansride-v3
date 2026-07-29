@@ -75,8 +75,9 @@ export default function ActiveRideScreen() {
         unsubLocation = onDriverLocation((location) => {
           setDriverLocation(location);
         });
-      } catch (err) {
-        console.log('[ActiveRide] Socket setup error:', err);
+      } catch {
+        // Socket setup failed; the ride detail screen still renders its last
+        // known state and the user can pull to refresh. Suppressed debug log.
       }
     };
 

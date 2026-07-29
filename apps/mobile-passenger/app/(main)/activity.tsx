@@ -5,6 +5,7 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { get } from '../../src/api/client';
@@ -27,13 +28,22 @@ export default function ActivityScreen() {
   const [rides, setRides] = useState<RideHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchRides = async () => {
     try {
+      setError(null);
       const data = await get<RideHistoryItem[]>('/rides/my-rides');
       setRides(data || []);
-    } catch (error) {
-      console.log('Failed to fetch rides:', error);
+    } catch (err) {
+      // A failed my-rides fetch must not be reported as an empty list — a user
+      // with past rides would be falsely shown 'No rides yet' after a network
+      // blip. Keep a separate error state and render a retry row on failure;
+      // the empty state is only shown when there is genuinely no data and no
+      // error.
+      const isSessionExpired = err instanceof Error && err.name === 'SESSION_EXPIRED';
+      setRides([]);
+      setError(isSessionExpired ? null : 'Could not load your rides. Pull to try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -97,7 +107,7 @@ export default function ActivityScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Your Rides</Text>
-      <FlatList
+<FlatList
         data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
@@ -123,10 +133,19 @@ export default function ActivityScreen() {
         )}
         contentContainerStyle={rides.length === 0 ? styles.center : { gap: 12, paddingBottom: 20 }}
         ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>No rides yet</Text>
-            <Text style={styles.emptySubtext}>Your ride history will appear here</Text>
-          </View>
+          error ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>{error}</Text>
+              <TouchableOpacity onPress={onRefresh} style={styles.retryBtn}>
+                <Text style={styles.retryText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>No rides yet</Text>
+              <Text style={styles.emptySubtext}>Your ride history will appear here</Text>
+            </View>
+          )
         }
         refreshControl={
           <RefreshControl
@@ -160,6 +179,8 @@ const styles = StyleSheet.create({
   date: { fontSize: 12, color: '#94A3B8' },
   status: { fontSize: 12, fontWeight: '600', textTransform: 'capitalize' },
   emptyState: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { fontSize: 18, fontWeight: '600', color: '#64748B' },
+  emptyText: { fontSize: 18, fontWeight: '600', color: '#64748B', textAlign: 'center' },
   emptySubtext: { fontSize: 14, color: '#94A3B8', marginTop: 4 },
+  retryBtn: { marginTop: 16, backgroundColor: '#1B8B4B', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  retryText: { color: '#FFF', fontWeight: '600' },
 });

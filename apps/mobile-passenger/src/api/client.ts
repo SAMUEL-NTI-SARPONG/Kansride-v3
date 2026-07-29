@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuthStore } from '../stores/auth-store';
 
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
@@ -85,7 +86,10 @@ async function request<T>(
     body: body ? JSON.stringify(body) : undefined,
   });
 
-  // Auto-refresh on 401
+  // Auto-refresh on 401. refreshAccessToken already clears stored tokens on
+  // failure; here we also reset the auth store so the (main) route guard
+  // redirects to the auth flow instead of leaving the passenger stuck on the
+  // main tabs with a raw 'SESSION_EXPIRED' Alert on every call.
   if (response.status === 401 && !skipAuth) {
     const newToken = await refreshAccessToken();
     if (newToken) {
@@ -96,7 +100,10 @@ async function request<T>(
         body: body ? JSON.stringify(body) : undefined,
       });
     } else {
-      throw new Error('SESSION_EXPIRED');
+      await useAuthStore.getState().logout();
+      const error = new Error('Session expired. Please sign in again.');
+      error.name = 'SESSION_EXPIRED';
+      throw error;
     }
   }
 
