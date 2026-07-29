@@ -32,6 +32,18 @@ export function onRideUpdate(
   return () => socket?.off('tracking:update', callback);
 }
 
+// The backend emits 'tracking:error' when the tracking token is invalid,
+// expired, or has been revoked (e.g. after the ride reaches a terminal
+// status), then force-disconnects the socket. Surfacing it lets the page stop
+// waiting for further updates instead of rendering the last-known status as
+// if the ride were still live.
+export function onTrackingError(
+  callback: (data: { message?: string }) => void,
+): () => void {
+  socket?.on('tracking:error', callback);
+  return () => socket?.off('tracking:error', callback);
+}
+
 export function disconnect(): void {
   if (socket) {
     socket.disconnect();

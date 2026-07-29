@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { get } from '../../../lib/api';
-import { connectTracking, onLocationUpdate, onRideUpdate, disconnect } from '../../../lib/socket';
+import { connectTracking, onLocationUpdate, onRideUpdate, onTrackingError, disconnect } from '../../../lib/socket';
 import type {
   PublicDriverLocationPayload,
   PublicTrackingSnapshot,
+  RideStatus,
 } from '@kansride/types';
 
 const STATUS_STEPS = [
@@ -16,6 +18,35 @@ const STATUS_STEPS = [
   'in_progress',
   'completed',
 ];
+
+// Terminal ride statuses, mirroring the backend PublicTrackingService
+// TERMINAL_STATUSES set. When a ride reaches one of these, the tracking
+// grant is revoked and the gateway force-disconnects; the client must treat
+// them as ended (red indicator, no further updates) rather than as in-flight.
+const TERMINAL_STATUSES = new Set<RideStatus>([
+  'completed',
+  'cancelled_by_passenger',
+  'cancelled_by_driver',
+  'cancelled_by_admin',
+  'no_driver_found',
+  'passenger_no_show',
+  'driver_no_show',
+  'payment_failed',
+]);
+
+// Terminal-failure statuses are terminal AND not 'completed' — they render red
+// instead of green.
+const TERMINAL_FAILURE_STATUSES: ReadonlySet<RideStatus> = new Set<RideStatus>(
+  [
+    'cancelled_by_passenger',
+    'cancelled_by_driver',
+    'cancelled_by_admin',
+    'no_driver_found',
+    'passenger_no_show',
+    'driver_no_show',
+    'payment_failed',
+  ],
+);
 
 const STATUS_MESSAGES: Record<string, string> = {
   draft: 'Preparing your ride...',
@@ -41,16 +72,24 @@ const STATUS_MESSAGES: Record<string, string> = {
   emergency_hold: 'Ride on hold — safety review',
 };
 
-function getStatusColor(status: string): string {
+function isTerminalStatus(status: RideStatus): boolean {
+  return TERMINAL_STATUSES.has(status);
+}
+
+function isTerminalFailure(status: RideStatus): boolean {
+  return TERMINAL_FAILURE_STATUSES.has(status);
+}
+
+function getStatusColor(status: RideStatus): string {
   if (status === 'completed') return 'text-green-600';
-  if (status.startsWith('cancelled') || status === 'no_driver_found') return 'text-red-600';
+  if (isTerminalFailure(status)) return 'text-red-600';
   if (status === 'in_progress') return 'text-blue-600';
   return 'text-amber-600';
 }
 
-function getProgressIndex(status: string): number {
+function getProgressIndex(status: RideStatus): number {
   const idx = STATUS_STEPS.indexOf(status);
-  return idx >= 0 ? idx : 0;
+  return idx >= 0 ? idx : -1;
 }
 
 function formatETA(seconds: number | null): string {
@@ -59,6 +98,8 @@ function formatETA(seconds: number | null): string {
   return `${mins} min`;
 }
 
+const BACKGROUND_REFETCH_INTERVAL_MS = 45_000;
+
 export default function TrackRidePage({ params }: { params: Promise<{ token: string }> }) {
   const [trackingToken, setTrackingToken] = useState<string>('');
   const [ride, setRide] = useState<PublicTrackingSnapshot | null>(null);
@@ -66,9 +107,25 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Unwrap params
+  // High-water mark of the furthest ladder step the ride has visibly reached.
+  // Several live (non-terminal) statuses fall outside the STATUS_STEPS ladder
+  // (waiting_for_passenger, passenger_verified, payment_pending, disputed,
+  // emergency_hold). Without clamping, entering any of them reset the
+  // progress UI to 'Requested' (index 0), visibly rewinding the ride. We
+  // remember the maximum ladder index reached and never let the rendered
+  // position fall below it.
+  const progressHighWater = useRef<number>(0);
+
+  // Unwrap params. The Next 15 `params` Promise can resolve after unmount; guard
+  // with a cancelled flag so we never call setState on an unmounted component.
   useEffect(() => {
-    params.then((p) => setTrackingToken(p.token));
+    let cancelled = false;
+    params.then((p) => {
+      if (!cancelled) setTrackingToken(p.token);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [params]);
 
   const fetchRide = useCallback(async () => {
@@ -89,14 +146,15 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
   useEffect(() => {
     if (!trackingToken) return;
-    fetchRide();
+    void fetchRide();
   }, [trackingToken, fetchRide]);
 
-  // WebSocket connection
+  // WebSocket connection + listeners.
   useEffect(() => {
     if (!trackingToken || !ride) return;
 
     connectTracking(trackingToken);
+
     const removeLocationListener = onLocationUpdate((data) => {
       if (data.publicReference === ride.publicReference) {
         setDriverLocation(data);
@@ -104,27 +162,94 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     });
 
     const removeRideListener = onRideUpdate((data) => {
-      if (data.publicReference === ride.publicReference) {
-        setRide((prev) => (prev ? { ...prev, status: data.status } : prev));
-        if (
-          data.status !== 'completed'
-          && !data.status.startsWith('cancelled')
-          && data.status !== 'no_driver_found'
-        ) {
-          void get<PublicTrackingSnapshot>(
-            `/rides/public-track/${encodeURIComponent(trackingToken)}`,
-          ).then(setRide).catch(() => {
-            // The status event remains usable if a background refresh races expiry.
-          });
-        }
+      if (data.publicReference !== ride.publicReference) return;
+      const status = data.status as RideStatus;
+      setRide((prev) => (prev ? { ...prev, status } : prev));
+
+      const ladderIdx = getProgressIndex(status);
+      if (ladderIdx > progressHighWater.current) {
+        progressHighWater.current = ladderIdx;
+      }
+
+      if (isTerminalStatus(status)) {
+        // The backend revokes the grant and force-disconnects on a terminal
+        // transition. Break the reconnect/404 loop locally too: stop
+        // listening and disconnect so background refetch + socket.io
+        // auto-reconnect don't hammer the now-revoked token.
+        removeLocationListener();
+        removeRideListener();
+        disconnect();
       }
     });
 
-    return () => {
+    const removeErrorListener = onTrackingError((data) => {
+      // Token invalid/expired/revoked: surface an honest terminal notice and
+      // stop awaiting further updates rather than rendering the last-known
+      // status as if the ride were still live.
+      setError(data?.message || 'This tracking link has expired or is no longer available.');
       removeLocationListener();
       removeRideListener();
       disconnect();
+    });
+
+    // Mark the high-water once we have a known ride status so the initial
+    // render starts at the correct ladder position (and never regresses).
+    const initialIdx = getProgressIndex(ride.status as RideStatus);
+    if (initialIdx > progressHighWater.current) {
+      progressHighWater.current = initialIdx;
+    }
+
+    return () => {
+      removeLocationListener();
+      removeErrorListener();
+      disconnect();
     };
+    // ride?.publicReference intentionally used as the connection key; depending
+    // on the whole ride object would reconnect on every status update.
+  }, [trackingToken, ride?.publicReference]);
+
+  // Background polling + refetch-on-visible fallback. The websocket is the
+  // primary channel, but if it silently drops or the tab was backgrounded long
+  // enough for the socket to be torn down without an update arriving, the page
+  // would otherwise display stale state forever with no recovery. A low-
+  // frequency fetch keeps the status honest, gated on the ride not having
+  // ended so we don't keep poking a revoked token.
+  useEffect(() => {
+    if (!trackingToken) return;
+
+    const refetchIfActive = () => {
+      const current = ride;
+      if (!current || !isTerminalStatus(current.status as RideStatus)) {
+        // Don't toggle the loading spinner for a background refresh; it would
+        // flash the full-screen loader on every tick.
+        void get<PublicTrackingSnapshot>(
+          `/rides/public-track/${encodeURIComponent(trackingToken)}`,
+        )
+          .then((data) => {
+            setRide(data);
+            const ladderIdx = getProgressIndex(data.status as RideStatus);
+            if (ladderIdx > progressHighWater.current) {
+              progressHighWater.current = ladderIdx;
+            }
+          })
+          .catch(() => {
+            // A 404 here means the token is gone; the websocket error path
+            // (or the next visible-refetch) will surface the honest state.
+          });
+      }
+    };
+
+    const interval = setInterval(refetchIfActive, BACKGROUND_REFETCH_INTERVAL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refetchIfActive();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // Re-arm when the token or ride identity changes; a status-only update
+    // must not restart the interval.
   }, [trackingToken, ride?.publicReference]);
 
   if (loading) {
@@ -145,17 +270,19 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
           <p className="text-5xl mb-4">🚫</p>
           <h2 className="text-xl font-semibold text-gray-800 mb-2">Ride Not Found</h2>
           <p className="text-gray-500">{error || 'Unable to load ride data'}</p>
-          <a href="/" className="mt-6 inline-block text-green-600 hover:text-green-700 font-medium">
+          <Link href="/" className="mt-6 inline-block text-green-600 hover:text-green-700 font-medium">
             ← Back to home
-          </a>
+          </Link>
         </div>
       </div>
     );
   }
 
-  const isCancelled = ride.status.startsWith('cancelled') || ride.status === 'no_driver_found';
-  const isCompleted = ride.status === 'completed';
-  const progressIdx = getProgressIndex(ride.status);
+  const status = ride.status as RideStatus;
+  const isEnded = isTerminalStatus(status);
+  const isCompleted = status === 'completed';
+  const isFailure = isTerminalFailure(status);
+  const progressIdx = Math.max(progressHighWater.current, 0);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -170,11 +297,15 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
         </div>
       </header>
 
-      {/* Map Placeholder */}
+      {/* Map area. No map provider is configured for this deployment (the map
+          engine is an owner decision, D1). Render an honest 'unavailable'
+          state instead of a 'Live Map' label that asserts a map exists; the
+          driver coordinate readout IS real and remains. */}
       <div className="flex-1 min-h-[200px] bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center relative">
         <div className="text-center p-4">
           <p className="text-3xl mb-2">🗺️</p>
-          <p className="text-sm font-medium text-gray-600">Live Map</p>
+          <p className="text-sm font-medium text-gray-600">Live map unavailable</p>
+          <p className="text-xs text-gray-400 mt-1">A live map is not configured for this deployment.</p>
           {driverLocation ? (
             <div className="mt-3 bg-white/80 backdrop-blur rounded-lg px-4 py-2 shadow-sm">
               <p className="text-xs text-gray-500 font-medium">Driver Location</p>
@@ -201,24 +332,28 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
                 className={`inline-block w-2.5 h-2.5 rounded-full ${
                   isCompleted
                     ? 'bg-green-500'
-                    : isCancelled
+                    : isFailure
                       ? 'bg-red-500'
-                      : 'bg-amber-500 animate-pulse'
+                      : isEnded
+                        ? 'bg-gray-400'
+                        : 'bg-amber-500 animate-pulse'
                 }`}
               ></span>
-              <span className={`text-sm font-semibold ${getStatusColor(ride.status)}`}>
-                {STATUS_MESSAGES[ride.status] || ride.status}
+              <span className={`text-sm font-semibold ${getStatusColor(status)}`}>
+                {STATUS_MESSAGES[status] || status}
               </span>
             </div>
-            {ride.estimatedDurationSeconds && !isCompleted && !isCancelled && (
+            {ride.estimatedDurationSeconds && !isEnded && (
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
                 ETA: {formatETA(ride.estimatedDurationSeconds)}
               </span>
             )}
           </div>
 
-          {/* Progress Bar */}
-          {!isCancelled && (
+          {/* Progress Bar — shown for active and completed rides, hidden once
+              the ride ends in a failure. The position is clamped to the
+              high-water mark so out-of-ladder statuses don't rewind it. */}
+          {!isFailure && (
             <div className="w-full">
               <div className="flex items-center justify-between mb-1">
                 {STATUS_STEPS.map((step, i) => (
