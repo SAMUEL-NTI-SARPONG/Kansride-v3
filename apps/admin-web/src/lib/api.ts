@@ -70,12 +70,27 @@ async function request<T>(
     }
   }
 
-  if (res.status === 401) {
+if (res.status === 401 && !skipAuth) {
+    // A 401 on an authenticated request means the session is no longer
+    // usable (the refresh above either did not run or failed). Clear it and
+    // send the user to the login page. This branch is intentionally skipped
+    // for `skipAuth` callers (the login flow's request-otp / verify-otp
+    // requests): a wrong code or expired OTP legitimately returns 401, and
+    // redirecting/clearing there would fling the user off the login form and
+    // swallow the inline error message they should see.
     if (typeof window !== 'undefined') {
       clearAdminSession();
       window.location.href = '/login';
     }
     throw new ApiError(401, 'Unauthorized');
+  }
+
+  if (res.status === 401 && skipAuth) {
+    // Public auth endpoints (e.g. verify-otp) returned 401 — surface the
+    // body message so the login form can display it inline instead of the
+    // generic 'Unauthorized' string.
+    const body = await res.json().catch(() => ({ message: 'Unauthorized' }));
+    throw new ApiError(401, body.message || 'Unauthorized');
   }
 
   if (!res.ok) {
