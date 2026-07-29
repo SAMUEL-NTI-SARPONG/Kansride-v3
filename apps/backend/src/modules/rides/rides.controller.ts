@@ -113,9 +113,9 @@ export class RidesController {
     );
   }
 
-  @Get(':id')
+@Get(':id')
   @RequirePermissions('ride:view')
-  getRide(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+  getRide(@Param('id', new ParseUUIDPipe()) id: string, @Request() req: AuthenticatedRequest) {
     return this.ridesService.getRideForActor(
       id,
       req.user.userId,
@@ -125,14 +125,14 @@ export class RidesController {
 
   @Patch(':id/cancel')
   @RequirePermissions('ride:cancel')
-  cancelRide(@Param('id') id: string, @Request() req: AuthenticatedRequest, @Body() body: { reason?: string }) {
+  cancelRide(@Param('id', new ParseUUIDPipe()) id: string, @Request() req: AuthenticatedRequest, @Body() body: { reason?: string }) {
     return this.ridesService.cancelRide(id, req.user.userId, req.user.role as UserRole, body.reason);
   }
 
   @Patch(':id/status')
   @RequirePermissions('ride:update_status')
   updateStatus(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Request() req: AuthenticatedRequest,
     @Body() body: { status: string },
   ) {
@@ -163,7 +163,7 @@ export class RidesController {
 
   @Post(':id/rate')
   @RequirePermissions('ride:rate')
-  rateRide(@Param('id') id: string, @Request() req: AuthenticatedRequest, @Body() body: { rating: number; comment?: string }) {
+  rateRide(@Param('id', new ParseUUIDPipe()) id: string, @Request() req: AuthenticatedRequest, @Body() body: { rating: number; comment?: string }) {
     return this.ridesService.rateRide(id, req.user.userId, req.user.role as UserRole, body.rating, body.comment);
   }
 }
