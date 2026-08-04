@@ -44,6 +44,24 @@ export function onTrackingError(
   return () => socket?.off('tracking:error', callback);
 }
 
+export function onConnectionState(
+  callback: (state: 'connected' | 'disconnected' | 'reconnecting') => void,
+): () => void {
+  if (!socket) return () => {};
+  const handleConnect = () => callback('connected');
+  const handleDisconnect = () => callback('disconnected');
+  const handleConnectError = () => callback('reconnecting');
+  socket.on('connect', handleConnect);
+  socket.on('disconnect', handleDisconnect);
+  socket.on('connect_error', handleConnectError);
+  callback(socket.connected ? 'connected' : 'reconnecting');
+  return () => {
+    socket?.off('connect', handleConnect);
+    socket?.off('disconnect', handleDisconnect);
+    socket?.off('connect_error', handleConnectError);
+  };
+}
+
 export function disconnect(): void {
   if (socket) {
     socket.disconnect();

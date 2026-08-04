@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `36024d8`
+- Current commit: `ccce883`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 3 — mobile recovery and device-safe location validated statically
+- Current milestone: Milestone 4 — admin operations and tracking privacy UX validated
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -20,6 +20,8 @@
 - [x] Passenger and driver active rides persist through restart, reconcile with authoritative ride detail, and restore socket subscriptions; passenger location/continuation failures have visible retry states.
 - [x] Driver location emission never sends before a real fix, watcher/socket cleanup is handled on unmount/offline/logout, and restored online sessions roll back when location recovery fails.
 - [x] Physical-device mode rejects missing or loopback mobile URLs; driver configuration advertises the implemented foreground-only location policy.
+- [x] Admin web exposes pending-driver approval/rejection, user suspend/restore, and cancellable-ride actions with cache refresh and visible failures.
+- [x] Tracking web exposes reconnect/stale/ended states without rendering raw driver coordinates or private tracking fields.
 
 ## Failing or pending requirements
 
@@ -28,7 +30,7 @@
 - [ ] Local runtime migration/application and Postgres/Redis-backed verification remain blocked by services and credentials; the local integration probe failed at PostgreSQL `28P01` and no Redis listener was available.
 - [ ] Remote CI integration job has not yet run on the pushed release branch.
 - [ ] Real Android permission/GPS/background-foreground/restart/network-loss behavior remains pending physical-device validation; this milestone intentionally supports foreground-only driver location.
-- [ ] Admin operational investigation/actions and configured live maps remain incomplete.
+- [ ] Admin ride detail/search, live map provider, and browser/device runtime validation remain pending; no fake map was shipped.
 - [ ] Idempotent demo seed, environment doctor, `dev:all`, `test:integration`, and `verify:v1` workflows remain incomplete.
 - [ ] Android development-build configuration and physical-device validation remain incomplete.
 
@@ -44,12 +46,12 @@
 ## Latest validation results
 
 - Static validation: `git diff --check` passed.
-- Type checks: backend, shared-db, shared-config, mobile-passenger, and mobile-driver passed after Milestone 3; baseline admin/tracking checks also passed.
+- Type checks: backend, shared-db, shared-config, mobile-passenger, mobile-driver, admin-web, and tracking-web passed after Milestone 4.
 - Unit/invariant tests: `npm test` passed — 15 files, 91 tests; focused mobile tests passed — 10 tests.
 - Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
+- Web production builds: admin-web and tracking-web passed; Next emitted only the existing missing ESLint plugin warning.
 - Integration command: `npm run test:integration` is configured and fails honestly without explicit services; local probe failed at PostgreSQL `28P01` and Redis connection.
 - CI: release branch trigger and Postgres/Redis integration job are checked in; remote result not yet verified.
-- Production web builds: baseline admin-web and tracking-web passed; rerun at final gate after web changes.
 - Device validation: not run; no physical-device claim.
 
 ## Exact resume point

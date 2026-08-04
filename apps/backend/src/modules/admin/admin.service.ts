@@ -78,6 +78,11 @@ export class AdminService {
       whereClause = eq(drivers.isOnline, true);
     } else if (status === 'offline') {
       whereClause = eq(drivers.isOnline, false);
+    } else if (status === 'pending') {
+      whereClause = inArray(
+        drivers.userId,
+        this.db.select({ id: users.id }).from(users).where(eq(users.role, 'driver_applicant')),
+      );
     }
 
     const [totalResult] = await this.db
@@ -108,6 +113,7 @@ export class AdminService {
         const completedRides = await this.getDriverCompletedRides(driver.id);
         return {
           id: driver.id,
+          role: user[0]?.role ?? 'driver_applicant',
           name: user[0] ? `${user[0].firstName || ''} ${user[0].lastName || ''}`.trim() || user[0].phoneNumber : 'Unknown',
           phone: user[0]?.phoneNumber || '',
           isOnline: driver.isOnline,

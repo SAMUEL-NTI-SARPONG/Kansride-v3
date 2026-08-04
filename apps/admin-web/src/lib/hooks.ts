@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -33,6 +33,7 @@ export interface PaginatedResponse<T> {
 
 export interface AdminDriver {
   id: string;
+  role: string;
   name: string;
   phone: string;
   isOnline: boolean;
@@ -83,6 +84,7 @@ export function useDashboardStats() {
   return useQuery<DashboardStats>({
     queryKey: ['admin', 'dashboard'],
     queryFn: () => api.get<DashboardStats>('/admin/dashboard'),
+    refetchInterval: 15_000,
   });
 }
 
@@ -121,5 +123,41 @@ export function useSubscriptions(page: number = 1) {
   return useQuery<PaginatedResponse<AdminSubscription>>({
     queryKey: ['admin', 'subscriptions', page],
     queryFn: () => api.get<PaginatedResponse<AdminSubscription>>(`/admin/subscriptions?${params}`),
+  });
+}
+
+export function useDriverDecision() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ driverId, decision, reason }: { driverId: string; decision: 'approve' | 'reject'; reason?: string }) =>
+      decision === 'approve'
+        ? api.post(`/admin/drivers/${driverId}/approve`)
+        : api.post(`/admin/drivers/${driverId}/reject`, { reason }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'drivers'] });
+    },
+  });
+}
+
+export function useUserStatusMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, status }: { userId: string; status: 'active' | 'suspended' }) =>
+      api.patch(`/admin/users/${userId}/status`, { status }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+    },
+  });
+}
+
+export function useAdminRideCancellation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ rideId, reason }: { rideId: string; reason: string }) =>
+      api.patch(`/admin/rides/${rideId}/cancel`, { reason }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'rides'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+    },
   });
 }

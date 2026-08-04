@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { get } from '../../../lib/api';
-import { connectTracking, onLocationUpdate, onRideUpdate, onTrackingError, disconnect } from '../../../lib/socket';
+import { connectTracking, onConnectionState, onLocationUpdate, onRideUpdate, onTrackingError, disconnect } from '../../../lib/socket';
 import type {
   PublicDriverLocationPayload,
   PublicTrackingSnapshot,
@@ -106,6 +106,8 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   const [driverLocation, setDriverLocation] = useState<PublicDriverLocationPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<'connected' | 'disconnected' | 'reconnecting'>('reconnecting');
+  const [lastLocationAt, setLastLocationAt] = useState<number | null>(null);
 
   // High-water mark of the furthest ladder step the ride has visibly reached.
   // Several live (non-terminal) statuses fall outside the STATUS_STEPS ladder
@@ -158,6 +160,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     const removeLocationListener = onLocationUpdate((data) => {
       if (data.publicReference === ride.publicReference) {
         setDriverLocation(data);
+        setLastLocationAt(Date.parse(data.timestamp));
       }
     });
 
@@ -182,6 +185,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
       }
     });
 
+    const removeConnectionListener = onConnectionState(setConnectionState);
     const removeErrorListener = onTrackingError((data) => {
       // Token invalid/expired/revoked: surface an honest terminal notice and
       // stop awaiting further updates rather than rendering the last-known
@@ -201,6 +205,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
     return () => {
       removeLocationListener();
+      removeConnectionListener();
       removeErrorListener();
       disconnect();
     };
@@ -297,25 +302,23 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
         </div>
       </header>
 
-      {/* Map area. No map provider is configured for this deployment (the map
-          engine is an owner decision, D1). Render an honest 'unavailable'
-          state instead of a 'Live Map' label that asserts a map exists; the
-          driver coordinate readout IS real and remains. */}
+      {connectionState !== 'connected' && !isEnded && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-xs text-amber-800">
+          {connectionState === 'reconnecting' ? 'Reconnecting to live updates…' : 'Live updates disconnected. The page will retry automatically.'}
+        </div>
+      )}
+
+      {/* Map area. No map provider is configured for this deployment, so this
+          surface stays honest and never exposes exact coordinates as text. */}
       <div className="flex-1 min-h-[200px] bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center relative">
         <div className="text-center p-4">
           <p className="text-3xl mb-2">🗺️</p>
           <p className="text-sm font-medium text-gray-600">Live map unavailable</p>
           <p className="text-xs text-gray-400 mt-1">A live map is not configured for this deployment.</p>
           {driverLocation ? (
-            <div className="mt-3 bg-white/80 backdrop-blur rounded-lg px-4 py-2 shadow-sm">
-              <p className="text-xs text-gray-500 font-medium">Driver Location</p>
-              <p className="text-sm font-mono text-green-700">
-                {driverLocation.latitude.toFixed(6)}, {driverLocation.longitude.toFixed(6)}
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                Updated: {new Date(driverLocation.timestamp).toLocaleTimeString()}
-              </p>
-            </div>
+            <p className="mt-3 text-xs text-green-700 font-medium">
+              {lastLocationAt && Date.now() - lastLocationAt > 60_000 ? 'Driver location may be stale' : 'Driver location received'}{lastLocationAt ? ` · updated ${new Date(lastLocationAt).toLocaleTimeString()}` : ''}
+            </p>
           ) : (
             <p className="text-xs text-gray-400 mt-2">Waiting for driver location...</p>
           )}

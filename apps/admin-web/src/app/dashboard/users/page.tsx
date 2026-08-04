@@ -1,12 +1,22 @@
 'use client';
 
 import { useState } from 'react';
-import { useUsers } from '@/lib/hooks';
+import { useUsers, useUserStatusMutation } from '@/lib/hooks';
 import { formatDateTime } from '@/lib/datetime';
 
 export default function UsersPage() {
   const [page, setPage] = useState(1);
   const { data, isLoading, error } = useUsers(page);
+  const statusMutation = useUserStatusMutation();
+
+  const updateStatus = async (userId: string, status: 'active' | 'suspended') => {
+    if (!window.confirm(`${status === 'suspended' ? 'Suspend' : 'Restore'} this account?`)) return;
+    try {
+      await statusMutation.mutateAsync({ userId, status });
+    } catch (mutationError) {
+      window.alert(mutationError instanceof Error ? mutationError.message : 'User status update failed');
+    }
+  };
 
   return (
     <div>
@@ -27,13 +37,14 @@ export default function UsersPage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
-                  <td colSpan={5} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
+                  <td colSpan={6} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
                 </tr>
               ))
             ) : data?.data && data.data.length > 0 ? (
@@ -60,11 +71,23 @@ export default function UsersPage() {
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {formatDateTime(user.createdAt)}
                   </td>
+                  <td className="px-6 py-4">
+                    {user.status === 'active' || user.status === 'suspended' ? (
+                      <button
+                        type="button"
+                        onClick={() => void updateStatus(user.id, user.status === 'active' ? 'suspended' : 'active')}
+                        disabled={statusMutation.isPending}
+                        className={`text-xs font-semibold ${user.status === 'active' ? 'text-red-700' : 'text-green-700'}`}
+                      >
+                        {user.status === 'active' ? 'Suspend' : 'Restore'}
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="px-6 py-12 text-center text-gray-400">No users found</td>
+                <td colSpan={6} className="px-6 py-12 text-center text-gray-400">No users found</td>
               </tr>
             )}
           </tbody>

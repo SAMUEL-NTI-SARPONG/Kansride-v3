@@ -1,19 +1,30 @@
 'use client';
 
 import { useState } from 'react';
-import { useDrivers } from '@/lib/hooks';
+import { useDrivers, useDriverDecision } from '@/lib/hooks';
 
 export default function DriversPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const { data, isLoading, error } = useDrivers(page, statusFilter);
+  const driverDecision = useDriverDecision();
+
+  const decide = async (driverId: string, decision: 'approve' | 'reject') => {
+    const reason = decision === 'reject' ? window.prompt('Rejection reason')?.trim() : undefined;
+    if (decision === 'reject' && !reason) return;
+    try {
+      await driverDecision.mutateAsync({ driverId, decision, reason });
+    } catch (mutationError) {
+      window.alert(mutationError instanceof Error ? mutationError.message : 'Driver decision failed');
+    }
+  };
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">Driver Management</h2>
         <div className="flex gap-2">
-          {['all', 'online', 'offline'].map((s) => (
+          {['all', 'pending', 'online', 'offline'].map((s) => (
             <button
               key={s}
               onClick={() => {
@@ -52,13 +63,14 @@ export default function DriversPage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subscription</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rating</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
-                  <td colSpan={6} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
+                  <td colSpan={7} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
                 </tr>
               ))
             ) : data?.data && data.data.length > 0 ? (
@@ -67,7 +79,7 @@ export default function DriversPage() {
                   <td className="px-6 py-4 text-sm font-medium text-gray-900">{driver.name}</td>
                   <td className="px-6 py-4 text-sm text-gray-500">{driver.phone}</td>
                   <td className="px-6 py-4">
-                    <DriverStatusBadge isOnline={driver.isOnline} isActive={driver.isActive} />
+                    <DriverStatusBadge role={driver.role} isOnline={driver.isOnline} isActive={driver.isActive} />
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {driver.vehicleRegistration ? `${driver.vehicleRegistration} (${driver.vehicleColour || ''})` : '—'}
@@ -76,11 +88,19 @@ export default function DriversPage() {
                     <SubscriptionBadge expiresAt={driver.subscriptionExpiresAt} />
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-900">{driver.rating}</td>
+                  <td className="px-6 py-4">
+                    {driver.role === 'driver_applicant' && (
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => void decide(driver.id, 'approve')} disabled={driverDecision.isPending} className="text-xs font-semibold text-green-700">Approve</button>
+                        <button type="button" onClick={() => void decide(driver.id, 'reject')} disabled={driverDecision.isPending} className="text-xs font-semibold text-red-700">Reject</button>
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-gray-400">No drivers registered yet</td>
+                <td colSpan={7} className="px-6 py-12 text-center text-gray-400">No drivers registered yet</td>
               </tr>
             )}
           </tbody>
@@ -115,7 +135,10 @@ export default function DriversPage() {
   );
 }
 
-function DriverStatusBadge({ isOnline, isActive }: { isOnline: boolean; isActive: boolean }) {
+function DriverStatusBadge({ role, isOnline, isActive }: { role: string; isOnline: boolean; isActive: boolean }) {
+  if (role === 'driver_applicant') {
+    return <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Pending approval</span>;
+  }
   if (!isActive) {
     return <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Suspended</span>;
   }

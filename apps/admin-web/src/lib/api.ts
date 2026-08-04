@@ -142,6 +142,13 @@ export const api = {
     });
   },
 
+  patch<T>(path: string, body?: unknown): Promise<T> {
+    return request<T>(path, {
+      method: 'PATCH',
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  },
+
   delete<T>(path: string): Promise<T> {
     return request<T>(path, { method: 'DELETE' });
   },

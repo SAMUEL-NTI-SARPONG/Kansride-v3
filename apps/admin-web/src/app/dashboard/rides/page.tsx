@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRides } from '@/lib/hooks';
+import { useRides, useAdminRideCancellation } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
 import { formatDateTime } from '@/lib/datetime';
 
@@ -16,6 +16,17 @@ export default function RidesPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const { data, isLoading, error } = useRides(page, statusFilter);
+  const cancellation = useAdminRideCancellation();
+
+  const cancelRide = async (rideId: string) => {
+    const reason = window.prompt('Cancellation reason')?.trim();
+    if (!reason) return;
+    try {
+      await cancellation.mutateAsync({ rideId, reason });
+    } catch (mutationError) {
+      window.alert(mutationError instanceof Error ? mutationError.message : 'Ride cancellation failed');
+    }
+  };
 
   return (
     <div>
@@ -56,13 +67,14 @@ export default function RidesPage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fare</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="animate-pulse">
-                  <td colSpan={8} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
+                  <td colSpan={9} className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-full" /></td>
                 </tr>
               ))
             ) : data?.data && data.data.length > 0 ? (
@@ -80,11 +92,18 @@ export default function RidesPage() {
                     {formatGhsFromPesewas(ride.farePesewas)}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{formatDateTime(ride.createdAt)}</td>
+                  <td className="px-6 py-4">
+                    {['requested', 'searching', 'driver_offered', 'driver_assigned', 'driver_en_route', 'driver_arrived', 'waiting_for_passenger', 'passenger_verified', 'in_progress'].includes(ride.status) && (
+                      <button type="button" onClick={() => void cancelRide(ride.id)} disabled={cancellation.isPending} className="text-xs font-semibold text-red-700">
+                        Cancel
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="px-6 py-12 text-center text-gray-400">No rides recorded yet</td>
+                <td colSpan={9} className="px-6 py-12 text-center text-gray-400">No rides recorded yet</td>
               </tr>
             )}
           </tbody>
