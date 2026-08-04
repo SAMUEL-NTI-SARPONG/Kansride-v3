@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `ccce883`
+- Current commit: `bb651c8`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 4 — admin operations and tracking privacy UX validated
+- Current milestone: Milestone 5 — seed, doctor, startup, and V1 verification workflows validated statically
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -22,6 +22,9 @@
 - [x] Physical-device mode rejects missing or loopback mobile URLs; driver configuration advertises the implemented foreground-only location policy.
 - [x] Admin web exposes pending-driver approval/rejection, user suspend/restore, and cancellable-ride actions with cache refresh and visible failures.
 - [x] Tracking web exposes reconnect/stale/ended states without rendering raw driver coordinates or private tracking fields.
+- [x] Root `dev:all`, `seed:demo`, `doctor`, `test:integration`, and `verify:v1` commands are implemented with explicit failure behavior and no production reset path.
+- [x] Demo seed is idempotent and provisions documented passenger, approved driver, subscription, and admin identities without passwords or secrets.
+- [x] Android development-build and physical-device instructions are documented with package IDs, LAN URL configuration, and exact commands.
 
 ## Failing or pending requirements
 
@@ -31,8 +34,8 @@
 - [ ] Remote CI integration job has not yet run on the pushed release branch.
 - [ ] Real Android permission/GPS/background-foreground/restart/network-loss behavior remains pending physical-device validation; this milestone intentionally supports foreground-only driver location.
 - [ ] Admin ride detail/search, live map provider, and browser/device runtime validation remain pending; no fake map was shipped.
-- [ ] Idempotent demo seed, environment doctor, `dev:all`, `test:integration`, and `verify:v1` workflows remain incomplete.
-- [ ] Android development-build configuration and physical-device validation remain incomplete.
+- [ ] `doctor`, `seed:demo`, and `verify:v1` remain runtime-blocked locally until valid PostgreSQL/PostGIS and Redis services are available.
+- [ ] Android development-build execution, installation, permissions, restart, network-loss, and GPS validation remain owner/device actions.
 
 ## External owner actions
 
@@ -46,11 +49,12 @@
 ## Latest validation results
 
 - Static validation: `git diff --check` passed.
-- Type checks: backend, shared-db, shared-config, mobile-passenger, mobile-driver, admin-web, and tracking-web passed after Milestone 4.
+- Type checks: shared types/config/db/auth, backend, passenger/driver mobile, admin-web, and tracking-web passed through `verify:v1`.
 - Unit/invariant tests: `npm test` passed — 15 files, 91 tests; focused mobile tests passed — 10 tests.
 - Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
 - Web production builds: admin-web and tracking-web passed; Next emitted only the existing missing ESLint plugin warning.
-- Integration command: `npm run test:integration` is configured and fails honestly without explicit services; local probe failed at PostgreSQL `28P01` and Redis connection.
+- `npm run verify:v1` passed all static checks and stopped at `integration journey` because explicit Postgres/Redis services are unavailable; no runtime pass claimed.
+- `npm run doctor` fails honestly without DATABASE_URL and reports the in-memory Redis development fallback; `npm run seed:demo` refuses production mode and reaches the database before failing with documented `28P01` credentials.
 - CI: release branch trigger and Postgres/Redis integration job are checked in; remote result not yet verified.
 - Device validation: not run; no physical-device claim.
 

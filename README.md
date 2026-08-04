@@ -97,7 +97,12 @@ npm run start --workspace=apps/mobile-passenger
 | `npm run lint` | Lint all workspaces |
 | `npm run type-check` | TypeScript type-check (no emit) |
 | `npm run clean` | Clean build artifacts in all workspaces |
-| `npm run test` | Run tests across all workspaces |
+| `npm run test` | Run unit and invariant tests |
+| `npm run test:integration` | Run the Postgres/Redis-backed ride journey; fails if services are unavailable |
+| `npm run doctor` | Report database, Redis, provider, CORS, and configuration readiness |
+| `npm run seed:demo` | Idempotently seed development demo accounts; refuses production |
+| `npm run dev:all` | Start backend, admin-web, and tracking-web together |
+| `npm run verify:v1` | Run the complete non-destructive V1 verification gate |
 
 ---
 
@@ -163,6 +168,32 @@ See [`.env.example`](.env.example) for the full list. Key variables:
 The backend and migration commands load the ignored repository-root `.env`.
 Replace every `change-me` placeholder locally before starting services; never
 commit that file.
+
+### Demo and recovery
+
+After PostgreSQL migrations succeed, run `npm run seed:demo` in development or
+test mode. It provisions these documented identities without passwords:
+
+- Passenger: `+233200000001`
+- Approved driver: `+233200000002`
+- Admin: `+233200000003`
+
+Use `npm run doctor` before runtime tests. Use `npm run verify:v1` for the full
+non-destructive local gate; the integration portion requires reachable PostGIS
+and Redis services. Back up PostgreSQL with `pg_dump` before operational work.
+For local-only reset, create a new empty development database and rerun
+migrations; never run a destructive reset against production and no production
+reset command is provided by this repository.
+
+### Android development builds
+
+The apps keep distinct identifiers: `com.kansride.passenger` and
+`com.kansride.driver`. For a simulator, use `npm run start --workspace=apps/mobile-passenger`
+or the driver equivalent. For a physical device, set
+`EXPO_PUBLIC_DEVICE_MODE=physical` and reachable LAN/HTTPS values for
+`EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_WS_URL`, and passenger
+`EXPO_PUBLIC_TRACKING_URL`; localhost is rejected in that mode. Development
+build commands are documented in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`.
 
 ---
 

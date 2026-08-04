@@ -12,7 +12,6 @@ import { RedisService } from '../../src/redis/redis.service';
 import type { IRedisService } from '../../src/redis/redis.interface';
 import type { ISMSProvider } from '../../src/providers/sms/sms.interface';
 import type { IMapsProvider } from '../../src/providers/maps/maps.interface';
-import type { IPaymentProvider } from '../../src/providers/payments/payment.interface';
 import { OTPService } from '@kansride/auth';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -34,11 +33,6 @@ const mapsProvider: IMapsProvider = {
   getDistance: async () => ({ distanceMeters: 1_500, durationSeconds: 360 }),
   getRoute: async () => ({ distanceMeters: 1_500, durationSeconds: 360 }),
 };
-const paymentProvider: IPaymentProvider = {
-  initiate: async () => ({ reference: `integration-payment-${runId}`, status: 'success' }),
-  verify: async (reference) => ({ reference, status: 'success', amountPesewas: 1_000 }),
-};
-
 let db: Database;
 let redis: IRedisService;
 let redisClient: { onModuleDestroy: () => Promise<void> };

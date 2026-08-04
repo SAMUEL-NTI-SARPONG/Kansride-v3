@@ -9,8 +9,12 @@
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
+    "dev:all": "node tools/dev-all.cjs",
+    "doctor": "node tools/doctor.cjs",
+    "seed:demo": "node tools/seed-demo.cjs",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "verify:v1": "node tools/verify-v1.cjs",
     "test:workspace": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "type-check": "npm run type-check --workspaces --if-present",
