@@ -13,18 +13,15 @@
     },
     "ios": {
       "bundleIdentifier": "com.kansride.driver",
-      "supportsTablet": false,
-      "infoPlist": {
-        "UIBackgroundModes": ["location"]
-      }
+      "supportsTablet": false
     },
     "android": {
       "package": "com.kansride.driver",
       "adaptiveIcon": {
         "backgroundColor": "#1B8B4B"
       },
-      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_BACKGROUND_LOCATION"]
+      "permissions": ["ACCESS_FINE_LOCATION"]
     },
-    "plugins": ["expo-router", "expo-location", "expo-task-manager"]
+    "plugins": ["expo-router", "expo-location"]
   }
 }

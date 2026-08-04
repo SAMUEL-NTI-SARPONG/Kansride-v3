@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useEffect } from 'react';
 import { useAuthStore } from '../src/stores/auth-store';
+import { useRideStore } from '../src/stores/ride-store';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 2, staleTime: 30000 } },
@@ -11,10 +12,12 @@ const queryClient = new QueryClient({
 
 export default function RootLayout() {
   const hydrate = useAuthStore((state) => state.hydrate);
+  const hydrateActiveRide = useRideStore((state) => state.hydrateActiveRide);
 
   useEffect(() => {
     void hydrate();
-  }, [hydrate]);
+    void hydrateActiveRide();
+  }, [hydrate, hydrateActiveRide]);
 
   return (
     <QueryClientProvider client={queryClient}>

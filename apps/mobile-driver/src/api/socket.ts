@@ -1,15 +1,21 @@
 import { io, Socket } from 'socket.io-client';
 import { getStoredToken } from './client';
+import { mobileRuntimeUrl } from '@kansride/config';
 import type {
   RideAcceptResult,
   RideOfferPayload,
   RideUpdatePayload,
 } from '@kansride/types';
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
+const SOCKET_URL = mobileRuntimeUrl(
+  'EXPO_PUBLIC_WS_URL',
+  process.env.EXPO_PUBLIC_WS_URL,
+  'http://localhost:3000',
+);
 
 let socket: Socket | null = null;
 let locationInterval: ReturnType<typeof setInterval> | null = null;
+let locationGetter: (() => { latitude: number; longitude: number } | null) | null = null;
 const subscribedRideIds = new Set<string>();
 
 export type RideOffer = RideOfferPayload;
@@ -34,6 +40,10 @@ export async function connect(): Promise<Socket> {
     socket.on('connect', () => {
       for (const rideId of subscribedRideIds) {
         socket?.emit('ride:subscribe', { rideId });
+      }
+      requestPendingOffers();
+      if (locationGetter) {
+        startLocationEmission(locationGetter);
       }
     });
   } else {
@@ -64,17 +74,17 @@ export function sendLocation(latitude: number, longitude: number): void {
   }
 }
 
-export function startLocationEmission(getLocation: () => { latitude: number; longitude: number }): void {
+export function startLocationEmission(
+  getLocation: () => { latitude: number; longitude: number } | null,
+): void {
   stopLocationEmission();
-  // Send immediately
-  const loc = getLocation();
-  sendLocation(loc.latitude, loc.longitude);
-
-  // Then every 10 seconds
-  locationInterval = setInterval(() => {
-    const currentLoc = getLocation();
-    sendLocation(currentLoc.latitude, currentLoc.longitude);
-  }, 10000);
+  locationGetter = getLocation;
+  const emitCurrentLocation = () => {
+    const currentLoc = locationGetter?.();
+    if (currentLoc) sendLocation(currentLoc.latitude, currentLoc.longitude);
+  };
+  emitCurrentLocation();
+  locationInterval = setInterval(emitCurrentLocation, 10000);
 }
 
 export function stopLocationEmission(): void {
@@ -82,6 +92,7 @@ export function stopLocationEmission(): void {
     clearInterval(locationInterval);
     locationInterval = null;
   }
+  locationGetter = null;
 }
 
 export function acceptRide(rideId: string): void {

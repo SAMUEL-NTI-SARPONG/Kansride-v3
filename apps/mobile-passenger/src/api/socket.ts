@@ -1,8 +1,13 @@
 import { io, Socket } from 'socket.io-client';
 import { getAccessToken } from './client';
+import { mobileRuntimeUrl } from '@kansride/config';
 import type { RideUpdatePayload } from '@kansride/types';
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_WS_URL || 'http://localhost:3000';
+const SOCKET_URL = mobileRuntimeUrl(
+  'EXPO_PUBLIC_WS_URL',
+  process.env.EXPO_PUBLIC_WS_URL,
+  'http://localhost:3000',
+);
 
 let socket: Socket | null = null;
 const subscribedRideIds = new Set<string>();

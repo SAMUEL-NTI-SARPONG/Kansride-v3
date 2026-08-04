@@ -69,7 +69,13 @@ export default function DriverHomeScreen() {
 
   // Initialize driver profile on mount
   useEffect(() => {
-    loadDriverProfile();
+    void loadDriverProfile();
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      socketClient.stopLocationEmission();
+      stopLocationWatch();
+      socketClient.disconnect();
+    };
   }, []);
 
   // Countdown timer for ride offer
@@ -128,12 +134,14 @@ export default function DriverHomeScreen() {
               `Connection failed: ${error?.message || 'Failed to connect to the server'}`,
             );
           }
-          // Restart live location emission for a restored online session.
-          // The watcher feeds the store; the emission loop broadcasts store
-          // coords every 10s. A watcher failure here is non-fatal because the
-          // server already considers us online; we surface a soft banner rather
-          // than rolling back (rollback belongs to a fresh go-online attempt).
-          void restartLocationEmission();
+          // Restore the watcher only if the device can provide a real fix.
+          // An online server session without a working watcher cannot receive
+          // reliable offers, so roll it back instead of hiding stale state.
+          const watchOutcome = await restartLocationEmission();
+          if (watchOutcome.kind !== 'granted') {
+            const { title, message } = describeLocationFailure(watchOutcome);
+            await rollbackGoOnline(title, message);
+          }
         }
       }
     } catch {

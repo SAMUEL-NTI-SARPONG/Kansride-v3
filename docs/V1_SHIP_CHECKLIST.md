@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `54e2425`
+- Current commit: `36024d8`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 2 — ride-journey integration coverage added
+- Current milestone: Milestone 3 — mobile recovery and device-safe location validated statically
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -17,6 +17,9 @@
 - [x] Admin and tracking production build scripts exist; current validation is pending below.
 - [x] PostgreSQL migrations and Redis/in-memory fallback are present in the repository; live service validation is pending below.
 - [x] A separate Postgres/Redis integration command and CI service job cover authentication, two-driver offer race, lifecycle transitions, final fare, tracking privacy/revocation, cancellation authorization, and duplicate rating.
+- [x] Passenger and driver active rides persist through restart, reconcile with authoritative ride detail, and restore socket subscriptions; passenger location/continuation failures have visible retry states.
+- [x] Driver location emission never sends before a real fix, watcher/socket cleanup is handled on unmount/offline/logout, and restored online sessions roll back when location recovery fails.
+- [x] Physical-device mode rejects missing or loopback mobile URLs; driver configuration advertises the implemented foreground-only location policy.
 
 ## Failing or pending requirements
 
@@ -24,7 +27,7 @@
 - [ ] Live payment provider adapter and production credentials/owner activation remain external; mock mode is intentionally rejected in production.
 - [ ] Local runtime migration/application and Postgres/Redis-backed verification remain blocked by services and credentials; the local integration probe failed at PostgreSQL `28P01` and no Redis listener was available.
 - [ ] Remote CI integration job has not yet run on the pushed release branch.
-- [ ] Passenger/driver restart recovery, reconnect UX, watcher edge cases, and physical-device URL enforcement remain incomplete.
+- [ ] Real Android permission/GPS/background-foreground/restart/network-loss behavior remains pending physical-device validation; this milestone intentionally supports foreground-only driver location.
 - [ ] Admin operational investigation/actions and configured live maps remain incomplete.
 - [ ] Idempotent demo seed, environment doctor, `dev:all`, `test:integration`, and `verify:v1` workflows remain incomplete.
 - [ ] Android development-build configuration and physical-device validation remain incomplete.
@@ -41,8 +44,8 @@
 ## Latest validation results
 
 - Static validation: `git diff --check` passed.
-- Unit/invariant tests: `npm test` passed — 14 files, 88 tests; focused admin/payment tests passed — 8 tests.
-- Type checks: backend, shared-db, and shared-config passed after Milestones 1–2; baseline admin/tracking/mobile checks also passed.
+- Type checks: backend, shared-db, shared-config, mobile-passenger, and mobile-driver passed after Milestone 3; baseline admin/tracking checks also passed.
+- Unit/invariant tests: `npm test` passed — 15 files, 91 tests; focused mobile tests passed — 10 tests.
 - Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
 - Integration command: `npm run test:integration` is configured and fails honestly without explicit services; local probe failed at PostgreSQL `28P01` and Redis connection.
 - CI: release branch trigger and Postgres/Redis integration job are checked in; remote result not yet verified.

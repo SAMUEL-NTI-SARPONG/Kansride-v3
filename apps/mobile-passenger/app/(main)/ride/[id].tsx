@@ -10,7 +10,7 @@ import {
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useRideStore } from '../../../src/stores/ride-store';
-import { patch, post } from '../../../src/api/client';
+import { get, patch, post } from '../../../src/api/client';
 import {
   subscribeToRide,
   unsubscribeFromRide,
@@ -18,7 +18,8 @@ import {
   onDriverLocation,
   connectSocket,
 } from '../../../src/api/socket';
-import type { RideStatus } from '../../../src/stores/ride-store';
+import type { ActiveRide, RideStatus } from '../../../src/stores/ride-store';
+import { mobileRuntimeUrl } from '@kansride/config';
 import type { PublicTrackingLink } from '@kansride/types';
 
 const STATUS_LABELS: Record<RideStatus, string> = {
@@ -55,6 +56,8 @@ export default function ActiveRideScreen() {
   const [showRating, setShowRating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [socketError, setSocketError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let unsubUpdate: (() => void) | undefined;
@@ -75,12 +78,37 @@ export default function ActiveRideScreen() {
         unsubLocation = onDriverLocation((location) => {
           setDriverLocation(location);
         });
-      } catch {
-        // Socket setup failed; the ride detail screen still renders its last
-        // known state and the user can pull to refresh. Suppressed debug log.
+      } catch (error) {
+        setSocketError(error instanceof Error ? error.message : 'Live updates are unavailable');
       }
     };
 
+    if (!activeRide || activeRide.id !== id) {
+      setRefreshing(true);
+      void get<Record<string, unknown>>(`/rides/${id}`)
+        .then((ride) => {
+          const status = String(ride.status);
+          if (['completed', 'cancelled_by_passenger', 'cancelled_by_driver', 'cancelled_by_admin', 'no_driver_found'].includes(status)) {
+            resetRide();
+            return;
+          }
+          useRideStore.getState().setActiveRide({
+            id: String(ride.id),
+            status: status === 'driver_assigned' ? 'driver_assigned' : 'searching',
+            pickupAddress: typeof ride.pickupAddress === 'string' ? ride.pickupAddress : 'Pickup location',
+            dropoffAddress: typeof ride.dropoffAddress === 'string' ? ride.dropoffAddress : 'Dropoff location',
+            pickupLatitude: Number(ride.pickupLatitude),
+            pickupLongitude: Number(ride.pickupLongitude),
+            dropoffLatitude: Number(ride.dropoffLatitude),
+            dropoffLongitude: Number(ride.dropoffLongitude),
+            rideType: ride.rideType as ActiveRide['rideType'],
+            estimatedFarePesewas: Number(ride.estimatedFarePesewas),
+            verificationPin: typeof ride.verificationPin === 'string' ? ride.verificationPin : '',
+          });
+        })
+        .catch(() => setSocketError('Could not restore this ride. Retry to refresh.'))
+        .finally(() => setRefreshing(false));
+    }
     setupSocket();
 
     return () => {
@@ -135,9 +163,11 @@ export default function ActiveRideScreen() {
     setSharing(true);
     try {
       const link = await post<PublicTrackingLink>(`/rides/${id}/tracking-link`);
-      const trackingBaseUrl = (
-        process.env.EXPO_PUBLIC_TRACKING_URL || 'http://localhost:3002'
-      ).replace(/\/$/, '');
+      const trackingBaseUrl = mobileRuntimeUrl(
+        'EXPO_PUBLIC_TRACKING_URL',
+        process.env.EXPO_PUBLIC_TRACKING_URL,
+        'http://localhost:3002',
+      );
       await Share.share({
         message: `Track my KansRide trip: ${trackingBaseUrl}${link.trackingPath}`,
         url: `${trackingBaseUrl}${link.trackingPath}`,
@@ -196,6 +226,15 @@ export default function ActiveRideScreen() {
 
   return (
     <View style={styles.container}>
+      {refreshing && <ActivityIndicator color="#1B8B4B" />}
+      {socketError && (
+        <View style={styles.errorCard}>
+          <Text style={styles.errorText}>{socketError}</Text>
+          <TouchableOpacity onPress={() => router.replace({ pathname: '/(main)/ride/[id]', params: { id } })}>
+            <Text style={styles.retryText}>Retry live updates</Text>
+          </TouchableOpacity>
+        </View>
+      )}
       {/* Status */}
       <View style={styles.statusCard}>
         {rideStatus === 'searching' && <ActivityIndicator size="large" color="#1B8B4B" />}
@@ -381,4 +420,7 @@ const styles = StyleSheet.create({
   starActive: { color: '#F59E0B' },
   skipBtn: { marginTop: 12 },
   skipText: { color: '#64748B', fontSize: 14 },
+  errorCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, marginBottom: 12 },
+  errorText: { color: '#B91C1C', fontSize: 13, marginBottom: 6 },
+  retryText: { color: '#1B8B4B', fontSize: 13, fontWeight: '600' },
 });

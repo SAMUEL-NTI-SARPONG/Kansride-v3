@@ -1,8 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../stores/auth-store';
+import { mobileRuntimeUrl } from '@kansride/config';
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
+const API_BASE_URL = mobileRuntimeUrl(
+  'EXPO_PUBLIC_API_URL',
+  process.env.EXPO_PUBLIC_API_URL,
+  'http://localhost:3000/api/v1',
+);
 
 const TOKEN_KEY = 'kansride_access_token';
 const REFRESH_TOKEN_KEY = 'kansride_refresh_token';

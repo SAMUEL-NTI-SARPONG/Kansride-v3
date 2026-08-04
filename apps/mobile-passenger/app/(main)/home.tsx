@@ -232,6 +232,22 @@ export default function HomeScreen() {
       </View>
       <View style={styles.bottomCard}>
         <Text style={styles.greeting}>Where are you going?</Text>
+        {pickupError && (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{pickupError}</Text>
+            <TouchableOpacity onPress={acquirePickup} disabled={acquiringPickup} style={styles.retryButton}>
+              {acquiringPickup ? <ActivityIndicator color="#FFF" /> : <Text style={styles.retryText}>Use my location</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
+        {continuationError && (
+          <View style={styles.errorCard}>
+            <Text style={styles.errorText}>{continuationError}</Text>
+            <TouchableOpacity onPress={acquirePickup} style={styles.retryButton}>
+              <Text style={styles.retryText}>Retry pickup</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Destination search */}
         <View style={styles.searchContainer}>
@@ -290,9 +306,9 @@ export default function HomeScreen() {
 
             {/* Request button */}
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[styles.button, (loading || acquiringPickup || !pickup) && styles.buttonDisabled]}
               onPress={handleRequestRide}
-              disabled={loading}
+              disabled={loading || acquiringPickup || !pickup}
             >
               {loading ? (
                 <ActivityIndicator color="#FFF" />
@@ -372,4 +388,8 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.7 },
   buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  errorCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, gap: 8 },
+  errorText: { color: '#B91C1C', fontSize: 13, lineHeight: 18 },
+  retryButton: { alignSelf: 'flex-start', backgroundColor: '#1B8B4B', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9 },
+  retryText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
 });

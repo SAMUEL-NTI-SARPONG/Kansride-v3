@@ -1,20 +1,16 @@
 import { create } from 'zustand';
 
-// Default to Kansawrodo, Sekondi-Takoradi area
-const DEFAULT_LATITUDE = 4.92;
-const DEFAULT_LONGITUDE = -1.76;
-
 interface LocationState {
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   lastUpdated: number | null;
   setLocation: (lat: number, lng: number) => void;
-  getLocation: () => { latitude: number; longitude: number };
+  getLocation: () => { latitude: number; longitude: number } | null;
 }
 
 export const useLocationStore = create<LocationState>((set, get) => ({
-  latitude: DEFAULT_LATITUDE,
-  longitude: DEFAULT_LONGITUDE,
+  latitude: null,
+  longitude: null,
   lastUpdated: null,
 
   setLocation: (latitude, longitude) =>
@@ -22,6 +18,9 @@ export const useLocationStore = create<LocationState>((set, get) => ({
 
   getLocation: () => {
     const state = get();
+    if (state.latitude === null || state.longitude === null || state.lastUpdated === null) {
+      return null;
+    }
     return { latitude: state.latitude, longitude: state.longitude };
   },
 }));
