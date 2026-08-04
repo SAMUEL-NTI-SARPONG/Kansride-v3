@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `c3ceae5`
+- Current commit: `54e2425`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 1 — backend/database/shared correctness validated
+- Current milestone: Milestone 2 — ride-journey integration coverage added
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -16,13 +16,14 @@
 - [x] Recent passenger and driver location foundations are present; current validation is pending below.
 - [x] Admin and tracking production build scripts exist; current validation is pending below.
 - [x] PostgreSQL migrations and Redis/in-memory fallback are present in the repository; live service validation is pending below.
+- [x] A separate Postgres/Redis integration command and CI service job cover authentication, two-driver offer race, lifecycle transitions, final fare, tracking privacy/revocation, cancellation authorization, and duplicate rating.
 
 ## Failing or pending requirements
 
 - [x] Baseline static validation passed on this branch; runtime and release evidence remain pending below.
 - [ ] Live payment provider adapter and production credentials/owner activation remain external; mock mode is intentionally rejected in production.
-- [ ] Local runtime migration/application and Postgres/Redis-backed verification remain blocked by services and credentials.
-- [ ] Complete Postgres/Redis-backed ride integration journey and CI integration job are missing.
+- [ ] Local runtime migration/application and Postgres/Redis-backed verification remain blocked by services and credentials; the local integration probe failed at PostgreSQL `28P01` and no Redis listener was available.
+- [ ] Remote CI integration job has not yet run on the pushed release branch.
 - [ ] Passenger/driver restart recovery, reconnect UX, watcher edge cases, and physical-device URL enforcement remain incomplete.
 - [ ] Admin operational investigation/actions and configured live maps remain incomplete.
 - [ ] Idempotent demo seed, environment doctor, `dev:all`, `test:integration`, and `verify:v1` workflows remain incomplete.
@@ -41,11 +42,11 @@
 
 - Static validation: `git diff --check` passed.
 - Unit/invariant tests: `npm test` passed — 14 files, 88 tests; focused admin/payment tests passed — 8 tests.
-- Type checks: backend, shared-db, and shared-config passed after Milestone 1 changes; baseline admin/tracking/mobile checks also passed.
+- Type checks: backend, shared-db, and shared-config passed after Milestones 1–2; baseline admin/tracking/mobile checks also passed.
 - Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
+- Integration command: `npm run test:integration` is configured and fails honestly without explicit services; local probe failed at PostgreSQL `28P01` and Redis connection.
+- CI: release branch trigger and Postgres/Redis integration job are checked in; remote result not yet verified.
 - Production web builds: baseline admin-web and tracking-web passed; rerun at final gate after web changes.
-- Runtime database/Redis validation: blocked pending services and credentials; no runtime claim made.
-- Remote CI: release branch checkpoint was pushed; remote pipeline result not yet verified.
 - Device validation: not run; no physical-device claim.
 
 ## Exact resume point

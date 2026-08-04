@@ -45,6 +45,7 @@ export default defineConfig({
       '**/.next/**',
       '**/.expo/**',
       '**/.qoder/**',
+      'apps/backend/test/integration/**',
     ],
     clearMocks: true,
     restoreMocks: true,
