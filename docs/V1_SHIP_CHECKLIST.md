@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `6d24e7d`
+- Current commit: `6d1248c`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 6 — provider contracts and readiness documented
+- Current milestone: Milestone 7 — Android development-build readiness configured
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -27,6 +27,7 @@
 - [x] Android development-build and physical-device instructions are documented with package IDs, LAN URL configuration, and exact commands.
 - [x] SMS, maps, and payment interfaces have deterministic mock/implemented development modes with contract tests and explicit production configuration failures.
 - [x] Provider readiness ownership and activation steps are documented without secrets; unavailable WhatsApp/USSD boundaries are not fabricated.
+- [x] Passenger and driver EAS profiles, valid placeholder icon assets, package IDs, and exact local/EAS Android build commands are configured.
 
 ## Failing or pending requirements
 
@@ -53,6 +54,7 @@
 - Static validation: `git diff --check` passed.
 - Type checks: shared types/config/db/auth, backend, passenger/driver mobile, admin-web, and tracking-web passed through `verify:v1`.
 - Unit/invariant tests: `npm test` passed — 16 files, 94 tests; focused provider tests passed — 3 tests.
+- Expo config: both app configs resolved with the supported `npx expo config --json` command; passenger output also hit a local Expo telemetry `EPERM` rename warning after resolving, so no EAS/device execution is claimed.
 - Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
 - Web production builds: admin-web and tracking-web passed; Next emitted only the existing missing ESLint plugin warning.
 - `npm run verify:v1` passed all static checks and stopped at `integration journey` because explicit Postgres/Redis services are unavailable; no runtime pass claimed.
@@ -62,4 +64,4 @@
 
 ## Exact resume point
 
-Milestone 1 is ready for its narrow backend checkpoint commit. Next, implement the repeatable Postgres/Redis-backed ride-journey integration suite and CI coverage. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Milestone 7 is ready for its narrow Android-readiness checkpoint commit. Next, run the final V1 release gate, inspect remote CI, and close only external runtime/provider/device/deployment blockers. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.

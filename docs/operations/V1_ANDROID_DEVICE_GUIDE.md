@@ -48,6 +48,20 @@ npx expo run:android --project-directory apps/mobile-passenger
 npx expo run:android --project-directory apps/mobile-driver
 ```
 
+For EAS development/preview/production Android artifacts, authenticate with EAS and run:
+
+```powershell
+npm run build:development --workspace=apps/mobile-passenger
+npm run build:preview --workspace=apps/mobile-passenger
+npm run build:production --workspace=apps/mobile-passenger
+
+npm run build:development --workspace=apps/mobile-driver
+npm run build:preview --workspace=apps/mobile-driver
+npm run build:production --workspace=apps/mobile-driver
+```
+
+These commands require EAS project ownership/access and any provider-specific build credentials; no EAS build is claimed by this repository checkpoint.
+
 The repository does not claim that either build was installed on a phone. The owner must confirm installation and perform the device matrix below.
 
 ## Required device matrix
