@@ -72,13 +72,17 @@ const envSchema = z.object({
   HUBTEL_SMS_API_KEY: z.string().default(''),
   HUBTEL_SENDER_ID: z.string().default('KansRide'),
 
-  // Maps. Only the Haversine (straight-line) adapter is implemented today and
-  // it is selected by the default 'openstreetmap' value; 'google' is retained
-  // in the enum because a real Google adapter is planned behind the same
-  // interface, but the providers factory still falls back to Haversine until
-  // that adapter exists.
+  // Maps. Haversine is the deterministic development adapter. Google mode is
+  // reserved for the production adapter and must not silently fall back.
   MAPS_PROVIDER: z.enum(['openstreetmap', 'google']).default('openstreetmap'),
   MAPS_API_KEY: z.string().default(''),
+
+  // Payments. Mock mode is deterministic for development only. A live adapter
+  // is intentionally credential-gated and fails startup until a provider is
+  // selected and implemented behind the existing IPaymentProvider interface.
+  PAYMENT_PROVIDER: z.enum(['mock', 'momo']).default('mock'),
+  PAYMENT_API_KEY: z.string().default(''),
+  PAYMENT_API_SECRET: z.string().default(''),
 
   // Web CORS. Optional comma-separated list of allowed origins. When unset,
   // the API serves any origin without credentials (the V1 default). When set,
@@ -128,6 +132,16 @@ export function getEnv(): Env {
     // successful "OTP sent" response (a real V1 defect — see the auth fix).
     if (process.env['SMS_PROVIDER'] === 'hubtel' && (!process.env['HUBTEL_SMS_API_KEY'] || process.env['HUBTEL_SMS_API_KEY'] === '')) {
       (missing as string[]).push('HUBTEL_SMS_API_KEY');
+    }
+    const paymentProvider = process.env['PAYMENT_PROVIDER'] || 'mock';
+    if (paymentProvider === 'momo') {
+      (missing as string[]).push('PAYMENT_API_KEY', 'PAYMENT_API_SECRET');
+    }
+    if (paymentProvider === 'mock') {
+      throw new Error('[ENV] PAYMENT_PROVIDER=mock is not permitted in production');
+    }
+    if (process.env['MAPS_PROVIDER'] === 'google' && (!process.env['MAPS_API_KEY'] || process.env['MAPS_API_KEY'] === '')) {
+      (missing as string[]).push('MAPS_API_KEY');
     }
 
     if (missing.length > 0) {

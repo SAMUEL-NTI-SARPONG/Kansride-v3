@@ -5,9 +5,16 @@ import { REDIS_SERVICE } from '../../redis';
 import { PAYMENT_PROVIDER } from '../../providers';
 import { IRedisService } from '../../redis/redis.interface';
 import { IPaymentProvider, PaymentMethod } from '../../providers/payments/payment.interface';
-import { Database, users, drivers, vehicles, subscriptions, rides } from '@kansride/db';
+import { Database, users, drivers, vehicles, subscriptions, payments, rides } from '@kansride/db';
 import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS, DRIVER_SUBSCRIPTION_DURATION_HOURS } from '@kansride/config';
 import { eq, and, lt, gt } from 'drizzle-orm';
+
+const PAYMENT_METHODS: PaymentMethod[] = [
+  'cash',
+  'mtn_mobile_money',
+  'telecel_cash',
+  'at_money',
+];
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 
@@ -263,18 +270,16 @@ export class DriversService {
   }
 
   async subscribe(driverId: string, paymentMethod: string) {
+    if (!PAYMENT_METHODS.includes(paymentMethod as PaymentMethod)) {
+      throw new BadRequestException(`paymentMethod must be one of: ${PAYMENT_METHODS.join(', ')}`);
+    }
+
     const driver = await this.db.select().from(drivers).where(eq(drivers.id, driverId)).limit(1);
     if (!driver[0]) throw new NotFoundException('Driver not found');
 
-    // Get user phone for payment
     const user = await this.db.select().from(users).where(eq(users.id, driver[0].userId)).limit(1);
     if (!user[0]) throw new NotFoundException('User not found');
 
-    // Initiate payment. The amount (1000 pesewas = GHS 10.00) and duration
-    // (24 hours) are the canonical business constants in shared-config; import
-    // them so this service never drifts from the single source of truth (the
-    // same constants are surfaced to the admin web for display). Today the
-    // values match the previous literals exactly, so no behaviour change.
     const amountPesewas = DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS;
     const payResult = await this.paymentProvider.initiate(
       amountPesewas,
@@ -282,32 +287,88 @@ export class DriversService {
       user[0].phoneNumber,
       'KansRide Daily Subscription',
     );
+    const paymentStatus = payResult.status === 'success'
+      ? 'successful'
+      : payResult.status === 'pending'
+        ? 'pending'
+        : 'failed';
+    const now = new Date();
+    const endDate = new Date(now.getTime() + DRIVER_SUBSCRIPTION_DURATION_HOURS * 60 * 60 * 1000);
 
-    if (payResult.status === 'success') {
-      // Create subscription
-      const startDate = new Date();
-      const endDate = new Date(Date.now() + DRIVER_SUBSCRIPTION_DURATION_HOURS * 60 * 60 * 1000);
+    return this.db.transaction(async (tx) => {
+      const [existingPayment] = await tx
+        .select()
+        .from(payments)
+        .where(eq(payments.providerReference, payResult.reference))
+        .limit(1);
+      if (existingPayment) {
+        return { message: 'Payment already recorded', reference: payResult.reference, status: existingPayment.status };
+      }
 
-      await this.db.insert(subscriptions).values({
+      const [payment] = await tx.insert(payments).values({
+        userId: user[0]!.id,
+        type: 'subscription',
+        amountPesewas,
+        method: paymentMethod as PaymentMethod,
+        status: paymentStatus,
+        providerReference: payResult.reference,
+        createdAt: now,
+        updatedAt: now,
+      }).returning();
+      if (!payment) throw new BadRequestException('Failed to record subscription payment');
+
+      if (payResult.status !== 'success') {
+        const [subscription] = await tx.insert(subscriptions).values({
+          driverId,
+          amountPesewas,
+          startDate: now,
+          endDate: now,
+          status: payResult.status === 'pending' ? 'pending' : 'cancelled',
+          paymentId: payment.id,
+        }).returning();
+        if (subscription) {
+          await tx.update(payments).set({
+            subscriptionId: subscription.id,
+            updatedAt: now,
+          }).where(eq(payments.id, payment.id));
+        }
+        return {
+          message: payResult.status === 'pending' ? 'Payment pending' : 'Payment failed',
+          reference: payResult.reference,
+          status: payResult.status,
+          subscriptionId: subscription?.id,
+        };
+      }
+
+      const [subscription] = await tx.insert(subscriptions).values({
         driverId,
         amountPesewas,
-        startDate,
+        startDate: now,
         endDate,
         status: 'active',
-      });
+        paymentId: payment.id,
+      }).returning();
+      if (!subscription) throw new BadRequestException('Failed to activate subscription');
 
-      // Update driver subscription expiry
-      await this.db.update(drivers).set({
+      await tx.update(payments).set({
+        subscriptionId: subscription.id,
+        updatedAt: now,
+      }).where(eq(payments.id, payment.id));
+      await tx.update(drivers).set({
         subscriptionExpiresAt: endDate,
         isActive: true,
-        updatedAt: new Date(),
+        updatedAt: now,
       }).where(eq(drivers.id, driverId));
 
       this.logger.log(`Driver ${driverId} subscribed until ${endDate.toISOString()}`);
-      return { message: 'Subscription activated', expiresAt: endDate, amountPesewas, reference: payResult.reference };
-    }
-
-    return { message: 'Payment pending', reference: payResult.reference, status: payResult.status };
+      return {
+        message: 'Subscription activated',
+        expiresAt: endDate,
+        amountPesewas,
+        reference: payResult.reference,
+        subscriptionId: subscription.id,
+      };
+    });
   }
 
   async getEarnings(driverId: string) {

@@ -1,8 +1,13 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
+import type { TokenPayload } from '@kansride/auth';
+
+interface AuthenticatedRequest extends Request {
+  user: TokenPayload & { iat: number; exp: number };
+}
 
 /**
  * Administrative endpoints expose aggregated/dimensional operational data
@@ -92,5 +97,44 @@ export class AdminController {
       Number(page) || 1,
       Number(limit) || 20,
     );
+  }
+
+  @Post('drivers/:id/approve')
+  @RequirePermissions('admin:manage_drivers')
+  approveDriver(
+    @Param('id', new ParseUUIDPipe()) driverId: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.adminService.approveDriver(driverId, req.user.userId);
+  }
+
+  @Post('drivers/:id/reject')
+  @RequirePermissions('admin:manage_drivers')
+  rejectDriver(
+    @Param('id', new ParseUUIDPipe()) driverId: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { reason?: string },
+  ) {
+    return this.adminService.rejectDriver(driverId, req.user.userId, body.reason);
+  }
+
+  @Patch('users/:id/status')
+  @RequirePermissions('admin:manage_users')
+  updateUserStatus(
+    @Param('id', new ParseUUIDPipe()) userId: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { status: 'active' | 'suspended' },
+  ) {
+    return this.adminService.updateUserStatus(userId, body.status, req.user.userId);
+  }
+
+  @Patch('rides/:id/cancel')
+  @RequirePermissions('ride:cancel')
+  cancelRide(
+    @Param('id', new ParseUUIDPipe()) rideId: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { reason?: string },
+  ) {
+    return this.adminService.cancelRide(rideId, req.user.userId, req.user.role as Parameters<AdminService['cancelRide']>[2], body.reason);
   }
 }

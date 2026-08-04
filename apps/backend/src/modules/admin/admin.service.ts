@@ -1,11 +1,16 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
-import { Database, users, drivers, rides, subscriptions, vehicles, passengers } from '@kansride/db';
-import { eq, desc, count, sum, and, sql, inArray } from 'drizzle-orm';
+import { Database, auditLogs, users, drivers, rides, subscriptions, vehicles, passengers } from '@kansride/db';
+import { eq, desc, count, sum, and, inArray } from 'drizzle-orm';
+import type { UserRole } from '@kansride/types';
+import { RidesService } from '../rides/rides.service';
 
 @Injectable()
 export class AdminService {
-  constructor(@Inject(DATABASE_TOKEN) private readonly db: Database) {}
+  constructor(
+    @Inject(DATABASE_TOKEN) private readonly db: Database,
+    private readonly ridesService: RidesService,
+  ) {}
 
   async getDashboardStats() {
     // Total users
@@ -196,6 +201,121 @@ export class AdminService {
     };
   }
 
+  async approveDriver(driverId: string, adminUserId: string) {
+    return this.db.transaction(async (tx) => {
+      const [driver] = await tx
+        .select({ id: drivers.id, userId: drivers.userId, isActive: drivers.isActive })
+        .from(drivers)
+        .where(eq(drivers.id, driverId))
+        .limit(1);
+      if (!driver) throw new NotFoundException('Driver application not found');
+
+      const [user] = await tx
+        .select({ role: users.role, status: users.status, isVerified: users.isVerified })
+        .from(users)
+        .where(eq(users.id, driver.userId))
+        .limit(1);
+      if (!user) throw new NotFoundException('Driver account not found');
+      if (user.role !== 'driver_applicant') {
+        throw new ConflictException('Only pending driver applications can be approved');
+      }
+      if (user.status !== 'active') {
+        throw new BadRequestException('The driver account must be active before approval');
+      }
+
+      await tx
+        .update(users)
+        .set({ role: 'driver', isVerified: true, updatedAt: new Date() })
+        .where(eq(users.id, driver.userId));
+      await tx
+        .update(drivers)
+        .set({ isActive: true, updatedAt: new Date() })
+        .where(eq(drivers.id, driverId));
+      await this.writeAudit(tx, adminUserId, driverId, 'driver_approval', {
+        previousRole: user.role,
+        nextRole: 'driver',
+        previousActive: driver.isActive,
+        nextActive: true,
+      });
+
+      return { driverId, status: 'approved' as const };
+    });
+  }
+
+  async rejectDriver(driverId: string, adminUserId: string, reason?: string) {
+    const normalizedReason = reason?.trim();
+    if (!normalizedReason) throw new BadRequestException('A rejection reason is required');
+
+    return this.db.transaction(async (tx) => {
+      const [driver] = await tx
+        .select({ id: drivers.id, userId: drivers.userId, isActive: drivers.isActive })
+        .from(drivers)
+        .where(eq(drivers.id, driverId))
+        .limit(1);
+      if (!driver) throw new NotFoundException('Driver application not found');
+
+      const [user] = await tx
+        .select({ role: users.role, isVerified: users.isVerified })
+        .from(users)
+        .where(eq(users.id, driver.userId))
+        .limit(1);
+      if (!user) throw new NotFoundException('Driver account not found');
+      if (user.role !== 'driver_applicant') {
+        throw new ConflictException('Only pending driver applications can be rejected');
+      }
+
+      await tx
+        .update(drivers)
+        .set({ isActive: false, isOnline: false, updatedAt: new Date() })
+        .where(eq(drivers.id, driverId));
+      await this.writeAudit(tx, adminUserId, driverId, 'driver_rejection', {
+        role: user.role,
+        isVerified: user.isVerified,
+        isActive: driver.isActive,
+        reason: normalizedReason,
+      });
+
+      return { driverId, status: 'rejected' as const, reason: normalizedReason };
+    });
+  }
+
+  async updateUserStatus(userId: string, status: 'active' | 'suspended', adminUserId: string) {
+    if (userId === adminUserId) throw new BadRequestException('Administrators cannot change their own status');
+
+    return this.db.transaction(async (tx) => {
+      const [user] = await tx
+        .select({ id: users.id, status: users.status, role: users.role })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!user) throw new NotFoundException('User not found');
+      if (user.status === status) return { userId, status };
+
+      await tx.update(users).set({ status, updatedAt: new Date() }).where(eq(users.id, userId));
+      if (status === 'suspended') {
+        await tx.update(drivers).set({ isOnline: false, isActive: false, updatedAt: new Date() }).where(eq(drivers.userId, userId));
+      }
+      await this.writeAudit(tx, adminUserId, userId, 'user_status_change', {
+        previousStatus: user.status,
+        nextStatus: status,
+        role: user.role,
+      });
+      return { userId, status };
+    });
+  }
+
+  async cancelRide(rideId: string, adminUserId: string, role: UserRole, reason?: string) {
+    const result = await this.ridesService.cancelRide(rideId, adminUserId, role, reason);
+    await this.db.insert(auditLogs).values({
+      userId: adminUserId,
+      entityType: 'ride',
+      entityId: rideId,
+      action: 'ride_cancellation',
+      changes: { status: result.status, reason: reason ?? null },
+    });
+    return result;
+  }
+
   async getSubscriptions(page: number, limit: number) {
     const offset = (page - 1) * limit;
 
@@ -225,6 +345,22 @@ export class AdminService {
     );
 
     return { data, total, page, totalPages: Math.ceil(total / limit) || 1 };
+  }
+
+  private async writeAudit(
+    tx: Pick<Database, 'insert'>,
+    adminUserId: string,
+    entityId: string,
+    action: string,
+    changes: Record<string, unknown>,
+  ): Promise<void> {
+    await tx.insert(auditLogs).values({
+      userId: adminUserId,
+      entityType: action.startsWith('driver_') ? 'driver' : 'user',
+      entityId,
+      action,
+      changes,
+    });
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────

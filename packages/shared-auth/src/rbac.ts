@@ -67,13 +67,13 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'ride:view_all', 'admin:manage_users',
   ],
   ops_admin: [
-    'ride:view_all', 'admin:manage_users', 'admin:manage_drivers',
+    'ride:view_all', 'ride:cancel', 'admin:manage_users', 'admin:manage_drivers',
     'admin:manage_vehicles', 'admin:manage_subscriptions', 'admin:manage_fares',
     'admin:manage_zones', 'admin:view_analytics', 'admin:manage_support',
     'dispatch:assign_rides', 'dispatch:view_live_map',
   ],
   system_admin: [
-    'ride:view_all', 'admin:manage_users', 'admin:manage_drivers',
+    'ride:view_all', 'ride:cancel', 'admin:manage_users', 'admin:manage_drivers',
     'admin:manage_vehicles', 'admin:manage_subscriptions', 'admin:manage_fares',
     'admin:manage_zones', 'admin:view_analytics', 'admin:manage_support',
     'admin:view_audit_logs', 'dispatch:assign_rides', 'dispatch:view_live_map',

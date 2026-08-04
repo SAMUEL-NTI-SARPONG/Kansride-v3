@@ -15,6 +15,20 @@
       "when": 1784400696763,
       "tag": "0001_ride_rating_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785872224142,
+      "tag": "0002_absurd_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785872458805,
+      "tag": "0003_lying_firestar",
+      "breakpoints": true
     }
   ]
 }

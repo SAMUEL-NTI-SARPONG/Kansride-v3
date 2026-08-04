@@ -21,8 +21,10 @@ import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload'
 const CANCELLATION_ROLES = {
   passenger: { actor: 'passenger', cancelStatus: 'cancelled_by_passenger' as RideStatus },
   driver:    { actor: 'driver',    cancelStatus: 'cancelled_by_driver' as RideStatus },
+  ops_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
+  system_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
   super_admin: { actor: 'admin',   cancelStatus: 'cancelled_by_admin' as RideStatus },
-} as const satisfies Record<'passenger' | 'driver' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
+} as const satisfies Record<'passenger' | 'driver' | 'ops_admin' | 'system_admin' | 'super_admin', { actor: string; cancelStatus: RideStatus }>;
 
 const STATUS_UPDATE_ROLES: Partial<Record<UserRole, string>> = {
   driver: 'driver',
