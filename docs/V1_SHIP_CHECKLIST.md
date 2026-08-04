@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `6d1248c`
+- Current commit: `5d5d5c6`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 7 — Android development-build readiness configured
+- Current milestone: Milestone 8 — final static release gate complete; external runtime gate pending
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -28,17 +28,16 @@
 - [x] SMS, maps, and payment interfaces have deterministic mock/implemented development modes with contract tests and explicit production configuration failures.
 - [x] Provider readiness ownership and activation steps are documented without secrets; unavailable WhatsApp/USSD boundaries are not fabricated.
 - [x] Passenger and driver EAS profiles, valid placeholder icon assets, package IDs, and exact local/EAS Android build commands are configured.
+- [x] Final local static gate passed: workspace lint (warnings only), type-checks, unit tests, backend build, admin build, tracking build, and `git diff --check`.
 
 ## Failing or pending requirements
 
 - [x] Baseline static validation passed on this branch; runtime and release evidence remain pending below.
-- [ ] Live payment/MoMo and Google maps adapters plus production credentials/owner activation remain external; mock mode is intentionally rejected in production.
-- [ ] Local runtime migration/application and Postgres/Redis-backed verification remain blocked by services and credentials; the local integration probe failed at PostgreSQL `28P01` and no Redis listener was available.
-- [ ] Remote CI integration job has not yet run on the pushed release branch.
-- [ ] Real Android permission/GPS/background-foreground/restart/network-loss behavior remains pending physical-device validation; this milestone intentionally supports foreground-only driver location.
-- [ ] Admin ride detail/search, live map provider, and browser/device runtime validation remain pending; no fake map was shipped.
-- [ ] `doctor`, `seed:demo`, and `verify:v1` remain runtime-blocked locally until valid PostgreSQL/PostGIS and Redis services are available.
-- [ ] Android development-build execution, installation, permissions, restart, network-loss, and GPS validation remain owner/device actions.
+- [ ] Remote CI result is not verified; GitHub CLI authentication is unavailable in this environment.
+- [ ] PostgreSQL/PostGIS credentials/service and Redis remain unavailable locally; integration journey, migration runtime, seed, doctor readiness, dispatch, Socket.IO, tracking, and persistence evidence remain pending.
+- [ ] Live MoMo/Google maps adapters and production provider credentials/owner activation remain external; mock payment is rejected in production.
+- [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, and pilot acceptance remain owner/device actions.
+- [ ] Admin ride detail/search and live map provider remain pending; no fake map was shipped.
 
 ## External owner actions
 
@@ -51,17 +50,24 @@
 
 ## Latest validation results
 
-- Static validation: `git diff --check` passed.
-- Type checks: shared types/config/db/auth, backend, passenger/driver mobile, admin-web, and tracking-web passed through `verify:v1`.
-- Unit/invariant tests: `npm test` passed — 16 files, 94 tests; focused provider tests passed — 3 tests.
-- Expo config: both app configs resolved with the supported `npx expo config --json` command; passenger output also hit a local Expo telemetry `EPERM` rename warning after resolving, so no EAS/device execution is claimed.
-- Backend build and lint passed; lint reported 12 pre-existing/non-blocking warnings and no errors.
-- Web production builds: admin-web and tracking-web passed; Next emitted only the existing missing ESLint plugin warning.
-- `npm run verify:v1` passed all static checks and stopped at `integration journey` because explicit Postgres/Redis services are unavailable; no runtime pass claimed.
-- `npm run doctor` fails honestly without DATABASE_URL and reports the in-memory Redis development fallback; `npm run seed:demo` refuses production mode and reaches the database before failing with documented `28P01` credentials.
-- CI: release branch trigger and Postgres/Redis integration job are checked in; remote result not yet verified.
-- Device validation: not run; no physical-device claim.
+- `git diff --check`: passed.
+- `npm test`: passed — 16 files, 94 tests.
+- `npm run lint`: passed with warnings only; no lint errors.
+- `npm run type-check`: passed for all configured workspaces.
+- `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web.
+- `npm run verify:v1`: passed all static checks and stopped at integration because explicit Postgres/Redis services are unavailable.
+- `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
+- `npm run seed:demo`: production refusal and development `28P01` database failure verified; no seed data claimed.
+- Expo configs: both resolve; local EAS/device execution not run. Remote CI: branch pushed, GitHub CLI authentication unavailable for result inspection.
 
 ## Exact resume point
 
-Milestone 7 is ready for its narrow Android-readiness checkpoint commit. Next, run the final V1 release gate, inspect remote CI, and close only external runtime/provider/device/deployment blockers. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Owner commands after provisioning valid Postgres/PostGIS and Redis are:
+
+```powershell
+npm run db:migrate --workspace=packages/shared-db
+npm run seed:demo
+npm run verify:v1
+```
+
+Then perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, inspect remote CI, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
