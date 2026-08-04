@@ -152,7 +152,6 @@ export default function DriverHomeScreen() {
   };
 
   const setupSocket = async () => {
-    try {
       await socketClient.connect();
       const socket = socketClient.getSocket();
       if (!socket) return;
@@ -230,11 +229,6 @@ export default function DriverHomeScreen() {
         socketClient.subscribeToRide(existingRide.rideId);
       }
       socketClient.requestPendingOffers();
-    } catch (err: any) {
-      // Re-throw so callers can react (rollback an optimistic go-online, or
-      // surface an honest banner on session restore). Callers own alerting.
-      throw err;
-    }
   };
 
   // Starts the foreground watcher (feeding the location store on each fix)
