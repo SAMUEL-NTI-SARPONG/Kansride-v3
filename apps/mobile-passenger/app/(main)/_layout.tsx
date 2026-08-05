@@ -46,6 +46,10 @@ export default function MainLayout() {
         name="ride-detail/[id]"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="saved-places"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

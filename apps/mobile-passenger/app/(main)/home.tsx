@@ -24,6 +24,7 @@ import {
 } from '../../src/services/location';
 import type { LocationOutcome } from '../../src/services/location';
 import { ContinuationFailedError } from '../../src/errors';
+import { loadSavedPlaces, type SavedPlace } from '../../src/saved-places';
 
 // Acquire real device coordinates for pickup. No fabricated fallback — a
 // denied/disabled/timed-out/unavailable outcome is surfaced honestly and the
@@ -69,6 +70,7 @@ export default function HomeScreen() {
   const [selectedDest, setSelectedDest] = useState<(typeof DESTINATIONS)[0] | null>(null);
   const [rideType, setRideType] = useState<RideType>('standard_tricycle');
   const [showDestinations, setShowDestinations] = useState(false);
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
   const [loading, setLoading] = useState(false);
   const [estimate, setEstimate] = useState<{
     estimatedDistanceMeters: number;
@@ -122,6 +124,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     acquirePickup();
+    void loadSavedPlaces().then(setSavedPlaces).catch(() => setSavedPlaces([]));
   }, [acquirePickup]);
 
   useEffect(() => {
@@ -172,6 +175,12 @@ export default function HomeScreen() {
   const handleSelectDestination = (dest: (typeof DESTINATIONS)[0]) => {
     setSelectedDest(dest);
     setDestination(dest.label);
+    setShowDestinations(false);
+  };
+
+  const handleSelectSavedPlace = (place: SavedPlace) => {
+    setSelectedDest({ label: place.label, latitude: place.latitude, longitude: place.longitude });
+    setDestination(place.label);
     setShowDestinations(false);
   };
 
@@ -331,14 +340,15 @@ export default function HomeScreen() {
             }}
             onFocus={() => setShowDestinations(true)}
           />
-          {showDestinations && filteredDestinations.length > 0 && (
+          {showDestinations && (filteredDestinations.length > 0 || savedPlaces.length > 0) && (
             <View style={styles.dropdownList}>
+              {savedPlaces.filter((place) => place.label.toLowerCase().includes(destination.toLowerCase())).map((place) => (
+                <TouchableOpacity key={place.id} style={styles.dropdownItem} onPress={() => handleSelectSavedPlace(place)}>
+                  <Text style={styles.dropdownText}>{place.label} · Saved</Text>
+                </TouchableOpacity>
+              ))}
               {filteredDestinations.map((dest) => (
-                <TouchableOpacity
-                  key={dest.label}
-                  style={styles.dropdownItem}
-                  onPress={() => handleSelectDestination(dest)}
-                >
+                <TouchableOpacity key={dest.label} style={styles.dropdownItem} onPress={() => handleSelectDestination(dest)}>
                   <Text style={styles.dropdownText}>{dest.label}</Text>
                 </TouchableOpacity>
               ))}

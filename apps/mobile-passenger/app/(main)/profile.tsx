@@ -80,9 +80,9 @@ export default function ProfileScreen() {
       <View style={styles.menuItem}>
         <Text style={styles.menuText}>Payment Methods</Text>
       </View>
-      <View style={styles.menuItem}>
+      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/saved-places')} accessibilityRole="button" accessibilityLabel="Open saved places">
         <Text style={styles.menuText}>Saved Places</Text>
-      </View>
+      </TouchableOpacity>
       <View style={styles.menuItem}>
         <Text style={styles.menuText}>Safety</Text>
       </View>
