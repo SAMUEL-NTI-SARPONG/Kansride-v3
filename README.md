@@ -194,6 +194,9 @@ or the driver equivalent. For a physical device, set
 `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_WS_URL`, and passenger
 `EXPO_PUBLIC_TRACKING_URL`; localhost is rejected in that mode. Development
 build commands are documented in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`.
+Controlled-pilot deployment, backup, rollback, and incident procedures are in
+`docs/operations/CONTROLLED_PILOT_RUNBOOK.md`; the field test matrix is in
+`docs/operations/V1_PHYSICAL_DEVICE_TEST_PACKAGE.md`.
 
 ---
 

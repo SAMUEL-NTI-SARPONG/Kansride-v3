@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `2c78027`
+- Current commit: `c4996dd`
 - Branch: `release/kansride-v1`
-- Current milestone: Release Sprint 2 implementation complete; external runtime/device/provider gates pending
+- Current milestone: Sprint 3 controlled-pilot readiness; runtime/device/provider gates pending
 - Last updated: 2026-08-05
 
 ## Passed requirements
@@ -39,15 +39,17 @@
 - [x] Sprint 2 public tracking and admin live operations map surfaces are implemented with privacy-safe projections and stale/error states.
 - [x] Sprint 2 focused cleanup and tests are complete; visible map placeholders in these surfaces are removed.
 - [x] Sprint 2 final validation passed: 127 tests, all workspace type-checks, sequential builds, and workspace lint with warnings only.
+- [x] Sprint 3 readiness documentation now covers staging startup, readiness, provider gates, Android builds, backups, rollback, and physical-device execution.
+- [x] Controlled-pilot runbook and physical-device test package are linked from README and contain no credentials or private contact values.
 
 ## Failing or pending requirements
 
 - [x] Baseline static validation passed on this branch; runtime and release evidence remain pending below.
-- [ ] Remote CI result is not verified; GitHub CLI authentication is unavailable in this environment.
-- [ ] Service-backed integration/runtime execution remains pending in this shell because explicit Postgres/PostGIS and Redis services are unavailable; remote CI result must be verified.
-- [ ] Live MoMo/Google maps adapters and production provider credentials/owner activation remain external; mock payment is rejected in production.
-- [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, accessibility and pilot acceptance remain owner/device actions.
-- [ ] Production map tile/provider SLA and deployment access remain external; development map surfaces are explicitly labeled/configurable.
+- [ ] GitHub Actions result for the final Sprint 2 checkpoint is not verified because GitHub CLI authentication is unavailable in this environment.
+- [ ] Service-backed integration/runtime execution remains pending locally until valid PostgreSQL/PostGIS and Redis services are available.
+- [ ] Live MoMo/Google maps adapters, production provider credentials, and deployment access remain external.
+- [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, accessibility, and pilot acceptance remain owner/device actions.
+- [ ] Production map tile/provider SLA remains external; development map surfaces are explicitly labeled/configurable.
 
 ## External owner actions
 
