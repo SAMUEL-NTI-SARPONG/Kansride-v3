@@ -1,3 +1,5 @@
+import type { RideStatus } from '@kansride/types';
+
 // Business rules
 export const DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS = 1000; // GHS 10 = 1000 pesewas
 export const DRIVER_SUBSCRIPTION_DURATION_HOURS = 24;
@@ -40,6 +42,16 @@ export const MAX_OFFERED_DRIVERS = 5;
 // The previous `LOCATION_STALE_THRESHOLD_MINUTES = 5` had no live consumer;
 // keeping it would create a second, misleading source of truth.
 export const DRIVER_LOCATION_MAX_AGE_MS = 60_000;
+
+export const ACTIVE_RIDE_LOCATION_STATUSES: readonly RideStatus[] = [
+  'driver_assigned',
+  'driver_en_route',
+  'driver_arrived',
+  'waiting_for_passenger',
+  'passenger_verified',
+  'in_progress',
+  'emergency_hold',
+];
 
 // Fare (all in pesewas)
 export const FARE_BASE_PESEWAS = 200; // GHS 2

@@ -19,7 +19,9 @@ import { isUUID } from 'class-validator';
 import { DispatchService } from '../rides/dispatch.service';
 import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
 import { PublicTrackingGateway } from './public-tracking.gateway';
-import { getEnv } from '@kansride/config';
+import { ACTIVE_RIDE_LOCATION_STATUSES, getEnv } from '@kansride/config';
+
+type DriverLocationInput = { latitude: number; longitude: number };
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
 const LOCATION_DB_DEBOUNCE_MS = 5000;
@@ -114,7 +116,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('driver:location')
   async handleDriverLocation(
     @ConnectedSocket() client: AuthenticatedSocket,
-    @MessageBody() data: { latitude: number; longitude: number },
+    @MessageBody() data: DriverLocationInput,
   ) {
     const userId = client.data?.userId;
     if (!userId) {
@@ -137,11 +139,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const driverId = driverRecord.id;
+    if (!this.isValidCoordinate(data)) {
+      return { event: 'error', data: { message: 'Valid latitude and longitude are required' } };
+    }
 
-    // Update Redis geo-index (always)
-    await this.redis.geoAdd(DRIVERS_GEO_KEY, data.longitude, data.latitude, driverId);
+    const eligibleForActiveRide = await this.dispatchService.isDriverLocationEligible(driverId, true, false);
+    if (!eligibleForActiveRide) {
+      await this.redis.geoRemove(DRIVERS_GEO_KEY, driverId);
+      return { event: 'error', data: { message: 'Driver is not eligible for live location' } };
+    }
 
-    // Debounce DB update to max once every 5 seconds per driver
+    // Persist the current fix before re-evaluating freshness. A stale but
+    // otherwise eligible online driver may refresh its availability with this
+    // validated location; all future dispatch queries still use the 60-second
+    // freshness cutoff.
     const now = Date.now();
     const lastUpdate = this.lastDbUpdate.get(driverId) || 0;
     if (now - lastUpdate >= LOCATION_DB_DEBOUNCE_MS) {
@@ -156,19 +167,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         .where(eq(drivers.id, driverId));
     }
 
-    // Check if driver has an active ride — broadcast location to ride room
-    const activeRideStatuses = [
-      'driver_assigned',
-      'driver_en_route',
-      'driver_arrived',
-      'in_progress',
-    ] as const;
+    const eligibleForAvailability = await this.dispatchService.isDriverLocationEligible(driverId, false, true);
+    if (eligibleForAvailability) {
+      await this.redis.geoAdd(DRIVERS_GEO_KEY, data.longitude, data.latitude, driverId);
+    } else {
+      await this.redis.geoRemove(DRIVERS_GEO_KEY, driverId);
+    }
 
+    // Check if driver has an active ride — broadcast location to ride room
     const activeRides = await this.db
       .select({ id: rides.id })
       .from(rides)
       .where(
-        and(eq(rides.driverId, driverId), inArray(rides.status, [...activeRideStatuses])),
+        and(eq(rides.driverId, driverId), inArray(rides.status, [...ACTIVE_RIDE_LOCATION_STATUSES])),
       )
       .limit(1);
 
@@ -454,5 +465,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private isValidRideId(value: unknown): value is string {
     return typeof value === 'string' && isUUID(value);
+  }
+
+  private isValidCoordinate(value: DriverLocationInput): boolean {
+    return Number.isFinite(value?.latitude)
+      && Number.isFinite(value?.longitude)
+      && value.latitude >= -90
+      && value.latitude <= 90
+      && value.longitude >= -180
+      && value.longitude <= 180;
   }
 }

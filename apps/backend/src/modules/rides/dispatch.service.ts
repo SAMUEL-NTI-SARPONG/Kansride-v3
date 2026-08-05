@@ -14,6 +14,7 @@ import {
   DRIVER_LOCATION_MAX_AGE_MS,
   DRIVER_RESPONSE_TIMEOUT_SECONDS,
   MAX_DISPATCH_RADIUS_KM,
+  ACTIVE_RIDE_LOCATION_STATUSES,
   MAX_OFFERED_DRIVERS,
   OFFER_TTL_SECONDS,
 } from '@kansride/config';
@@ -21,16 +22,6 @@ import { EventsGateway } from '../events/events.gateway';
 import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload';
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
-const ACTIVE_DRIVER_RIDE_STATUSES = [
-  'driver_assigned',
-  'driver_en_route',
-  'driver_arrived',
-  'waiting_for_passenger',
-  'passenger_verified',
-  'in_progress',
-  'emergency_hold',
-] as const;
-
 interface StoredRideOffer extends RideOfferPayload {
   driverId: string;
 }
@@ -399,7 +390,19 @@ export class DispatchService {
     );
   }
 
-  private async getEligibleDriver(driverId: string): Promise<EligibleDriver | null> {
+  async isDriverLocationEligible(
+    driverId: string,
+    allowActiveRide = false,
+    requireFreshLocation = true,
+  ): Promise<boolean> {
+    return (await this.getEligibleDriver(driverId, allowActiveRide, requireFreshLocation)) !== null;
+  }
+
+  private async getEligibleDriver(
+    driverId: string,
+    allowActiveRide = false,
+    requireFreshLocation = true,
+  ): Promise<EligibleDriver | null> {
     const locationCutoff = new Date(Date.now() - DRIVER_LOCATION_MAX_AGE_MS);
     const [candidate] = await this.db
       .select({
@@ -423,7 +426,7 @@ export class DispatchService {
           eq(drivers.isOnline, true),
           isNotNull(drivers.currentLatitude),
           isNotNull(drivers.currentLongitude),
-          gte(drivers.updatedAt, locationCutoff),
+          ...(requireFreshLocation ? [gte(drivers.updatedAt, locationCutoff)] : []),
           eq(users.role, 'driver'),
           eq(users.status, 'active'),
           eq(users.isVerified, true),
@@ -448,17 +451,19 @@ export class DispatchService {
       .limit(1);
     if (!subscription) return null;
 
-    const [activeRide] = await this.db
-      .select({ id: rides.id })
-      .from(rides)
-      .where(
-        and(
-          eq(rides.driverId, driverId),
-          inArray(rides.status, [...ACTIVE_DRIVER_RIDE_STATUSES]),
-        ),
-      )
-      .limit(1);
-    if (activeRide) return null;
+    if (!allowActiveRide) {
+      const [activeRide] = await this.db
+        .select({ id: rides.id })
+        .from(rides)
+        .where(
+          and(
+            eq(rides.driverId, driverId),
+            inArray(rides.status, [...ACTIVE_RIDE_LOCATION_STATUSES]),
+          ),
+        )
+        .limit(1);
+      if (activeRide) return null;
+    }
 
     return {
       driverId: candidate.driverId,
