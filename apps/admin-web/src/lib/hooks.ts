@@ -120,6 +120,22 @@ export function useDrivers(page: number = 1, status?: string) {
   });
 }
 
+export function useLiveDrivers() {
+  return useQuery<PaginatedResponse<AdminDriver>>({
+    queryKey: ['admin', 'drivers', 'live'],
+    queryFn: () => api.get<PaginatedResponse<AdminDriver>>('/admin/drivers?status=online&limit=100'),
+    refetchInterval: 15_000,
+  });
+}
+
+export function useLiveRides() {
+  return useQuery<PaginatedResponse<AdminRide>>({
+    queryKey: ['admin', 'rides', 'live'],
+    queryFn: () => api.get<PaginatedResponse<AdminRide>>('/admin/rides?status=active&limit=100'),
+    refetchInterval: 15_000,
+  });
+}
+
 export function useRides(page: number = 1, status?: string, search?: string) {
   const params = new URLSearchParams({ page: String(page), limit: '20' });
   if (status) params.set('status', status);
