@@ -10,7 +10,7 @@ import {
 import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect, useCallback } from 'react';
 import { router } from 'expo-router';
-import { get, post, patch } from '../../src/api/client';
+import { post, patch } from '../../src/api/client';
 import {
   connectSocket,
   subscribeToRide,
@@ -134,11 +134,17 @@ export default function HomeScreen() {
     let cancelled = false;
     setEstimateLoading(true);
     setEstimateError(null);
-    void get<{
+    void post<{
       estimatedDistanceMeters: number;
       estimatedDurationSeconds: number;
       fareBreakdown: { totalFarePesewas: number };
-    }>(`/rides/estimate?pickupLatitude=${pickup.latitude}&pickupLongitude=${pickup.longitude}&dropoffLatitude=${selectedDest.latitude}&dropoffLongitude=${selectedDest.longitude}&rideType=${rideType}`)
+    }>('/rides/estimate', {
+      pickupLatitude: pickup.latitude,
+      pickupLongitude: pickup.longitude,
+      dropoffLatitude: selectedDest.latitude,
+      dropoffLongitude: selectedDest.longitude,
+      rideType,
+    })
       .then((data) => {
         if (!cancelled) setEstimate(data);
       })
@@ -266,12 +272,12 @@ export default function HomeScreen() {
       <View style={styles.mapContainer}>
         <MapView
           style={styles.map}
-          initialRegion={{
-            latitude: pickup?.latitude ?? 4.92,
-            longitude: pickup?.longitude ?? -1.76,
+          initialRegion={pickup ? {
+            latitude: pickup.latitude,
+            longitude: pickup.longitude,
             latitudeDelta: 0.04,
             longitudeDelta: 0.04,
-          }}
+          } : undefined}
           region={pickup ? {
             latitude: pickup.latitude,
             longitude: pickup.longitude,
