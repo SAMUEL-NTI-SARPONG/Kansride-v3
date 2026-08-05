@@ -54,6 +54,10 @@ export default function MainLayout() {
         name="safety"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="support"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

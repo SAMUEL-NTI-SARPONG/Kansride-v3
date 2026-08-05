@@ -11,6 +11,7 @@ import { router } from 'expo-router';
 import { useAuthStore } from '../../src/stores/auth-store';
 import { get } from '../../src/api/client';
 import { disconnectSocket } from '../../src/api/socket';
+import { useRideStore } from '../../src/stores/ride-store';
 
 interface UserProfile {
   id: string;
@@ -77,18 +78,18 @@ export default function ProfileScreen() {
           <Text style={styles.rides}>{profile.totalRides} ride{profile.totalRides !== 1 ? 's' : ''} completed</Text>
         )}
       </View>
-      <View style={styles.menuItem}>
-        <Text style={styles.menuText}>Payment Methods</Text>
-      </View>
+      <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Payment methods unavailable', 'Payment Methods are not available in the pilot yet. Driver subscription payments are managed separately.') } accessibilityRole="button" accessibilityLabel="Payment methods unavailable">
+        <Text style={styles.menuText}>Payment Methods · unavailable for pilot</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/saved-places')} accessibilityRole="button" accessibilityLabel="Open saved places">
         <Text style={styles.menuText}>Saved Places</Text>
       </TouchableOpacity>
       <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/safety')} accessibilityRole="button" accessibilityLabel="Open safety">
         <Text style={styles.menuText}>Safety</Text>
       </TouchableOpacity>
-      <View style={styles.menuItem}>
+      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/support')} accessibilityRole="button" accessibilityLabel="Open support">
         <Text style={styles.menuText}>Support</Text>
-      </View>
+      </TouchableOpacity>
       <TouchableOpacity style={[styles.menuItem, styles.logoutBtn]} onPress={handleLogout}>
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
