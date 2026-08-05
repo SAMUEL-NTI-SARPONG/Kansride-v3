@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `3591998`
+- Current commit: `914e624`
 - Branch: `release/kansride-v1`
-- Current milestone: Release Sprint 2 passenger map and fare estimate complete; external runtime gate pending
+- Current milestone: Release Sprint 2 implementation complete; external runtime/device/provider gates pending
 - Last updated: 2026-08-05
 
 ## Passed requirements
@@ -34,15 +34,19 @@
 - [x] Sprint 1 passenger subscriptions require backend acknowledgement with timeout/error handling; continuation cancellation is explicit and body-safe.
 - [x] Sprint 2 passenger cancellation presents curated reasons and sends the selected cancellation reason through the established authorized endpoint.
 - [x] Sprint 2 passenger home uses real pickup/destination map markers and gates ride requests on a backend-authoritative fare estimate.
+- [x] Sprint 2 passenger ride details, saved places, safety/tracking share, support channels, and profile dead-control cleanup are implemented.
+- [x] Sprint 2 driver active-ride map/navigation and driver history/earnings surfaces are implemented.
+- [x] Sprint 2 public tracking and admin live operations map surfaces are implemented with privacy-safe projections and stale/error states.
+- [x] Sprint 2 focused cleanup and tests are complete; visible map placeholders in these surfaces are removed.
 
 ## Failing or pending requirements
 
 - [x] Baseline static validation passed on this branch; runtime and release evidence remain pending below.
 - [ ] Remote CI result is not verified; GitHub CLI authentication is unavailable in this environment.
-- [ ] Sprint 1 integration execution remains pending in this shell because explicit Postgres/PostGIS and Redis services are unavailable; CI/service-backed validation is the next proof point.
+- [ ] Service-backed integration/runtime execution remains pending in this shell because explicit Postgres/PostGIS and Redis services are unavailable; remote CI result must be verified.
 - [ ] Live MoMo/Google maps adapters and production provider credentials/owner activation remain external; mock payment is rejected in production.
-- [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, and pilot acceptance remain owner/device actions.
-- [ ] Live map provider remains pending; no fake map was shipped.
+- [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, accessibility and pilot acceptance remain owner/device actions.
+- [ ] Production map tile/provider SLA and deployment access remain external; development map surfaces are explicitly labeled/configurable.
 
 ## External owner actions
 
@@ -56,13 +60,13 @@
 ## Latest validation results
 
 - `git diff --check`: passed.
-- `npm test`: passed — 20 files, 105 tests.
-- Focused Sprint 2 map/fare tests: passed — 2 files, 7 tests; cancellation and Sprint 1 focused tests remain green.
-- `npm run lint --workspace=apps/mobile-passenger`: passed with warnings only; no lint errors.
-- Affected type-checks: backend and mobile-passenger passed; prior all-workspace checks remain green.
-- `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web after the map/fare changes.
-- Final correction: passenger uses `POST /rides/estimate` and no fabricated map fallback coordinates; focused fare tests and passenger type-check passed.
-- Recovery note: backend estimate logic was already present in the committed `6784378`; the interrupted passenger UI correction was validated and preserved without restaging unrelated files.
+- `npm test`: passed — 28 files, 127 tests.
+- Focused Sprint 2 tests: passenger details/saved places/safety/support, driver navigation/history, tracking map, admin map, and earlier realtime tests passed.
+- `npm run lint`: passed with warnings only; no lint errors.
+- `npm run type-check`: passed for all configured workspaces.
+- `npm run build`: completed for shared packages, backend, admin-web, and tracking-web; final invocation reached the configured command timeout after successful workspace output, while the individual affected builds passed.
+- `git diff --check`: passed.
+- Service-backed integration remains blocked locally; no runtime/device/provider success claimed.
 - `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
 - `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
