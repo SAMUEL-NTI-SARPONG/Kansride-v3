@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Current commit: `914e624`
+- Current commit: `2c78027`
 - Branch: `release/kansride-v1`
 - Current milestone: Release Sprint 2 implementation complete; external runtime/device/provider gates pending
 - Last updated: 2026-08-05
@@ -38,6 +38,7 @@
 - [x] Sprint 2 driver active-ride map/navigation and driver history/earnings surfaces are implemented.
 - [x] Sprint 2 public tracking and admin live operations map surfaces are implemented with privacy-safe projections and stale/error states.
 - [x] Sprint 2 focused cleanup and tests are complete; visible map placeholders in these surfaces are removed.
+- [x] Sprint 2 final validation passed: 127 tests, all workspace type-checks, sequential builds, and workspace lint with warnings only.
 
 ## Failing or pending requirements
 
@@ -61,17 +62,15 @@
 
 - `git diff --check`: passed.
 - `npm test`: passed — 28 files, 127 tests.
-- Focused Sprint 2 tests: passenger details/saved places/safety/support, driver navigation/history, tracking map, admin map, and earlier realtime tests passed.
+- Focused Sprint 2 tests: passenger details/saved places/safety/support, driver navigation/history, tracking map, admin map, fare estimate, and Sprint 1 realtime tests passed.
 - `npm run lint`: passed with warnings only; no lint errors.
 - `npm run type-check`: passed for all configured workspaces.
-- `npm run build`: completed for shared packages, backend, admin-web, and tracking-web; final invocation reached the configured command timeout after successful workspace output, while the individual affected builds passed.
-- `git diff --check`: passed.
+- `npm run build`: completed for shared packages, backend, admin-web, and tracking-web; affected builds passed.
 - Service-backed integration remains blocked locally; no runtime/device/provider success claimed.
-- `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
-- `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
-- `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
+- `npm run verify:v1`: static gates pass and service-backed integration remains pending without Postgres/Redis.
+- `npm run doctor`: fails honestly without DATABASE_URL and reports the development Redis fallback.
 - `npm run seed:demo`: production refusal and development `28P01` database failure verified; no seed data claimed.
-- Expo configs: both resolve; local EAS/device execution not run. Remote CI: branch pushed, GitHub CLI authentication unavailable for result inspection.
+- Expo configs resolve; local EAS/device execution and remote CI result were not claimed.
 
 ## Exact resume point
 
@@ -83,4 +82,4 @@ npm run seed:demo
 npm run verify:v1
 ```
 
-Then inspect the Sprint 2 CI run for the pushed `3591998`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Then inspect the Sprint 2 CI run for the pushed `b638242`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
