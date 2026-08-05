@@ -9,6 +9,7 @@ import type {
   PublicTrackingSnapshot,
   RideStatus,
 } from '@kansride/types';
+import { mapPoint, privacySafeLocation, trackingLocationAge, trackingLocationStale, trackingTileAttribution, trackingTileUrl } from '../../../lib/tracking-map';
 
 const STATUS_STEPS = [
   'requested',
@@ -100,6 +101,20 @@ function formatETA(seconds: number | null): string {
 
 const BACKGROUND_REFETCH_INTERVAL_MS = 45_000;
 
+function TrackingMap({ location }: { location: { latitude: number; longitude: number; timestamp: string } | null }) {
+  const point = location ? mapPoint(location.latitude, location.longitude) : null;
+  const stale = trackingLocationStale(location?.timestamp || null);
+  const age = location ? trackingLocationAge(location.timestamp) : null;
+  return (
+    <div className="flex-1 min-h-[240px] bg-slate-100 relative overflow-hidden" aria-label="Privacy-safe live tracking map">
+      <div className="absolute inset-0 opacity-50" style={{ backgroundImage: `url(${trackingTileUrl.replace('{z}', '12').replace('{x}', '0').replace('{y}', '0')})`, backgroundSize: 'cover' }} />
+      <div className="absolute inset-0 bg-gradient-to-br from-green-50/70 to-blue-50/70" />
+      {point ? <div className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${point.left}%`, top: `${point.top}%` }}><div className={`h-5 w-5 rounded-full border-4 border-white shadow-lg ${stale ? 'bg-amber-500' : 'bg-green-600'}`} /><div className="mt-2 rounded bg-white/90 px-2 py-1 text-xs font-medium text-gray-700">{stale ? 'Location may be stale' : 'Driver location'}</div></div> : <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-gray-500">Waiting for authorised driver location…</div>}
+      <div className="absolute bottom-2 left-2 z-10 rounded bg-white/90 px-2 py-1 text-[10px] text-gray-500">{location ? (age !== null ? `Updated ${Math.round(age / 1000)}s ago` : 'Location received') : 'No location yet'} · {trackingTileAttribution}</div>
+    </div>
+  );
+}
+
 export default function TrackRidePage({ params }: { params: Promise<{ token: string }> }) {
   const [trackingToken, setTrackingToken] = useState<string>('');
   const [ride, setRide] = useState<PublicTrackingSnapshot | null>(null);
@@ -107,7 +122,6 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<'connected' | 'disconnected' | 'reconnecting'>('reconnecting');
-  const [lastLocationAt, setLastLocationAt] = useState<number | null>(null);
 
   // High-water mark of the furthest ladder step the ride has visibly reached.
   // Several live (non-terminal) statuses fall outside the STATUS_STEPS ladder
@@ -160,7 +174,6 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     const removeLocationListener = onLocationUpdate((data) => {
       if (data.publicReference === ride.publicReference) {
         setDriverLocation(data);
-        setLastLocationAt(Date.parse(data.timestamp));
       }
     });
 
@@ -308,22 +321,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
         </div>
       )}
 
-      {/* Map area. No map provider is configured for this deployment, so this
-          surface stays honest and never exposes exact coordinates as text. */}
-      <div className="flex-1 min-h-[200px] bg-gradient-to-br from-green-50 to-blue-50 flex items-center justify-center relative">
-        <div className="text-center p-4">
-          <p className="text-3xl mb-2">🗺️</p>
-          <p className="text-sm font-medium text-gray-600">Live map unavailable</p>
-          <p className="text-xs text-gray-400 mt-1">A live map is not configured for this deployment.</p>
-          {driverLocation ? (
-            <p className="mt-3 text-xs text-green-700 font-medium">
-              {lastLocationAt && Date.now() - lastLocationAt > 60_000 ? 'Driver location may be stale' : 'Driver location received'}{lastLocationAt ? ` · updated ${new Date(lastLocationAt).toLocaleTimeString()}` : ''}
-            </p>
-          ) : (
-            <p className="text-xs text-gray-400 mt-2">Waiting for driver location...</p>
-          )}
-        </div>
-      </div>
+      <TrackingMap location={privacySafeLocation(driverLocation)} />
 
       {/* Ride Details */}
       <div className="bg-white border-t border-gray-200 shadow-lg">
