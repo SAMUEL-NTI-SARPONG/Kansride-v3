@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRides, useAdminRideCancellation } from '@/lib/hooks';
+import { useRides, useRideDetail, useAdminRideCancellation } from '@/lib/hooks';
 import { formatGhsFromPesewas } from '@/lib/currency';
 import { formatDateTime } from '@/lib/datetime';
 
@@ -15,7 +15,10 @@ const STATUS_TABS = [
 export default function RidesPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
-  const { data, isLoading, error } = useRides(page, statusFilter);
+  const [search, setSearch] = useState('');
+  const [selectedRideId, setSelectedRideId] = useState<string | null>(null);
+  const { data, isLoading, error } = useRides(page, statusFilter, search);
+  const { data: rideDetail, isLoading: detailLoading, error: detailError } = useRideDetail(selectedRideId);
   const cancellation = useAdminRideCancellation();
 
   const cancelRide = async (rideId: string) => {
@@ -31,6 +34,14 @@ export default function RidesPage() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Ride History</h2>
+
+      <input
+        value={search}
+        onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+        placeholder="Search ride UUID or passenger phone"
+        className="mb-4 w-full max-w-md rounded-lg border border-gray-200 px-4 py-2 text-sm"
+        aria-label="Search rides"
+      />
 
       {/* Status Tabs */}
       <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
@@ -79,7 +90,7 @@ export default function RidesPage() {
               ))
             ) : data?.data && data.data.length > 0 ? (
               data.data.map((ride) => (
-                <tr key={ride.id} className="hover:bg-gray-50">
+                <tr key={ride.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setSelectedRideId(ride.id)}>
                   <td className="px-6 py-4 text-sm text-gray-500 font-mono">{ride.id.slice(0, 8)}...</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{ride.passengerName}</td>
                   <td className="px-6 py-4 text-sm text-gray-900">{ride.driverName || '—'}</td>
@@ -109,6 +120,33 @@ export default function RidesPage() {
           </tbody>
         </table>
       </div>
+
+      {selectedRideId && (
+        <div className="fixed inset-0 z-20 flex justify-end bg-black/30" role="dialog" aria-modal="true" aria-label="Ride investigation">
+          <aside className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-gray-900">Ride investigation</h3>
+              <button type="button" onClick={() => setSelectedRideId(null)} className="text-sm text-gray-500">Close</button>
+            </div>
+            {detailLoading && <p className="text-sm text-gray-500">Loading ride details…</p>}
+            {detailError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">Failed to load details: {(detailError as Error).message}</p>}
+            {rideDetail && (
+              <div className="space-y-5 text-sm">
+                <div><p className="text-xs uppercase text-gray-400">Status</p><p className="font-semibold capitalize">{rideDetail.status.replace(/_/g, ' ')}</p></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><p className="text-xs uppercase text-gray-400">Passenger</p><p>{rideDetail.passenger?.name || 'Unknown'}</p><p className="text-gray-500">{rideDetail.passenger?.phoneNumber || '—'}</p></div>
+                  <div><p className="text-xs uppercase text-gray-400">Driver</p><p>{rideDetail.driver?.name || 'Unassigned'}</p><p className="text-gray-500">{rideDetail.driver?.phoneNumber || '—'}</p></div>
+                </div>
+                <div><p className="text-xs uppercase text-gray-400">Route</p><p>{rideDetail.pickupAddress || 'Pickup location'} → {rideDetail.dropoffAddress || 'Dropoff location'}</p></div>
+                <div><p className="text-xs uppercase text-gray-400">Fare</p><p>{formatGhsFromPesewas(rideDetail.actualFarePesewas ?? rideDetail.estimatedFarePesewas)}</p></div>
+                {rideDetail.cancellationReason && <div><p className="text-xs uppercase text-gray-400">Cancellation reason</p><p>{rideDetail.cancellationReason}</p></div>}
+                {rideDetail.rating && <div><p className="text-xs uppercase text-gray-400">Rating</p><p>{rideDetail.rating}/5 {rideDetail.ratingComment ? `— ${rideDetail.ratingComment}` : ''}</p></div>}
+                <div><p className="mb-2 text-xs uppercase text-gray-400">Persisted timeline</p><ol className="space-y-2 border-l border-gray-200 pl-4">{rideDetail.timeline.map((event) => <li key={`${event.status}-${event.at}`}><p className="font-medium capitalize">{event.status.replace(/_/g, ' ')}</p><p className="text-gray-500">{formatDateTime(event.at)}</p></li>)}</ol></div>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
 
       {/* Pagination */}
       {data && data.totalPages > 1 && (

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { Database, auditLogs, users, drivers, rides, subscriptions, vehicles, passengers } from '@kansride/db';
-import { eq, desc, count, sum, and, inArray } from 'drizzle-orm';
+import { eq, desc, count, sum, and, inArray, or, ilike } from 'drizzle-orm';
 import type { UserRole } from '@kansride/types';
 import { RidesService } from '../rides/rides.service';
 
@@ -131,51 +131,86 @@ export class AdminService {
     return { data, total, page, totalPages: Math.ceil(total / limit) || 1 };
   }
 
-  async getRides(page: number, limit: number, status?: string) {
-    const offset = (page - 1) * limit;
-
-    let whereClause;
+  async getRides(page: number, limit: number, status?: string, search?: string) {
+    const boundedLimit = Math.min(Math.max(limit, 1), 100);
+    const offset = Math.max(page - 1, 0) * boundedLimit;
+    const filters = [];
     if (status === 'active') {
-      whereClause = inArray(rides.status, ['in_progress', 'driver_en_route', 'driver_arrived', 'searching', 'requested', 'driver_assigned'] as any);
+      filters.push(inArray(rides.status, ['in_progress', 'driver_en_route', 'driver_arrived', 'searching', 'requested', 'driver_assigned'] as any));
     } else if (status === 'completed') {
-      whereClause = eq(rides.status, 'completed');
+      filters.push(eq(rides.status, 'completed'));
     } else if (status === 'cancelled') {
-      whereClause = inArray(rides.status, ['cancelled_by_passenger', 'cancelled_by_driver', 'cancelled_by_admin'] as any);
+      filters.push(inArray(rides.status, ['cancelled_by_passenger', 'cancelled_by_driver', 'cancelled_by_admin'] as any));
     }
-
-    const [totalResult] = await this.db
+    const normalizedSearch = search?.trim();
+    if (normalizedSearch) {
+      const searchFilters = [ilike(users.phoneNumber, `%${normalizedSearch}%`)];
+      if (normalizedSearch.length === 36) searchFilters.push(eq(rides.id, normalizedSearch));
+      filters.push(or(...searchFilters));
+    }
+    const whereClause = filters.length > 0 ? and(...filters) : undefined;
+    const baseQuery = this.db
+      .select({ ride: rides, passengerPhone: users.phoneNumber })
+      .from(rides)
+      .innerJoin(passengers, eq(passengers.id, rides.passengerId))
+      .innerJoin(users, eq(users.id, passengers.userId));
+    const countQuery = this.db
       .select({ value: count() })
       .from(rides)
-      .where(whereClause);
-    const total = totalResult?.value ?? 0;
+      .innerJoin(passengers, eq(passengers.id, rides.passengerId))
+      .innerJoin(users, eq(users.id, passengers.userId));
+    const [totalResult, rows] = await Promise.all([
+      countQuery.where(whereClause),
+      baseQuery.where(whereClause).orderBy(desc(rides.createdAt)).limit(boundedLimit).offset(offset),
+    ]);
+    const total = totalResult[0]?.value ?? 0;
+    const data = await Promise.all(rows.map(async ({ ride, passengerPhone }) => ({
+      id: ride.id,
+      passengerName: await this.getPassengerName(ride.passengerId),
+      passengerPhone,
+      driverName: ride.driverId ? await this.getDriverName(ride.driverId) : null,
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      status: ride.status,
+      farePesewas: ride.actualFarePesewas ?? ride.estimatedFarePesewas,
+      rideType: ride.rideType,
+      createdAt: ride.createdAt.toISOString(),
+    })));
+    return { data, total, page, totalPages: Math.ceil(total / boundedLimit) || 1 };
+  }
 
-    const ridesRaw = await this.db
-      .select()
-      .from(rides)
-      .where(whereClause)
-      .orderBy(desc(rides.createdAt))
-      .limit(limit)
-      .offset(offset);
-
-    const data = await Promise.all(
-      ridesRaw.map(async (ride) => {
-        const passengerName = await this.getPassengerName(ride.passengerId);
-        const driverName = ride.driverId ? await this.getDriverName(ride.driverId) : null;
-        return {
-          id: ride.id,
-          passengerName,
-          driverName,
-          pickupAddress: ride.pickupAddress,
-          dropoffAddress: ride.dropoffAddress,
-          status: ride.status,
-          farePesewas: ride.actualFarePesewas ?? ride.estimatedFarePesewas,
-          rideType: ride.rideType,
-          createdAt: ride.createdAt.toISOString(),
-        };
-      }),
-    );
-
-    return { data, total, page, totalPages: Math.ceil(total / limit) || 1 };
+  async getRideDetail(rideId: string) {
+    const [ride] = await this.db.select().from(rides).where(eq(rides.id, rideId)).limit(1);
+    if (!ride) throw new NotFoundException('Ride not found');
+    const passenger = await this.db.select({ userId: passengers.userId }).from(passengers).where(eq(passengers.id, ride.passengerId)).limit(1);
+    const passengerUser = passenger[0] ? await this.db.select({ phoneNumber: users.phoneNumber, firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.id, passenger[0].userId)).limit(1) : [];
+    const driver = ride.driverId ? await this.db.select({ userId: drivers.userId, vehicleId: drivers.vehicleId }).from(drivers).where(eq(drivers.id, ride.driverId)).limit(1) : [];
+    const driverUser = driver[0] ? await this.db.select({ phoneNumber: users.phoneNumber, firstName: users.firstName, lastName: users.lastName }).from(users).where(eq(users.id, driver[0].userId)).limit(1) : [];
+    const timeline = [
+      { status: 'requested', at: ride.createdAt.toISOString() },
+      ...(ride.status !== 'requested' ? [{ status: ride.status, at: ride.updatedAt.toISOString() }] : []),
+      ...(ride.completedAt ? [{ status: 'completed', at: ride.completedAt.toISOString() }] : []),
+    ];
+    return {
+      id: ride.id,
+      status: ride.status,
+      rideType: ride.rideType,
+      pickupAddress: ride.pickupAddress,
+      dropoffAddress: ride.dropoffAddress,
+      estimatedDistanceMeters: ride.estimatedDistanceMeters,
+      estimatedDurationSeconds: ride.estimatedDurationSeconds,
+      estimatedFarePesewas: ride.estimatedFarePesewas,
+      actualFarePesewas: ride.actualFarePesewas,
+      cancellationReason: ride.cancellationReason,
+      rating: ride.rating,
+      ratingComment: ride.ratingComment,
+      createdAt: ride.createdAt.toISOString(),
+      updatedAt: ride.updatedAt.toISOString(),
+      completedAt: ride.completedAt?.toISOString() ?? null,
+      passenger: passengerUser[0] ? { name: [passengerUser[0].firstName, passengerUser[0].lastName].filter(Boolean).join(' ') || null, phoneNumber: passengerUser[0].phoneNumber } : null,
+      driver: driverUser[0] ? { name: [driverUser[0].firstName, driverUser[0].lastName].filter(Boolean).join(' ') || null, phoneNumber: driverUser[0].phoneNumber } : null,
+      timeline,
+    };
   }
 
   async getUsers(page: number, limit: number) {

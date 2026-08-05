@@ -49,6 +49,7 @@ export interface AdminDriver {
 export interface AdminRide {
   id: string;
   passengerName: string;
+  passengerPhone?: string;
   driverName: string | null;
   pickupAddress: string | null;
   dropoffAddress: string | null;
@@ -56,6 +57,27 @@ export interface AdminRide {
   farePesewas: number;
   rideType: string;
   createdAt: string;
+}
+
+export interface AdminRideDetail {
+  id: string;
+  status: string;
+  rideType: string;
+  pickupAddress: string | null;
+  dropoffAddress: string | null;
+  estimatedDistanceMeters: number | null;
+  estimatedDurationSeconds: number | null;
+  estimatedFarePesewas: number;
+  actualFarePesewas: number | null;
+  cancellationReason: string | null;
+  rating: number | null;
+  ratingComment: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+  passenger: { name: string | null; phoneNumber: string } | null;
+  driver: { name: string | null; phoneNumber: string } | null;
+  timeline: Array<{ status: string; at: string }>;
 }
 
 export interface AdminUser {
@@ -98,13 +120,22 @@ export function useDrivers(page: number = 1, status?: string) {
   });
 }
 
-export function useRides(page: number = 1, status?: string) {
+export function useRides(page: number = 1, status?: string, search?: string) {
   const params = new URLSearchParams({ page: String(page), limit: '20' });
   if (status) params.set('status', status);
+  if (search?.trim()) params.set('search', search.trim());
 
   return useQuery<PaginatedResponse<AdminRide>>({
-    queryKey: ['admin', 'rides', page, status],
+    queryKey: ['admin', 'rides', page, status, search],
     queryFn: () => api.get<PaginatedResponse<AdminRide>>(`/admin/rides?${params}`),
+  });
+}
+
+export function useRideDetail(rideId: string | null) {
+  return useQuery<AdminRideDetail>({
+    queryKey: ['admin', 'ride', rideId],
+    queryFn: () => api.get<AdminRideDetail>(`/admin/rides/${rideId}`),
+    enabled: Boolean(rideId),
   });
 }
 

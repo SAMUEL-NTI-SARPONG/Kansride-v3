@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `24731a7`
+- Current commit: `0e3b84c`
 - Branch: `release/kansride-v1`
-- Current milestone: Milestone 8 — final static release gate complete; external runtime gate pending
+- Current milestone: Post-gate admin investigation completion; external runtime gate pending
 - Last updated: 2026-08-04
 
 ## Passed requirements
@@ -22,6 +22,7 @@
 - [x] Physical-device mode rejects missing or loopback mobile URLs; driver configuration advertises the implemented foreground-only location policy.
 - [x] Admin web exposes pending-driver approval/rejection, user suspend/restore, and cancellable-ride actions with cache refresh and visible failures.
 - [x] Tracking web exposes reconnect/stale/ended states without rendering raw driver coordinates or private tracking fields.
+- [x] Admin ride search by UUID/passenger phone and protected ride investigation detail/timeline are implemented without exposing verification PINs.
 - [x] Root `dev:all`, `seed:demo`, `doctor`, `test:integration`, and `verify:v1` commands are implemented with explicit failure behavior and no production reset path.
 - [x] Demo seed is idempotent and provisions documented passenger, approved driver, subscription, and admin identities without passwords or secrets.
 - [x] Android development-build and physical-device instructions are documented with package IDs, LAN URL configuration, and exact commands.
@@ -37,7 +38,7 @@
 - [ ] PostgreSQL/PostGIS credentials/service and Redis remain unavailable locally; integration journey, migration runtime, seed, doctor readiness, dispatch, Socket.IO, tracking, and persistence evidence remain pending.
 - [ ] Live MoMo/Google maps adapters and production provider credentials/owner activation remain external; mock payment is rejected in production.
 - [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, and pilot acceptance remain owner/device actions.
-- [ ] Admin ride detail/search and live map provider remain pending; no fake map was shipped.
+- [ ] Live map provider remains pending; no fake map was shipped.
 
 ## External owner actions
 
@@ -55,6 +56,7 @@
 - `npm run lint`: passed with warnings only; no lint errors.
 - `npm run type-check`: passed for all configured workspaces.
 - `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web.
+- Admin investigation slice: backend/admin type checks, admin production build, 6 focused tests, and `git diff --check` passed.
 - `npm run verify:v1`: passed all static checks and stopped at integration because explicit Postgres/Redis services are unavailable.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
 - `npm run seed:demo`: production refusal and development `28P01` database failure verified; no seed data claimed.

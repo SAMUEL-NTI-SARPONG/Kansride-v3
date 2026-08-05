@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { isUUID } from 'class-validator';
 import { AdminService } from './admin.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -67,12 +68,21 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('search') search?: string,
   ) {
     return this.adminService.getRides(
       Number(page) || 1,
       Number(limit) || 20,
       status,
+      search,
     );
+  }
+
+  @Get('rides/:id')
+  @RequirePermissions('ride:view_all')
+  getRideDetail(@Param('id') id: string) {
+    if (!isUUID(id)) throw new BadRequestException('Ride id must be a UUID');
+    return this.adminService.getRideDetail(id);
   }
 
   @Get('users')
