@@ -2,10 +2,10 @@
 
 ## Current state
 
-- Current commit: `d88850d`
+- Current commit: `c135c50`
 - Branch: `release/kansride-v1`
-- Current milestone: Post-gate admin investigation completion; external runtime gate pending
-- Last updated: 2026-08-04
+- Current milestone: Release Sprint 1 implementation complete; external runtime gate pending
+- Last updated: 2026-08-05
 
 ## Passed requirements
 
@@ -30,12 +30,14 @@
 - [x] Provider readiness ownership and activation steps are documented without secrets; unavailable WhatsApp/USSD boundaries are not fabricated.
 - [x] Passenger and driver EAS profiles, valid placeholder icon assets, package IDs, and exact local/EAS Android build commands are configured.
 - [x] Final local static gate passed: workspace lint (warnings only), type-checks, unit tests, backend build, admin build, tracking build, and `git diff --check`.
+- [x] Sprint 1 driver location eligibility rejects invalid/ineligible updates, protects Redis availability, and delivers locations through all canonical live ride phases.
+- [x] Sprint 1 passenger subscriptions require backend acknowledgement with timeout/error handling; continuation cancellation is explicit and body-safe.
 
 ## Failing or pending requirements
 
 - [x] Baseline static validation passed on this branch; runtime and release evidence remain pending below.
 - [ ] Remote CI result is not verified; GitHub CLI authentication is unavailable in this environment.
-- [ ] PostgreSQL/PostGIS credentials/service and Redis remain unavailable locally; integration journey, migration runtime, seed, doctor readiness, dispatch, Socket.IO, tracking, and persistence evidence remain pending.
+- [ ] Sprint 1 integration execution remains pending in this shell because explicit Postgres/PostGIS and Redis services are unavailable; CI/service-backed validation is the next proof point.
 - [ ] Live MoMo/Google maps adapters and production provider credentials/owner activation remain external; mock payment is rejected in production.
 - [ ] Android EAS/local build execution, installation, permissions, restart, network-loss, GPS, and pilot acceptance remain owner/device actions.
 - [ ] Live map provider remains pending; no fake map was shipped.
@@ -52,12 +54,13 @@
 ## Latest validation results
 
 - `git diff --check`: passed.
-- `npm test`: passed — 16 files, 94 tests.
+- `npm test`: passed — 19 files, 101 tests.
+- Focused Sprint 1 tests: passed — 3 files, 7 tests.
 - `npm run lint`: passed with warnings only; no lint errors.
-- `npm run type-check`: passed for all configured workspaces.
-- `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web.
-- Admin investigation slice: backend/admin type checks, admin production build, 6 focused tests, and `git diff --check` passed.
-- `npm run verify:v1`: passed all static checks and stopped at integration because explicit Postgres/Redis services are unavailable.
+- Affected type-checks: backend and mobile-passenger passed; prior all-workspace checks remain green.
+- `npm run build`: prior sequential shared/backend/admin/tracking build passed; Sprint 1 changes are type-checked and focused-tested.
+- `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
+- `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
 - `npm run seed:demo`: production refusal and development `28P01` database failure verified; no seed data claimed.
 - Expo configs: both resolve; local EAS/device execution not run. Remote CI: branch pushed, GitHub CLI authentication unavailable for result inspection.
@@ -72,4 +75,4 @@ npm run seed:demo
 npm run verify:v1
 ```
 
-Then perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, inspect remote CI, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Then inspect the Sprint 1 CI run for the pushed `c135c50`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
