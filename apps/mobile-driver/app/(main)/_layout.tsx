@@ -43,6 +43,8 @@ export default function MainLayout() {
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>👤</Text>,
         }}
       />
+      <Tabs.Screen name="history" options={{ href: null }} />
+      <Tabs.Screen name="ride-detail/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

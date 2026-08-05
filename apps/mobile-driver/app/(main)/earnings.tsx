@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
 import { useState, useEffect } from 'react';
 import { api } from '../../src/api/client';
+import { router } from 'expo-router';
 
 interface EarningsData {
   todayPesewas: number;
@@ -56,7 +57,7 @@ export default function EarningsScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Earnings</Text>
+      <View style={styles.headerRow}><Text style={styles.title}>Earnings</Text><TouchableOpacity onPress={() => router.push('/(main)/history')} accessibilityRole="button"><Text style={styles.historyLink}>Ride history</Text></TouchableOpacity></View>
       {error && !earnings && (
         <View style={styles.errorCard}>
           <Text style={styles.errorText}>{error}</Text>
@@ -98,7 +99,9 @@ export default function EarningsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
   centered: { alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 24 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  historyLink: { color: '#1B8B4B', fontWeight: '700' },
+  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
   card: {
     backgroundColor: '#FFF',
     borderRadius: 12,
