@@ -7,9 +7,10 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect, useCallback } from 'react';
 import { router } from 'expo-router';
-import { post, patch } from '../../src/api/client';
+import { get, post, patch } from '../../src/api/client';
 import {
   connectSocket,
   subscribeToRide,
@@ -69,7 +70,14 @@ export default function HomeScreen() {
   const [rideType, setRideType] = useState<RideType>('standard_tricycle');
   const [showDestinations, setShowDestinations] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { rideStatus, setActiveRide, setRideStatus } = useRideStore();
+  const [estimate, setEstimate] = useState<{
+    estimatedDistanceMeters: number;
+    estimatedDurationSeconds: number;
+    fareBreakdown: { totalFarePesewas: number };
+  } | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const [estimateError, setEstimateError] = useState<string | null>(null);
+  const { setActiveRide, setRideStatus } = useRideStore();
 
   // Pickup state — real device coordinates only, never fabricated.
   type Pickup = { latitude: number; longitude: number };
@@ -115,6 +123,39 @@ export default function HomeScreen() {
   useEffect(() => {
     acquirePickup();
   }, [acquirePickup]);
+
+  useEffect(() => {
+    if (!pickup || !selectedDest) {
+      setEstimate(null);
+      setEstimateError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setEstimateLoading(true);
+    setEstimateError(null);
+    void get<{
+      estimatedDistanceMeters: number;
+      estimatedDurationSeconds: number;
+      fareBreakdown: { totalFarePesewas: number };
+    }>(`/rides/estimate?pickupLatitude=${pickup.latitude}&pickupLongitude=${pickup.longitude}&dropoffLatitude=${selectedDest.latitude}&dropoffLongitude=${selectedDest.longitude}&rideType=${rideType}`)
+      .then((data) => {
+        if (!cancelled) setEstimate(data);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setEstimate(null);
+          setEstimateError(error instanceof Error ? error.message : 'Could not estimate fare. Try again.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setEstimateLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pickup, selectedDest, rideType]);
 
   // Filter destinations based on search
 
@@ -222,9 +263,34 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapText}>Map View</Text>
-        <Text style={styles.mapSubtext}>Kansawrodo · Sekondi-Takoradi</Text>
+      <View style={styles.mapContainer}>
+        <MapView
+          style={styles.map}
+          initialRegion={{
+            latitude: pickup?.latitude ?? 4.92,
+            longitude: pickup?.longitude ?? -1.76,
+            latitudeDelta: 0.04,
+            longitudeDelta: 0.04,
+          }}
+          region={pickup ? {
+            latitude: pickup.latitude,
+            longitude: pickup.longitude,
+            latitudeDelta: 0.04,
+            longitudeDelta: 0.04,
+          } : undefined}
+          showsUserLocation={Boolean(pickup)}
+          showsMyLocationButton={false}
+        >
+          {pickup && <Marker coordinate={pickup} title="Pickup" pinColor="#1B8B4B" />}
+          {selectedDest && (
+            <Marker
+              coordinate={{ latitude: selectedDest.latitude, longitude: selectedDest.longitude }}
+              title={selectedDest.label}
+              pinColor="#EF4444"
+            />
+          )}
+        </MapView>
+        {!pickup && <Text style={styles.mapOverlay}>Waiting for your real pickup location…</Text>}
       </View>
       <View style={styles.bottomCard}>
         <Text style={styles.greeting}>Where are you going?</Text>
@@ -296,15 +362,29 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.fareNotice}>
-              Your fare is calculated by KansRide when the ride is requested.
-            </Text>
+            {estimateLoading && <ActivityIndicator color="#1B8B4B" />}
+            {estimateError && (
+              <View style={styles.errorCard}>
+                <Text style={styles.errorText}>{estimateError}</Text>
+                <TouchableOpacity onPress={() => setSelectedDest({ ...selectedDest })} style={styles.retryButton}>
+                  <Text style={styles.retryText}>Retry estimate</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {estimate && (
+              <View style={styles.estimateCard}>
+                <Text style={styles.estimateTitle}>Estimated trip</Text>
+                <Text style={styles.estimateText}>Fare: GHS {(estimate.fareBreakdown.totalFarePesewas / 100).toFixed(2)}</Text>
+                <Text style={styles.estimateText}>Distance: {(estimate.estimatedDistanceMeters / 1000).toFixed(1)} km · ETA: {Math.ceil(estimate.estimatedDurationSeconds / 60)} min</Text>
+                <Text style={styles.estimateText}>Standard estimate; final fare is confirmed when requested.</Text>
+              </View>
+            )}
 
             {/* Request button */}
             <TouchableOpacity
-              style={[styles.button, (loading || acquiringPickup || !pickup) && styles.buttonDisabled]}
+              style={[styles.button, (loading || acquiringPickup || !pickup || !estimate) && styles.buttonDisabled]}
               onPress={handleRequestRide}
-              disabled={loading || acquiringPickup || !pickup}
+              disabled={loading || acquiringPickup || !pickup || !estimate}
             >
               {loading ? (
                 <ActivityIndicator color="#FFF" />
@@ -321,9 +401,9 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#E8E8E8' },
-  mapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mapText: { fontSize: 24, fontWeight: '600', color: '#64748B' },
-  mapSubtext: { fontSize: 14, color: '#94A3B8', marginTop: 4 },
+  mapContainer: { flex: 1, position: 'relative' },
+  map: { flex: 1 },
+  mapOverlay: { position: 'absolute', alignSelf: 'center', top: 24, backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#64748B' },
   bottomCard: {
     backgroundColor: '#FFF',
     borderTopLeftRadius: 20,
@@ -374,7 +454,9 @@ const styles = StyleSheet.create({
   rideTypeBtnActive: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
   rideTypeText: { fontSize: 14, fontWeight: '600', color: '#64748B' },
   rideTypeTextActive: { color: '#1B8B4B' },
-  fareNotice: { fontSize: 13, color: '#64748B' },
+  estimateCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, gap: 4, borderWidth: 1, borderColor: '#BBF7D0' },
+  estimateTitle: { fontSize: 15, fontWeight: '700', color: '#166534' },
+  estimateText: { fontSize: 13, color: '#166534' },
   button: {
     backgroundColor: '#1B8B4B',
     borderRadius: 12,

@@ -52,6 +52,34 @@ const INVALID_RIDE_TYPES: unknown[] = [
   {},
 ];
 
+describe('RidesService.estimateFare — canonical estimate contract', () => {
+  it('returns the shared fare breakdown for valid coordinates and ride type', async () => {
+    const { service, mapsProvider } = buildService();
+    const estimate = await service.estimateFare({
+      pickupLatitude: 5.6,
+      pickupLongitude: -0.19,
+      dropoffLatitude: 5.61,
+      dropoffLongitude: -0.2,
+      rideType: 'priority_tricycle',
+    });
+    expect(estimate.rideType).toBe('priority_tricycle');
+    expect(estimate.estimatedDistanceMeters).toBe(5_000);
+    expect(estimate.fareBreakdown.totalFarePesewas).toBe(1_575);
+    expect(mapsProvider.getDistance).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects non-finite coordinates before maps work', async () => {
+    const { service, mapsProvider } = buildService();
+    await expect(service.estimateFare({
+      pickupLatitude: Number.NaN,
+      pickupLongitude: -0.19,
+      dropoffLatitude: 5.61,
+      dropoffLongitude: -0.2,
+    })).rejects.toThrow(/coordinates are required/);
+    expect(mapsProvider.getDistance).not.toHaveBeenCalled();
+  });
+});
+
 describe('RidesService.createRide — ride-type validation', () => {
   it('rejects unsupported rideType values with a 400 BadRequest and never touches maps / db', async () => {
     for (const rideType of INVALID_RIDE_TYPES) {

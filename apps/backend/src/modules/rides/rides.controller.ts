@@ -73,6 +73,18 @@ export class RidesController {
     return this.publicTrackingService.getSnapshot(token);
   }
 
+  @Post('estimate')
+  @RequirePermissions('ride:create')
+  estimateFare(@Body() body: {
+    pickupLatitude: number;
+    pickupLongitude: number;
+    dropoffLatitude: number;
+    dropoffLongitude: number;
+    rideType?: RideType;
+  }) {
+    return this.ridesService.estimateFare(body);
+  }
+
   @Post()
   @RequirePermissions('ride:create')
   createRide(@Request() req: AuthenticatedRequest, @Body() body: {

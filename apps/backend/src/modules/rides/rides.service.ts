@@ -115,6 +115,39 @@ export class RidesService {
     return driver;
   }
 
+  async estimateFare(data: {
+    pickupLatitude: number;
+    pickupLongitude: number;
+    dropoffLatitude: number;
+    dropoffLongitude: number;
+    rideType?: RideType;
+  }) {
+    const coordinates = [
+      data.pickupLatitude,
+      data.pickupLongitude,
+      data.dropoffLatitude,
+      data.dropoffLongitude,
+    ];
+    if (coordinates.some((value) => !Number.isFinite(value))) {
+      throw new BadRequestException('Valid pickup and dropoff coordinates are required');
+    }
+    const rideType = resolveRideType(data.rideType);
+    const distance = await this.mapsProvider.getDistance(
+      { latitude: data.pickupLatitude, longitude: data.pickupLongitude },
+      { latitude: data.dropoffLatitude, longitude: data.dropoffLongitude },
+    );
+    return {
+      rideType,
+      estimatedDistanceMeters: distance.distanceMeters,
+      estimatedDurationSeconds: distance.durationSeconds,
+      fareBreakdown: this.fareService.calculateFare(
+        distance.distanceMeters,
+        distance.durationSeconds,
+        rideType,
+      ),
+    };
+  }
+
   async createRide(
     authenticatedUserId: string,
     data: {
