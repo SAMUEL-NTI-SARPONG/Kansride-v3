@@ -83,9 +83,9 @@ export default function ProfileScreen() {
       <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/saved-places')} accessibilityRole="button" accessibilityLabel="Open saved places">
         <Text style={styles.menuText}>Saved Places</Text>
       </TouchableOpacity>
-      <View style={styles.menuItem}>
+      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/safety')} accessibilityRole="button" accessibilityLabel="Open safety">
         <Text style={styles.menuText}>Safety</Text>
-      </View>
+      </TouchableOpacity>
       <View style={styles.menuItem}>
         <Text style={styles.menuText}>Support</Text>
       </View>

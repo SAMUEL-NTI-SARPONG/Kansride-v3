@@ -50,6 +50,10 @@ export default function MainLayout() {
         name="saved-places"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="safety"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }

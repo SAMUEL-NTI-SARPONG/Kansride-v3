@@ -141,10 +141,14 @@ export function patch<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'PATCH', body });
 }
 
+export function del<T>(path: string): Promise<T> {
+  return request<T>(path, { method: 'DELETE' });
+}
+
 // Unauthenticated request (for login/otp)
 export function postPublic<T>(path: string, body?: unknown): Promise<T> {
   return request<T>(path, { method: 'POST', body, skipAuth: true });
 }
 
-export const apiClient = { get, post, put, patch, postPublic };
+export const apiClient = { get, post, put, patch, del, postPublic };
 export default apiClient;
