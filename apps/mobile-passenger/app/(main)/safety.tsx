@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
-import { get, post, del } from '../../src/api/client';
+import { post, del } from '../../src/api/client';
 import { useRideStore } from '../../src/stores/ride-store';
 import type { PublicTrackingLink } from '@kansride/types';
 import { mobileRuntimeUrl } from '@kansride/config';

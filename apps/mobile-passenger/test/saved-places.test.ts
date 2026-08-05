@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSavedPlace, parseSavedPlaces, type SavedPlace } from '../src/saved-places';
+import { normalizeSavedPlace, parseSavedPlaces } from '../src/saved-places';
 
 describe('saved places persistence rules', () => {
   it('normalizes labels and rejects invalid coordinates', () => {

@@ -11,7 +11,6 @@ import { router } from 'expo-router';
 import { useAuthStore } from '../../src/stores/auth-store';
 import { get } from '../../src/api/client';
 import { disconnectSocket } from '../../src/api/socket';
-import { useRideStore } from '../../src/stores/ride-store';
 
 interface UserProfile {
   id: string;
