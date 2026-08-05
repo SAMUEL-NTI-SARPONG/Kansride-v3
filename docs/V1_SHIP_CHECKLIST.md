@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Current commit: `6784378`
+- Current commit: `009f4f9`
 - Branch: `release/kansride-v1`
 - Current milestone: Release Sprint 2 passenger map and fare estimate complete; external runtime gate pending
 - Last updated: 2026-08-05
@@ -61,6 +61,7 @@
 - `npm run lint --workspace=apps/mobile-passenger`: passed with warnings only; no lint errors.
 - Affected type-checks: backend and mobile-passenger passed; prior all-workspace checks remain green.
 - `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web after the map/fare changes.
+- Final correction: passenger uses `POST /rides/estimate` and no fabricated map fallback coordinates; focused fare tests and passenger type-check passed.
 - `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
 - `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
