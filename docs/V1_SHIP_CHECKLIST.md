@@ -2,9 +2,9 @@
 
 ## Current state
 
-- Current commit: `d1b082a`
+- Current commit: `db09933`
 - Branch: `release/kansride-v1`
-- Current milestone: Release Sprint 1 implementation complete; external runtime gate pending
+- Current milestone: Release Sprint 2 passenger cancellation reasons complete; external runtime gate pending
 - Last updated: 2026-08-05
 
 ## Passed requirements
@@ -32,6 +32,7 @@
 - [x] Final local static gate passed: workspace lint (warnings only), type-checks, unit tests, backend build, admin build, tracking build, and `git diff --check`.
 - [x] Sprint 1 driver location eligibility rejects invalid/ineligible updates, protects Redis availability, and delivers locations through all canonical live ride phases.
 - [x] Sprint 1 passenger subscriptions require backend acknowledgement with timeout/error handling; continuation cancellation is explicit and body-safe.
+- [x] Sprint 2 passenger cancellation presents curated reasons and sends the selected cancellation reason through the established authorized endpoint.
 
 ## Failing or pending requirements
 
@@ -54,11 +55,11 @@
 ## Latest validation results
 
 - `git diff --check`: passed.
-- `npm test`: passed — 19 files, 101 tests.
-- Focused Sprint 1 tests: passed — 3 files, 7 tests.
+- `npm test`: passed — 20 files, 103 tests.
+- Focused Sprint 2 cancellation tests: passed — 2 files, 3 tests; Sprint 1 focused realtime tests remain green — 3 files, 7 tests.
 - `npm run lint`: passed with warnings only; no lint errors.
 - Affected type-checks: backend and mobile-passenger passed; prior all-workspace checks remain green.
-- `npm run build`: prior sequential shared/backend/admin/tracking build passed; Sprint 1 changes are type-checked and focused-tested.
+- `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web after Sprint 2 changes.
 - `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
 - `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.

@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Modal,
   Share,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -21,6 +22,11 @@ import {
 import type { ActiveRide, RideStatus } from '../../../src/stores/ride-store';
 import { mobileRuntimeUrl } from '@kansride/config';
 import type { PublicTrackingLink } from '@kansride/types';
+import {
+  cancellationReasonLabel,
+  PASSENGER_CANCELLATION_REASONS,
+  type PassengerCancellationReason,
+} from '../../../src/cancellation-reasons';
 
 const STATUS_LABELS: Record<RideStatus, string> = {
   idle: 'Idle',
@@ -55,6 +61,8 @@ export default function ActiveRideScreen() {
   const [rating, setRating] = useState(0);
   const [showRating, setShowRating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [showCancellationReasons, setShowCancellationReasons] = useState(false);
+  const [selectedCancellationReason, setSelectedCancellationReason] = useState<PassengerCancellationReason | null>(null);
   const [sharing, setSharing] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,28 +126,25 @@ export default function ActiveRideScreen() {
     };
   }, [id]);
 
-  const handleCancel = async () => {
-    Alert.alert('Cancel Ride', 'Are you sure you want to cancel this ride?', [
-      { text: 'No', style: 'cancel' },
-      {
-        text: 'Yes, Cancel',
-        style: 'destructive',
-        onPress: async () => {
-          setCancelling(true);
-          try {
-            await patch(`/rides/${id}/cancel`);
-            setRideStatus('cancelled');
-            Alert.alert('Cancelled', 'Your ride has been cancelled');
-            resetRide();
-            router.back();
-          } catch (error: any) {
-            Alert.alert('Error', error.message || 'Failed to cancel ride');
-          } finally {
-            setCancelling(false);
-          }
-        },
-      },
-    ]);
+  const handleCancel = async (reason: PassengerCancellationReason) => {
+    setCancelling(true);
+    try {
+      await patch(`/rides/${id}/cancel`, { reason: cancellationReasonLabel(reason) });
+      setRideStatus('cancelled');
+      setShowCancellationReasons(false);
+      setSelectedCancellationReason(null);
+      Alert.alert('Cancelled', 'Your ride has been cancelled');
+      resetRide();
+      router.back();
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to cancel ride');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const openCancellationReasons = () => {
+    if (!cancelling) setShowCancellationReasons(true);
   };
 
   const handleRate = async () => {
@@ -306,7 +311,7 @@ export default function ActiveRideScreen() {
       {(rideStatus === 'searching' || rideStatus === 'driver_assigned' || rideStatus === 'en_route') && (
         <TouchableOpacity
           style={[styles.cancelButton, cancelling && styles.buttonDisabled]}
-          onPress={handleCancel}
+          onPress={openCancellationReasons}
           disabled={cancelling}
         >
           {cancelling ? (
@@ -316,6 +321,39 @@ export default function ActiveRideScreen() {
           )}
         </TouchableOpacity>
       )}
+
+      <Modal
+        visible={showCancellationReasons}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCancellationReasons(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.cancellationCard}>
+            <Text style={styles.ratingTitle}>Why are you cancelling?</Text>
+            {PASSENGER_CANCELLATION_REASONS.map((reason) => (
+              <TouchableOpacity
+                key={reason.value}
+                style={[styles.reasonOption, selectedCancellationReason === reason.value && styles.reasonOptionSelected]}
+                onPress={() => setSelectedCancellationReason(reason.value)}
+                disabled={cancelling}
+              >
+                <Text style={styles.reasonText}>{reason.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.button, (!selectedCancellationReason || cancelling) && styles.buttonDisabled]}
+              onPress={() => selectedCancellationReason && void handleCancel(selectedCancellationReason)}
+              disabled={!selectedCancellationReason || cancelling}
+            >
+              {cancelling ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Confirm cancellation</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.skipBtn} onPress={() => setShowCancellationReasons(false)} disabled={cancelling}>
+              <Text style={styles.skipText}>Keep ride</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -420,6 +458,11 @@ const styles = StyleSheet.create({
   starActive: { color: '#F59E0B' },
   skipBtn: { marginTop: 12 },
   skipText: { color: '#64748B', fontSize: 14 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  cancellationCard: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 10 },
+  reasonOption: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, padding: 14 },
+  reasonOptionSelected: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
+  reasonText: { color: '#1A1A2E', fontSize: 15 },
   errorCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, marginBottom: 12 },
   errorText: { color: '#B91C1C', fontSize: 13, marginBottom: 6 },
   retryText: { color: '#1B8B4B', fontSize: 13, fontWeight: '600' },
