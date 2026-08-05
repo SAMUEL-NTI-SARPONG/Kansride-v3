@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Current commit: `009f4f9`
+- Current commit: `3591998`
 - Branch: `release/kansride-v1`
 - Current milestone: Release Sprint 2 passenger map and fare estimate complete; external runtime gate pending
 - Last updated: 2026-08-05
@@ -62,6 +62,7 @@
 - Affected type-checks: backend and mobile-passenger passed; prior all-workspace checks remain green.
 - `npm run build`: passed sequentially for shared packages, backend, admin-web, and tracking-web after the map/fare changes.
 - Final correction: passenger uses `POST /rides/estimate` and no fabricated map fallback coordinates; focused fare tests and passenger type-check passed.
+- Recovery note: backend estimate logic was already present in the committed `6784378`; the interrupted passenger UI correction was validated and preserved without restaging unrelated files.
 - `npm run verify:v1`: prior static gates passed and stopped at integration because explicit Postgres/Redis services are unavailable.
 - `npm run test:integration`: attempted and stopped honestly at missing explicit service configuration; no runtime pass claimed.
 - `npm run doctor`: failed honestly on missing DATABASE_URL and reports the development Redis fallback.
@@ -78,4 +79,4 @@ npm run seed:demo
 npm run verify:v1
 ```
 
-Then inspect the Sprint 2 CI run for the pushed `6784378`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Then inspect the Sprint 2 CI run for the pushed `3591998`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
