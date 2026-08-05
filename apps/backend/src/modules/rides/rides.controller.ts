@@ -125,8 +125,8 @@ export class RidesController {
 
   @Patch(':id/cancel')
   @RequirePermissions('ride:cancel')
-  cancelRide(@Param('id', new ParseUUIDPipe()) id: string, @Request() req: AuthenticatedRequest, @Body() body: { reason?: string }) {
-    return this.ridesService.cancelRide(id, req.user.userId, req.user.role as UserRole, body.reason);
+  cancelRide(@Param('id', new ParseUUIDPipe()) id: string, @Request() req: AuthenticatedRequest, @Body() body?: { reason?: string }) {
+    return this.ridesService.cancelRide(id, req.user.userId, req.user.role as UserRole, body?.reason);
   }
 
   @Patch(':id/status')

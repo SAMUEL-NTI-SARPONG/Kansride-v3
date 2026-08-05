@@ -22,6 +22,7 @@ import {
   acquireCurrentPosition,
 } from '../../src/services/location';
 import type { LocationOutcome } from '../../src/services/location';
+import { ContinuationFailedError } from '../../src/errors';
 
 // Acquire real device coordinates for pickup. No fabricated fallback — a
 // denied/disabled/timed-out/unavailable outcome is surfaced honestly and the
@@ -180,7 +181,7 @@ export default function HomeScreen() {
       // cancelled state.
       try {
         await connectSocket();
-        subscribeToRide(response.id);
+        await subscribeToRide(response.id);
       } catch (socketError: any) {
         throw new ContinuationFailedError(
           socketError?.message || 'Failed to connect to the server for live updates',
@@ -202,7 +203,9 @@ export default function HomeScreen() {
         // are swallowed because the user already needs to retry the whole flow;
         // the ride will eventually time out on the server if the cancel fails.
         try {
-          await patch(`/rides/${createdRideId}/cancel`);
+          await patch(`/rides/${createdRideId}/cancel`, {
+            reason: 'Passenger app could not establish live ride updates',
+          });
         } catch {
           // Intentionally ignored — retry is the next user action.
         }
@@ -216,13 +219,6 @@ export default function HomeScreen() {
       setLoading(false);
     }
   };
-
-  class ContinuationFailedError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = 'ContinuationFailedError';
-    }
-  }
 
   return (
     <View style={styles.container}>

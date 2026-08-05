@@ -3,6 +3,12 @@ import { getAccessToken } from './client';
 import { mobileRuntimeUrl } from '@kansride/config';
 import type { RideUpdatePayload } from '@kansride/types';
 
+import {
+  SUBSCRIPTION_ACK_TIMEOUT_MS,
+  subscriptionError,
+  type SubscriptionResponse,
+} from './subscription-protocol';
+
 const SOCKET_URL = mobileRuntimeUrl(
   'EXPO_PUBLIC_WS_URL',
   process.env.EXPO_PUBLIC_WS_URL,
@@ -38,9 +44,9 @@ export async function connectSocket(): Promise<Socket> {
       reconnectionDelayMax: 10000,
     });
 
-socket.on('connect', () => {
+    socket.on('connect', () => {
       for (const rideId of subscribedRideIds) {
-        socket?.emit('ride:subscribe', { rideId });
+        emitSubscription(rideId).catch(() => undefined);
       }
     });
   } else {
@@ -56,13 +62,38 @@ export function getSocket(): Socket | null {
   return socket;
 }
 
-export function subscribeToRide(rideId: string): void {
-subscribedRideIds.add(rideId);
-  if (!socket?.connected) {
-    return;
+export async function subscribeToRide(rideId: string): Promise<void> {
+  subscribedRideIds.add(rideId);
+  try {
+    await emitSubscription(rideId);
+  } catch (error) {
+    subscribedRideIds.delete(rideId);
+    throw error;
   }
-  socket.emit('ride:subscribe', { rideId });
 }
+
+function emitSubscription(rideId: string): Promise<void> {
+  const activeSocket = socket;
+  if (!activeSocket?.connected) {
+    return Promise.reject(new Error('Socket is not connected'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Ride subscription timed out'));
+    }, SUBSCRIPTION_ACK_TIMEOUT_MS);
+    activeSocket.emit('ride:subscribe', { rideId }, (response: SubscriptionResponse) => {
+      clearTimeout(timeout);
+      const error = subscriptionError(rideId, response);
+      if (!error) {
+        resolve();
+        return;
+      }
+      reject(error);
+    });
+  });
+}
+
 
 export function unsubscribeFromRide(rideId: string): void {
   subscribedRideIds.delete(rideId);
