@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Current commit: `c4996dd`
+- Current commit: `9a65b93`
 - Branch: `release/kansride-v1`
 - Current milestone: Sprint 3 controlled-pilot readiness; runtime/device/provider gates pending
 - Last updated: 2026-08-05
@@ -84,4 +84,4 @@ npm run seed:demo
 npm run verify:v1
 ```
 
-Then inspect the Sprint 2 CI run for the pushed `b638242`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
+Then inspect the final Sprint 2 CI run for the pushed `9a65b93`, perform the Android device matrix in `docs/operations/V1_ANDROID_DEVICE_GUIDE.md`, activate approved providers, and deploy only after those external gates pass. Preserve the existing `opencode.json` modification, `.commandcode/`, and protected generated Next files.
