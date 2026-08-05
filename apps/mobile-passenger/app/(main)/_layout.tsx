@@ -40,9 +40,11 @@ export default function MainLayout() {
       />
       <Tabs.Screen
         name="ride/[id]"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="ride-detail/[id]"
+        options={{ href: null }}
       />
     </Tabs>
   );

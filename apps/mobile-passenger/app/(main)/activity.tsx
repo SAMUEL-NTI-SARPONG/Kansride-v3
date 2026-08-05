@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { useState, useEffect, useCallback } from 'react';
 import { get } from '../../src/api/client';
+import { router } from 'expo-router';
 
 interface RideHistoryItem {
   id: string;
@@ -111,7 +112,12 @@ export default function ActivityScreen() {
         data={rides}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
-          <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.card}
+            onPress={() => router.push({ pathname: '/(main)/ride-detail/[id]', params: { id: item.id } })}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ride details for ${item.pickupAddress || 'ride'}`}
+          >
             <View style={styles.row}>
               <Text style={styles.from}>
                 {item.pickupAddress || `${item.pickupLatitude.toFixed(3)}, ${item.pickupLongitude.toFixed(3)}`}
@@ -129,7 +135,7 @@ export default function ActivityScreen() {
                 {item.status.replace(/_/g, ' ')}
               </Text>
             </View>
-          </View>
+          </TouchableOpacity>
         )}
         contentContainerStyle={rides.length === 0 ? styles.center : { gap: 12, paddingBottom: 20 }}
         ListEmptyComponent={
