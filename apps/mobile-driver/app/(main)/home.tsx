@@ -1,4 +1,5 @@
-import { View, Text, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator, Linking } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { router } from 'expo-router';
 import { api } from '../../src/api/client';
@@ -16,6 +17,7 @@ import {
   stopLocationWatch,
 } from '../../src/services/location';
 import type { LocationOutcome } from '../../src/services/location';
+import { navigationRegion, navigationTargetForStatus, navigationUrl } from '../../src/navigation';
 
 // Honest, user-facing labels for typed location outcomes — no fabricated
 // coordinates, no silent failure. Each non-granted outcome maps to a title +
@@ -372,6 +374,21 @@ export default function DriverHomeScreen() {
     }
   };
 
+  const openNavigation = async () => {
+    if (!activeRide) return;
+    const target = navigationTargetForStatus(activeRide.status);
+    const point = target === 'pickup'
+      ? { latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }
+      : { latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude };
+    const url = navigationUrl(point.latitude, point.longitude);
+    if (!url) {
+      Alert.alert('Navigation unavailable', 'The current ride coordinates are unavailable.');
+      return;
+    }
+    if (await Linking.canOpenURL(url)) await Linking.openURL(url);
+    else Alert.alert('Navigation unavailable', 'No supported navigation app could open this route.');
+  };
+
   const handleAcceptOffer = useCallback(() => {
     if (!currentOffer) return;
     socketClient.acceptRide(currentOffer.rideId);
@@ -446,16 +463,21 @@ export default function DriverHomeScreen() {
   if (activeRide) {
     return (
       <View style={styles.container}>
-        <View style={styles.mapPlaceholder}>
-          <Text style={styles.mapText}>Navigation View</Text>
-          <Text style={styles.mapSubtext}>
-            {activeRide.status === 'driver_assigned'
-              || activeRide.status === 'driver_en_route'
-              || activeRide.status === 'driver_arrived'
-              || activeRide.status === 'waiting_for_passenger'
-              ? 'Heading to pickup'
-              : 'Ride in progress'}
-          </Text>
+        <View style={styles.mapContainer}>
+          <MapView
+            style={styles.map}
+            region={navigationRegion([
+              ...(getLocation() ? [getLocation()!] : []),
+              { latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude },
+              { latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude },
+            ]) || undefined}
+            showsUserLocation={Boolean(getLocation())}
+          >
+            {getLocation() && <Marker coordinate={getLocation()!} title="Current location" pinColor="#1B8B4B" />}
+            <Marker coordinate={{ latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }} title="Pickup" pinColor="#F59E0B" />
+            <Marker coordinate={{ latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude }} title="Destination" pinColor="#EF4444" />
+          </MapView>
+          <Text style={styles.mapOverlay}>{navigationTargetForStatus(activeRide.status) === 'pickup' ? 'Navigate to pickup' : 'Navigate to destination'}</Text>
         </View>
         <View style={styles.activeRideCard}>
           <View style={styles.rideStatusBadge}>
@@ -508,6 +530,9 @@ export default function DriverHomeScreen() {
               </TouchableOpacity>
             </View>
           )}
+          <TouchableOpacity style={styles.navigationButton} onPress={openNavigation} accessibilityRole="button" accessibilityLabel="Open external navigation">
+            <Text style={styles.navigationButtonText}>Open navigation</Text>
+          </TouchableOpacity>
           {getStatusButtonLabel() && (
             <TouchableOpacity style={styles.advanceButton} onPress={handleAdvanceStatus}>
               <Text style={styles.advanceButtonText}>{getStatusButtonLabel()}</Text>
@@ -542,9 +567,9 @@ export default function DriverHomeScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.mapPlaceholder}>
-        <Text style={styles.mapText}>Map View</Text>
-        <Text style={styles.mapSubtext}>Kansawrodo - Sekondi-Takoradi</Text>
+      <View style={styles.mapContainer}>
+        <MapView style={styles.map} showsUserLocation={Boolean(getLocation())} region={getLocation() ? { ...getLocation()!, latitudeDelta: 0.04, longitudeDelta: 0.04 } : undefined} />
+        {!getLocation() && <Text style={styles.mapOverlay}>Real GPS location unavailable</Text>}
       </View>
       <View style={styles.bottomCard}>
         <View style={styles.statusRow}>
@@ -644,9 +669,9 @@ const styles = StyleSheet.create({
   pendingCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24 },
   pendingTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
   pendingText: { fontSize: 14, color: '#64748B', lineHeight: 21, marginTop: 8 },
-  mapPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  mapText: { fontSize: 24, fontWeight: '600', color: '#64748B' },
-  mapSubtext: { fontSize: 14, color: '#94A3B8', marginTop: 4 },
+  mapContainer: { flex: 1, position: 'relative' },
+  map: { flex: 1 },
+  mapOverlay: { position: 'absolute', top: 20, alignSelf: 'center', backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#1B8B4B', fontWeight: '700' },
   bottomCard: {
     backgroundColor: '#FFF',
     borderTopLeftRadius: 20,
@@ -720,6 +745,8 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   advanceButtonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  navigationButton: { borderWidth: 1, borderColor: '#1B8B4B', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  navigationButtonText: { color: '#1B8B4B', fontSize: 15, fontWeight: '700' },
   buttonDisabled: { opacity: 0.6 },
 
   // Modal styles
