@@ -2,7 +2,7 @@
 
 ## Current state
 
-- Current commit: `c135c50`
+- Current commit: `d1b082a`
 - Branch: `release/kansride-v1`
 - Current milestone: Release Sprint 1 implementation complete; external runtime gate pending
 - Last updated: 2026-08-05
