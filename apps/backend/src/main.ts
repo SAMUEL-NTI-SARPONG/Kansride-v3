@@ -33,7 +33,7 @@ async function bootstrap() {
   app.useWebSocketAdapter(new IoAdapter(app));
 
   const port = env.APP_PORT;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`KansRide API running on port ${port}`);
 }
 bootstrap();

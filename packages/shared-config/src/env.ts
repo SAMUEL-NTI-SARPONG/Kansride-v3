@@ -100,6 +100,11 @@ export type Env = z.infer<typeof envSchema>;
 
 let cachedEnv: Env | null = null;
 
+/** Prefer the KansRide setting, then the port injected by hosts such as Railway. */
+export function resolveAppPort(environment: NodeJS.ProcessEnv): string | undefined {
+  return environment.APP_PORT || environment.PORT;
+}
+
 /**
  * Parses and validates environment variables against the schema.
  * Uses sensible defaults for development but fails fast in production
@@ -163,7 +168,10 @@ export function getEnv(): Env {
     }
   }
 
-  const result = envSchema.safeParse(process.env);
+  const result = envSchema.safeParse({
+    ...process.env,
+    APP_PORT: resolveAppPort(process.env),
+  });
 
   if (!result.success) {
     const formatted = result.error.issues
