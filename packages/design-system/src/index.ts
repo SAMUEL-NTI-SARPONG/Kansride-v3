@@ -1,7 +1,10 @@
 export { colors, type ColorKey } from './colors';
-export { theme, spacing, borderRadius, typography, shadows, type Theme } from './theme';
+export { theme, spacing, borderRadius, typography, shadows, borders, layout, type Theme } from './theme';
 export { Button } from './Button';
 export { TextInput } from './TextInput';
 export { OTPInput } from './OTPInput';
 export { Card } from './Card';
 export { BottomSheet } from './BottomSheet';
+export { StatusBadge } from './StatusBadge';
+export { FeedbackBanner } from './FeedbackBanner';
+export { ListItem } from './ListItem';

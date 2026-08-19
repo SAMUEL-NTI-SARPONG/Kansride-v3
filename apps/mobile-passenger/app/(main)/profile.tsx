@@ -5,12 +5,16 @@ import {
   StyleSheet,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../src/stores/auth-store';
 import { get } from '../../src/api/client';
 import { disconnectSocket } from '../../src/api/socket';
+import { Ionicons } from '@expo/vector-icons';
+import { Card, ListItem, StatusBadge, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
+import { usePassengerInsets } from '../../src/ui/use-passenger-insets';
 
 interface UserProfile {
   id: string;
@@ -21,6 +25,7 @@ interface UserProfile {
 }
 
 export default function ProfileScreen() {
+  const insets = usePassengerInsets();
   const { user, setUser, logout } = useAuthStore();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,7 +39,7 @@ export default function ProfileScreen() {
       } catch {
         // Use cached user data if available
         if (user) {
-          setProfile({ id: user.id, phone: user.phone, name: user.name });
+          setProfile({ id: user.id, phone: user.phone, name: user.name, totalRides: user.totalRides });
         }
       } finally {
         setLoading(false);
@@ -61,65 +66,62 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#1B8B4B" />
+      <View style={[styles.container, styles.center, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]} showsVerticalScrollIndicator={false}>
+      <Text style={styles.eyebrow}>YOUR ACCOUNT</Text>
       <Text style={styles.title}>Profile</Text>
-      <View style={styles.card}>
-        <Text style={styles.name}>{profile?.name || 'Passenger'}</Text>
-        <Text style={styles.phone}>{profile?.phone || 'No phone'}</Text>
-        {profile?.totalRides !== undefined && (
-          <Text style={styles.rides}>{profile.totalRides} ride{profile.totalRides !== 1 ? 's' : ''} completed</Text>
-        )}
+      <Card variant="raised" shadow="md" padding="md" style={styles.profileCard}>
+        <View style={styles.avatar}><Text style={styles.avatarText}>{(profile?.name || 'P').charAt(0).toUpperCase()}</Text></View>
+        <View style={styles.identity}><Text style={styles.name}>{profile?.name || 'Passenger'}</Text><Text style={styles.phone}>{profile?.phone || 'No phone number'}</Text><StatusBadge label="Verified passenger" tone="success" dot /></View>
+      </Card>
+      <View style={styles.statsCard}>
+        <View><Text style={styles.statValue}>{profile?.totalRides ?? 0}</Text><Text style={styles.statLabel}>completed rides</Text></View>
+        <View style={styles.statDivider} />
+        <View><Text style={styles.statValue}>KansRide</Text><Text style={styles.statLabel}>trusted travel</Text></View>
       </View>
-      <TouchableOpacity style={styles.menuItem} onPress={() => Alert.alert('Payment methods unavailable', 'Payment Methods are not available in the pilot yet. Driver subscription payments are managed separately.') } accessibilityRole="button" accessibilityLabel="Payment methods unavailable">
-        <Text style={styles.menuText}>Payment Methods · unavailable for pilot</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/saved-places')} accessibilityRole="button" accessibilityLabel="Open saved places">
-        <Text style={styles.menuText}>Saved Places</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/safety')} accessibilityRole="button" accessibilityLabel="Open safety">
-        <Text style={styles.menuText}>Safety</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(main)/support')} accessibilityRole="button" accessibilityLabel="Open support">
-        <Text style={styles.menuText}>Support</Text>
-      </TouchableOpacity>
-      <TouchableOpacity style={[styles.menuItem, styles.logoutBtn]} onPress={handleLogout}>
-        <Text style={styles.logoutText}>Log Out</Text>
-      </TouchableOpacity>
-    </View>
+      <Text style={styles.sectionTitle}>Your preferences</Text>
+      <Card shadow="none" variant="outline" padding="xs" style={styles.menuCard}>
+        <ListItem title="Saved places" subtitle="Home, work and favourite stops" leading={<View style={styles.menuIcon}><Ionicons name="bookmark-outline" size={20} color={colors.primary} /></View>} trailing={<Ionicons name="chevron-forward" size={19} color={colors.textMuted} />} onPress={() => router.push('/(main)/saved-places')} />
+        <View style={styles.menuDivider} />
+        <ListItem title="Safety centre" subtitle="Trip sharing and emergency options" leading={<View style={styles.menuIcon}><Ionicons name="shield-checkmark-outline" size={21} color={colors.primary} /></View>} trailing={<Ionicons name="chevron-forward" size={19} color={colors.textMuted} />} onPress={() => router.push('/(main)/safety')} />
+        <View style={styles.menuDivider} />
+        <ListItem title="Help and support" subtitle="Contact available support channels" leading={<View style={styles.menuIcon}><Ionicons name="headset-outline" size={21} color={colors.primary} /></View>} trailing={<Ionicons name="chevron-forward" size={19} color={colors.textMuted} />} onPress={() => router.push('/(main)/support')} />
+        <View style={styles.menuDivider} />
+        <ListItem title="Payment methods" subtitle="Unavailable during the controlled pilot" leading={<View style={styles.menuIcon}><Ionicons name="wallet-outline" size={21} color={colors.textMuted} /></View>} trailing={<StatusBadge label="Coming later" />} onPress={() => Alert.alert('Payment methods unavailable', 'Passenger payments are not available during the controlled pilot.')} />
+      </Card>
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} accessibilityRole="button"><Ionicons name="log-out-outline" size={20} color={colors.error} /><Text style={styles.logoutText}>Log out</Text></TouchableOpacity>
+      <Text style={styles.version}>KansRide Passenger · V1 controlled pilot</Text>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: spacing.lg },
   center: { alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 24 },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  name: { fontSize: 18, fontWeight: '600', color: '#1A1A2E' },
-  phone: { fontSize: 14, color: '#64748B', marginTop: 4 },
-  rides: { fontSize: 13, color: '#1B8B4B', marginTop: 8, fontWeight: '500' },
-  menuItem: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  menuText: { fontSize: 16, color: '#1A1A2E' },
-  logoutBtn: { marginTop: 16, borderColor: '#EF4444' },
-  logoutText: { fontSize: 16, color: '#EF4444', fontWeight: '600' },
+  eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.3 },
+  title: { ...typography.h1, color: colors.textPrimary, marginTop: 2, marginBottom: spacing.lg },
+  profileCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  avatar: { width: 60, height: 60, borderRadius: borderRadius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', ...shadows.sm },
+  avatarText: { ...typography.h2, color: colors.textInverse },
+  identity: { flex: 1, alignItems: 'flex-start', gap: 3 },
+  name: { ...typography.h3, color: colors.textPrimary },
+  phone: { ...typography.small, color: colors.textSecondary, marginBottom: 4 },
+  statsCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', marginTop: spacing.md, padding: spacing.md, borderRadius: borderRadius.xl, backgroundColor: colors.primarySoft },
+  statValue: { ...typography.h3, color: colors.primaryDark, textAlign: 'center' },
+  statLabel: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
+  statDivider: { width: 1, height: 38, backgroundColor: colors.primarySoftBorder },
+  sectionTitle: { ...typography.label, color: colors.textSecondary, marginTop: spacing.xl, marginBottom: spacing.sm, letterSpacing: 0.5 },
+  menuCard: { overflow: 'hidden' },
+  menuIcon: { width: 40, height: 40, borderRadius: borderRadius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  menuDivider: { height: 1, backgroundColor: colors.border, marginLeft: 68 },
+  logoutBtn: { minHeight: 52, marginTop: spacing.lg, borderRadius: borderRadius.xl, backgroundColor: colors.errorSoft, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  logoutText: { ...typography.bodyBold, color: colors.error },
+  version: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg },
 });

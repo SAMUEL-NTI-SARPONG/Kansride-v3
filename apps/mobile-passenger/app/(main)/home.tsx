@@ -6,6 +6,9 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
 } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect, useCallback } from 'react';
@@ -25,6 +28,16 @@ import {
 import type { LocationOutcome } from '../../src/services/location';
 import { ContinuationFailedError } from '../../src/errors';
 import { loadSavedPlaces, type SavedPlace } from '../../src/saved-places';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Button, FeedbackBanner, StatusBadge, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { useAuthStore } from '../../src/stores/auth-store';
+import { usePassengerInsets } from '../../src/ui/use-passenger-insets';
+
+const reviewMode = developmentReviewModeEnabled(
+  process.env.NODE_ENV,
+  process.env.EXPO_PUBLIC_UI_REVIEW_MODE,
+);
 
 // Acquire real device coordinates for pickup. No fabricated fallback — a
 // denied/disabled/timed-out/unavailable outcome is surfaced honestly and the
@@ -66,6 +79,8 @@ function describeLocationFailure(outcome: LocationOutcome): { title: string; mes
 }
 
 export default function HomeScreen() {
+  const insets = usePassengerInsets();
+  const user = useAuthStore((state) => state.user);
   const [destination, setDestination] = useState('');
   const [selectedDest, setSelectedDest] = useState<(typeof DESTINATIONS)[0] | null>(null);
   const [rideType, setRideType] = useState<RideType>('standard_tricycle');
@@ -95,6 +110,10 @@ export default function HomeScreen() {
     setAcquiringPickup(true);
     setPickupError(null);
     try {
+      if (reviewMode) {
+        setPickup({ latitude: 4.9016, longitude: -1.7831 });
+        return;
+      }
       const permission = await ensureForegroundPermission();
       if (permission.kind !== 'granted') {
         const { title, message } = describeLocationFailure(permission);
@@ -124,7 +143,14 @@ export default function HomeScreen() {
 
   useEffect(() => {
     acquirePickup();
-    void loadSavedPlaces().then(setSavedPlaces).catch(() => setSavedPlaces([]));
+    if (reviewMode) {
+      setSavedPlaces([
+        { id: 'review-home', kind: 'home', label: 'Home', latitude: 4.91, longitude: -1.77 },
+        { id: 'review-work', kind: 'work', label: 'Work', latitude: 4.885, longitude: -1.755 },
+      ]);
+    } else {
+      void loadSavedPlaces().then(setSavedPlaces).catch(() => setSavedPlaces([]));
+    }
   }, [acquirePickup]);
 
   useEffect(() => {
@@ -137,6 +163,15 @@ export default function HomeScreen() {
     let cancelled = false;
     setEstimateLoading(true);
     setEstimateError(null);
+    if (reviewMode) {
+      setEstimate({
+        estimatedDistanceMeters: 6400,
+        estimatedDurationSeconds: rideType === 'priority_tricycle' ? 660 : 780,
+        fareBreakdown: { totalFarePesewas: rideType === 'priority_tricycle' ? 2450 : 1850 },
+      });
+      setEstimateLoading(false);
+      return;
+    }
     void post<{
       estimatedDistanceMeters: number;
       estimatedDurationSeconds: number;
@@ -194,6 +229,25 @@ export default function HomeScreen() {
         'Pickup location needed',
         'We could not get your location. Tap "Use my location" to try again, then request your ride.',
       );
+      return;
+    }
+
+    if (reviewMode) {
+      setActiveRide({
+        id: 'ui-review-ride',
+        status: 'searching',
+        pickupAddress: 'Your current location',
+        dropoffAddress: selectedDest.label,
+        pickupLatitude: pickup.latitude,
+        pickupLongitude: pickup.longitude,
+        dropoffLatitude: selectedDest.latitude,
+        dropoffLongitude: selectedDest.longitude,
+        rideType,
+        estimatedFarePesewas: estimate?.fareBreakdown.totalFarePesewas ?? 1850,
+        verificationPin: '4821',
+      });
+      setRideStatus('searching');
+      router.push({ pathname: '/(main)/ride/[id]', params: { id: 'ui-review-ride' } });
       return;
     }
 
@@ -276,8 +330,10 @@ export default function HomeScreen() {
     }
   };
 
+  const firstName = user?.name?.trim().split(/\s+/)[0] || 'there';
+
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={styles.mapContainer}>
         <MapView
           style={styles.map}
@@ -296,42 +352,59 @@ export default function HomeScreen() {
           showsUserLocation={Boolean(pickup)}
           showsMyLocationButton={false}
         >
-          {pickup && <Marker coordinate={pickup} title="Pickup" pinColor="#1B8B4B" />}
+          {pickup && <Marker coordinate={pickup} title="Pickup" pinColor={colors.pickupPin} />}
           {selectedDest && (
             <Marker
               coordinate={{ latitude: selectedDest.latitude, longitude: selectedDest.longitude }}
               title={selectedDest.label}
-              pinColor="#EF4444"
+              pinColor={colors.dropoffPin}
             />
           )}
         </MapView>
-        {!pickup && <Text style={styles.mapOverlay}>Waiting for your real pickup location…</Text>}
-      </View>
-      <View style={styles.bottomCard}>
-        <Text style={styles.greeting}>Where are you going?</Text>
-        {pickupError && (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorText}>{pickupError}</Text>
-            <TouchableOpacity onPress={acquirePickup} disabled={acquiringPickup} style={styles.retryButton}>
-              {acquiringPickup ? <ActivityIndicator color="#FFF" /> : <Text style={styles.retryText}>Use my location</Text>}
-            </TouchableOpacity>
+        <View style={[styles.mapHeader, { top: insets.top }] }>
+          <View>
+            <Text style={styles.hello}>Good day, {firstName}</Text>
+            <Text style={styles.mapTitle}>Let’s find your next ride</Text>
           </View>
+          <View style={styles.avatar}><Text style={styles.avatarText}>{firstName.charAt(0).toUpperCase()}</Text></View>
+        </View>
+        <TouchableOpacity style={styles.locationButton} onPress={() => void acquirePickup()} disabled={acquiringPickup} accessibilityRole="button" accessibilityLabel="Refresh my pickup location">
+          {acquiringPickup ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="locate" size={21} color={colors.primary} />}
+        </TouchableOpacity>
+        {!pickup && <View style={styles.mapOverlay}><ActivityIndicator size="small" color={colors.primary} /><Text style={styles.mapOverlayText}>Finding your pickup location…</Text></View>}
+      </View>
+      <View style={[styles.bottomCard, selectedDest && styles.bottomCardExpanded]}>
+        <ScrollView
+          style={styles.sheetScroll}
+          contentContainerStyle={[styles.sheetContent, { paddingBottom: insets.compactBottom }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+        <View style={styles.handle} />
+        <View style={styles.sheetHeadingRow}>
+          <View><Text style={styles.greeting}>Where to?</Text><Text style={styles.sheetSubtitle}>Choose a destination to see your fare</Text></View>
+          {pickup && <StatusBadge label="Pickup ready" tone="success" dot />}
+        </View>
+        {pickupError && (
+          <FeedbackBanner tone="error" title="Pickup unavailable" message={pickupError} action={<TouchableOpacity onPress={() => void acquirePickup()} disabled={acquiringPickup}><Text style={styles.bannerAction}>Retry</Text></TouchableOpacity>} />
         )}
         {continuationError && (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorText}>{continuationError}</Text>
-            <TouchableOpacity onPress={acquirePickup} style={styles.retryButton}>
-              <Text style={styles.retryText}>Retry pickup</Text>
-            </TouchableOpacity>
-          </View>
+          <FeedbackBanner tone="error" title="Ride request interrupted" message={continuationError} />
         )}
 
         {/* Destination search */}
         <View style={styles.searchContainer}>
+          <View style={styles.pickupSummary}>
+            <View style={styles.pickupDot} />
+            <View style={styles.pickupCopy}><Text style={styles.pickupLabel}>Current location</Text><Text style={styles.pickupMeta}>{pickup ? 'GPS confirmed' : 'Locating…'}</Text></View>
+          </View>
+          <View style={styles.searchInputRow}>
+            <Ionicons name="location" size={19} color={colors.dropoffPin} />
           <TextInput
             style={styles.searchBar}
-            placeholder="Search destination..."
-            placeholderTextColor="#94A3B8"
+            placeholder="Enter your destination"
+            placeholderTextColor={colors.textMuted}
             value={destination}
             onChangeText={(text) => {
               setDestination(text);
@@ -339,17 +412,33 @@ export default function HomeScreen() {
               if (!text) setSelectedDest(null);
             }}
             onFocus={() => setShowDestinations(true)}
+            accessibilityLabel="Destination"
           />
-          {showDestinations && (filteredDestinations.length > 0 || savedPlaces.length > 0) && (
-            <View style={styles.dropdownList}>
-              {savedPlaces.filter((place) => place.label.toLowerCase().includes(destination.toLowerCase())).map((place) => (
-                <TouchableOpacity key={place.id} style={styles.dropdownItem} onPress={() => handleSelectSavedPlace(place)}>
-                  <Text style={styles.dropdownText}>{place.label} · Saved</Text>
+          </View>
+          {!selectedDest && savedPlaces.length > 0 && (
+            <View style={styles.quickPlaces}>
+              {savedPlaces.slice(0, 3).map((place) => (
+                <TouchableOpacity key={place.id} style={styles.placeChip} onPress={() => handleSelectSavedPlace(place)}>
+                  <Ionicons name={place.kind === 'home' ? 'home-outline' : place.kind === 'work' ? 'briefcase-outline' : 'bookmark-outline'} size={16} color={colors.primary} />
+                  <Text style={styles.placeChipText}>{place.label}</Text>
                 </TouchableOpacity>
               ))}
-              {filteredDestinations.map((dest) => (
+            </View>
+          )}
+          {showDestinations && (filteredDestinations.length > 0 || savedPlaces.length > 0) && (
+            <View style={styles.dropdownList}>
+              {savedPlaces.filter((place) => place.label.toLowerCase().includes(destination.toLowerCase())).slice(0, 2).map((place) => (
+                <TouchableOpacity key={place.id} style={styles.dropdownItem} onPress={() => handleSelectSavedPlace(place)}>
+                  <View style={styles.dropdownIcon}><Ionicons name="bookmark-outline" size={17} color={colors.primary} /></View>
+                  <View style={styles.dropdownCopy}><Text style={styles.dropdownText}>{place.label}</Text><Text style={styles.dropdownMeta}>Saved place</Text></View>
+                  <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+                </TouchableOpacity>
+              ))}
+              {filteredDestinations.slice(0, 3).map((dest) => (
                 <TouchableOpacity key={dest.label} style={styles.dropdownItem} onPress={() => handleSelectDestination(dest)}>
-                  <Text style={styles.dropdownText}>{dest.label}</Text>
+                  <View style={styles.dropdownIcon}><Ionicons name="location-outline" size={18} color={colors.textSecondary} /></View>
+                  <View style={styles.dropdownCopy}><Text style={styles.dropdownText}>{dest.label}</Text><Text style={styles.dropdownMeta}>Sekondi–Takoradi</Text></View>
+                  <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -359,131 +448,149 @@ export default function HomeScreen() {
         {/* Ride type selector */}
         {selectedDest && (
           <>
+            <View style={styles.sectionHeading}><Text style={styles.sectionTitle}>Choose your ride</Text><Text style={styles.sectionHint}>Fares shown upfront</Text></View>
             <View style={styles.rideTypeRow}>
               <TouchableOpacity
                 style={[styles.rideTypeBtn, rideType === 'standard_tricycle' && styles.rideTypeBtnActive]}
                 onPress={() => setRideType('standard_tricycle')}
               >
+                <View style={[styles.vehicleIcon, rideType === 'standard_tricycle' && styles.vehicleIconActive]}>
+                  <MaterialCommunityIcons name="rickshaw" size={27} color={rideType === 'standard_tricycle' ? colors.textInverse : colors.primary} />
+                </View>
                 <Text style={[styles.rideTypeText, rideType === 'standard_tricycle' && styles.rideTypeTextActive]}>
                   Standard
                 </Text>
+                <Text style={styles.rideTypeMeta}>Best value</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.rideTypeBtn, rideType === 'priority_tricycle' && styles.rideTypeBtnActive]}
                 onPress={() => setRideType('priority_tricycle')}
               >
+                <View style={[styles.vehicleIcon, rideType === 'priority_tricycle' && styles.vehicleIconActive]}>
+                  <Ionicons name="flash" size={24} color={rideType === 'priority_tricycle' ? colors.textInverse : colors.primary} />
+                </View>
                 <Text style={[styles.rideTypeText, rideType === 'priority_tricycle' && styles.rideTypeTextActive]}>
                   Priority
                 </Text>
+                <Text style={styles.rideTypeMeta}>Faster pickup</Text>
               </TouchableOpacity>
             </View>
 
-            {estimateLoading && <ActivityIndicator color="#1B8B4B" />}
+            {estimateLoading && <View style={styles.estimateLoading}><ActivityIndicator color={colors.primary} /><Text style={styles.estimateLoadingText}>Calculating your trip…</Text></View>}
             {estimateError && (
-              <View style={styles.errorCard}>
-                <Text style={styles.errorText}>{estimateError}</Text>
-                <TouchableOpacity onPress={() => setSelectedDest({ ...selectedDest })} style={styles.retryButton}>
-                  <Text style={styles.retryText}>Retry estimate</Text>
-                </TouchableOpacity>
-              </View>
+              <FeedbackBanner tone="error" title="Fare unavailable" message={estimateError} action={<TouchableOpacity onPress={() => setSelectedDest({ ...selectedDest })}><Text style={styles.bannerAction}>Retry</Text></TouchableOpacity>} />
             )}
             {estimate && (
               <View style={styles.estimateCard}>
-                <Text style={styles.estimateTitle}>Estimated trip</Text>
-                <Text style={styles.estimateText}>Fare: GHS {(estimate.fareBreakdown.totalFarePesewas / 100).toFixed(2)}</Text>
-                <Text style={styles.estimateText}>Distance: {(estimate.estimatedDistanceMeters / 1000).toFixed(1)} km · ETA: {Math.ceil(estimate.estimatedDurationSeconds / 60)} min</Text>
-                <Text style={styles.estimateText}>Standard estimate; final fare is confirmed when requested.</Text>
+                <View><Text style={styles.estimateLabel}>Estimated fare</Text><Text style={styles.fare}>GHS {(estimate.fareBreakdown.totalFarePesewas / 100).toFixed(2)}</Text></View>
+                <View style={styles.estimateDivider} />
+                <View style={styles.estimateMetric}><Ionicons name="time-outline" size={17} color={colors.primary} /><Text style={styles.metricValue}>{Math.ceil(estimate.estimatedDurationSeconds / 60)} min</Text><Text style={styles.metricLabel}>trip time</Text></View>
+                <View style={styles.estimateMetric}><Ionicons name="navigate-outline" size={17} color={colors.primary} /><Text style={styles.metricValue}>{(estimate.estimatedDistanceMeters / 1000).toFixed(1)} km</Text><Text style={styles.metricLabel}>distance</Text></View>
               </View>
             )}
 
             {/* Request button */}
-            <TouchableOpacity
-              style={[styles.button, (loading || acquiringPickup || !pickup || !estimate) && styles.buttonDisabled]}
-              onPress={handleRequestRide}
+            <Button
+              title={estimate ? `Request ${rideType === 'priority_tricycle' ? 'Priority' : 'Standard'} ride` : 'Request ride'}
+              onPress={() => void handleRequestRide()}
               disabled={loading || acquiringPickup || !pickup || !estimate}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text style={styles.buttonText}>Request Ride</Text>
-              )}
-            </TouchableOpacity>
+              loading={loading}
+              fullWidth
+              size="lg"
+              trailing={!loading ? <Ionicons name="arrow-forward" size={19} color={colors.textInverse} /> : undefined}
+            />
+            <Text style={styles.fareDisclaimer}>Final fare is confirmed when your ride is requested.</Text>
           </>
         )}
+        </ScrollView>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#E8E8E8' },
+  container: { flex: 1, backgroundColor: colors.backgroundDeep },
   mapContainer: { flex: 1, position: 'relative' },
   map: { flex: 1 },
-  mapOverlay: { position: 'absolute', alignSelf: 'center', top: 24, backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#64748B' },
+  mapHeader: { position: 'absolute', left: spacing.lg, right: spacing.lg, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surfaceTranslucent, borderRadius: borderRadius.xl, padding: spacing.md, ...shadows.md },
+  hello: { ...typography.caption, color: colors.textSecondary, fontWeight: '700' },
+  mapTitle: { ...typography.h3, color: colors.textPrimary, marginTop: 1 },
+  avatar: { width: 42, height: 42, borderRadius: borderRadius.full, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { ...typography.bodyBold, color: colors.textInverse },
+  locationButton: { position: 'absolute', right: spacing.lg, bottom: spacing.lg, width: 48, height: 48, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', ...shadows.md },
+  mapOverlay: { position: 'absolute', alignSelf: 'center', top: 132, backgroundColor: colors.surface, borderRadius: borderRadius.full, paddingHorizontal: spacing.md, paddingVertical: 10, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, ...shadows.sm },
+  mapOverlayText: { ...typography.small, color: colors.textSecondary },
   bottomCard: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    maxHeight: '58%',
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    overflow: 'hidden',
+    ...shadows.lg,
   },
-  greeting: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
-  searchContainer: { position: 'relative', zIndex: 10 },
+  bottomCardExpanded: { maxHeight: '64%' },
+  sheetScroll: { flexGrow: 0 },
+  sheetContent: { paddingHorizontal: spacing.lg, gap: 12 },
+  handle: { width: 42, height: 5, borderRadius: 3, backgroundColor: colors.borderStrong, alignSelf: 'center', marginTop: 10, marginBottom: 2 },
+  sheetHeadingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  greeting: { ...typography.h2, color: colors.textPrimary },
+  sheetSubtitle: { ...typography.small, color: colors.textSecondary, marginTop: 1 },
+  bannerAction: { ...typography.label, color: colors.primary, padding: spacing.sm },
+  searchContainer: { position: 'relative', zIndex: 10, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.xl, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  pickupSummary: { flexDirection: 'row', alignItems: 'center', minHeight: 44, gap: 12, paddingHorizontal: 2 },
+  pickupDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.pickupPin, borderWidth: 2, borderColor: colors.surface },
+  pickupCopy: { flex: 1 },
+  pickupLabel: { ...typography.bodyBold, color: colors.textPrimary },
+  pickupMeta: { ...typography.caption, color: colors.success },
+  searchInputRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
   searchBar: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 12,
-    padding: 16,
-    height: 52,
-    fontSize: 16,
-    color: '#1A1A2E',
+    flex: 1,
+    minHeight: 50,
+    paddingVertical: 0,
+    ...typography.body,
+    color: colors.textPrimary,
   },
+  quickPlaces: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  placeChip: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.primarySoft, borderRadius: borderRadius.full, paddingHorizontal: 13, minHeight: 36 },
+  placeChipText: { ...typography.small, color: colors.primaryDark, fontWeight: '700' },
   dropdownList: {
-    position: 'absolute',
-    top: 56,
-    left: 0,
-    right: 0,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-    zIndex: 20,
+    marginTop: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    overflow: 'hidden',
   },
-  dropdownItem: { padding: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
-  dropdownText: { fontSize: 15, color: '#1A1A2E' },
+  dropdownItem: { minHeight: 54, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: colors.border },
+  dropdownIcon: { width: 34, height: 34, borderRadius: borderRadius.md, backgroundColor: colors.surfaceInset, alignItems: 'center', justifyContent: 'center' },
+  dropdownCopy: { flex: 1 },
+  dropdownText: { ...typography.bodyBold, color: colors.textPrimary },
+  dropdownMeta: { ...typography.caption, color: colors.textSecondary },
+  sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 2 },
+  sectionTitle: { ...typography.h3, color: colors.textPrimary },
+  sectionHint: { ...typography.caption, color: colors.textSecondary },
   rideTypeRow: { flexDirection: 'row', gap: 12 },
   rideTypeBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    padding: 12,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1.5,
+    borderColor: colors.border,
     alignItems: 'center',
+    backgroundColor: colors.surfaceRaised,
   },
-  rideTypeBtnActive: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
-  rideTypeText: { fontSize: 14, fontWeight: '600', color: '#64748B' },
-  rideTypeTextActive: { color: '#1B8B4B' },
-  estimateCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, gap: 4, borderWidth: 1, borderColor: '#BBF7D0' },
-  estimateTitle: { fontSize: 15, fontWeight: '700', color: '#166534' },
-  estimateText: { fontSize: 13, color: '#166534' },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  errorCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, gap: 8 },
-  errorText: { color: '#B91C1C', fontSize: 13, lineHeight: 18 },
-  retryButton: { alignSelf: 'flex-start', backgroundColor: '#1B8B4B', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9 },
-  retryText: { color: '#FFF', fontSize: 13, fontWeight: '600' },
+  rideTypeBtnActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  vehicleIcon: { width: 44, height: 44, borderRadius: borderRadius.lg, backgroundColor: colors.surfaceInset, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  vehicleIconActive: { backgroundColor: colors.primary },
+  rideTypeText: { ...typography.bodyBold, color: colors.textPrimary },
+  rideTypeTextActive: { color: colors.primaryDark },
+  rideTypeMeta: { ...typography.caption, color: colors.textSecondary },
+  estimateLoading: { minHeight: 70, borderRadius: borderRadius.xl, backgroundColor: colors.surfaceInset, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  estimateLoadingText: { ...typography.small, color: colors.textSecondary },
+  estimateCard: { backgroundColor: colors.primarySoft, borderRadius: borderRadius.xl, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  estimateLabel: { ...typography.caption, color: colors.primaryDark },
+  fare: { ...typography.h2, color: colors.primaryDark },
+  estimateDivider: { width: 1, height: 42, backgroundColor: colors.primarySoftBorder },
+  estimateMetric: { alignItems: 'center' },
+  metricValue: { ...typography.label, color: colors.textPrimary, marginTop: 1 },
+  metricLabel: { ...typography.caption, color: colors.textSecondary },
+  fareDisclaimer: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: -5 },
 });

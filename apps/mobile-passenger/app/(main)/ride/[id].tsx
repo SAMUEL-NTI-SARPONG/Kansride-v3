@@ -7,7 +7,9 @@ import {
   Alert,
   Modal,
   Share,
+  ScrollView,
 } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useRideStore } from '../../../src/stores/ride-store';
@@ -27,6 +29,12 @@ import {
   PASSENGER_CANCELLATION_REASONS,
   type PassengerCancellationReason,
 } from '../../../src/cancellation-reasons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { FeedbackBanner, StatusBadge, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { usePassengerInsets } from '../../../src/ui/use-passenger-insets';
+
+const reviewMode = developmentReviewModeEnabled(process.env.NODE_ENV, process.env.EXPO_PUBLIC_UI_REVIEW_MODE);
 
 const STATUS_LABELS: Record<RideStatus, string> = {
   idle: 'Idle',
@@ -48,6 +56,7 @@ function formatGhsFromPesewas(pesewas: number | null | undefined): string {
 }
 
 export default function ActiveRideScreen() {
+  const insets = usePassengerInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
     activeRide,
@@ -56,6 +65,7 @@ export default function ActiveRideScreen() {
     setRideStatus,
     setDriverLocation,
     updateFromSocket,
+    setActiveRide,
     resetRide,
   } = useRideStore();
   const [rating, setRating] = useState(0);
@@ -90,6 +100,11 @@ export default function ActiveRideScreen() {
         setSocketError(error instanceof Error ? error.message : 'Live updates are unavailable');
       }
     };
+
+    if (reviewMode) {
+      setDriverLocation({ latitude: 4.8988, longitude: -1.7788, heading: 40 });
+      return () => setDriverLocation(null);
+    }
 
     if (!activeRide || activeRide.id !== id) {
       setRefreshing(true);
@@ -126,7 +141,26 @@ export default function ActiveRideScreen() {
     };
   }, [id]);
 
+  const setReviewStatus = (status: RideStatus) => {
+    if (!reviewMode || !activeRide) return;
+    setActiveRide({
+      ...activeRide,
+      status,
+      driver: status === 'searching' ? undefined : {
+        name: 'Kwame Boateng',
+        vehicle: 'Green tricycle',
+        plateNumber: 'WR 0001-26',
+        rating: 4.8,
+      },
+    });
+    setRideStatus(status);
+  };
+
   const handleCancel = async (reason: PassengerCancellationReason) => {
+    if (reviewMode) {
+      Alert.alert('UI review mode', 'Server actions are unavailable in UI review mode.');
+      return;
+    }
     setCancelling(true);
     try {
       await patch(`/rides/${id}/cancel`, { reason: cancellationReasonLabel(reason) });
@@ -149,6 +183,10 @@ export default function ActiveRideScreen() {
 
   const handleRate = async () => {
     if (rating === 0) return;
+    if (reviewMode) {
+      Alert.alert('UI review mode', 'Server actions are unavailable in UI review mode.');
+      return;
+    }
     try {
       await post(`/rides/${id}/rate`, { rating });
       Alert.alert('Thank you!', 'Your rating has been submitted');
@@ -165,6 +203,10 @@ export default function ActiveRideScreen() {
   };
 
   const handleShareTracking = async () => {
+    if (reviewMode) {
+      Alert.alert('UI review mode', 'Live sharing requires a real active ride.');
+      return;
+    }
     setSharing(true);
     try {
       const link = await post<PublicTrackingLink>(`/rides/${id}/tracking-link`);
@@ -190,7 +232,7 @@ export default function ActiveRideScreen() {
   // Rating screen
   if (showRating || rideStatus === 'completed') {
     return (
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={[styles.stateContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.ratingCard}>
           <Text style={styles.ratingTitle}>Rate your ride</Text>
           <Text style={styles.ratingSubtitle}>How was your experience?</Text>
@@ -210,14 +252,14 @@ export default function ActiveRideScreen() {
             <Text style={styles.skipText}>Skip</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
   // Cancelled state
   if (rideStatus === 'cancelled') {
     return (
-      <View style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={[styles.stateContainer, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.statusCard}>
           <Text style={styles.statusEmoji}>{'\u274C'}</Text>
           <Text style={styles.statusTitle}>Ride Cancelled</Text>
@@ -225,46 +267,53 @@ export default function ActiveRideScreen() {
             <Text style={styles.buttonText}>Back to Home</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </ScrollView>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {refreshing && <ActivityIndicator color="#1B8B4B" />}
-      {socketError && (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{socketError}</Text>
-          <TouchableOpacity onPress={() => router.replace({ pathname: '/(main)/ride/[id]', params: { id } })}>
-            <Text style={styles.retryText}>Retry live updates</Text>
-          </TouchableOpacity>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]} showsVerticalScrollIndicator={false}>
+      {reviewMode && (
+        <View style={styles.previewPanel}>
+          <Text style={styles.previewLabel}>UI REVIEW · RIDE STATE</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.previewStates}>
+            {(['searching', 'driver_assigned', 'en_route', 'arrived', 'in_progress'] as RideStatus[]).map((status) => (
+              <TouchableOpacity key={status} style={[styles.previewChip, rideStatus === status && styles.previewChipActive]} onPress={() => setReviewStatus(status)}>
+                <Text style={[styles.previewChipText, rideStatus === status && styles.previewChipTextActive]}>{status.replace(/_/g, ' ')}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
+      )}
+      {activeRide && (
+        <View style={styles.mapCard}>
+          <MapView style={styles.map} initialRegion={{ latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude, latitudeDelta: 0.035, longitudeDelta: 0.035 }} scrollEnabled={false} zoomEnabled={false}>
+            <Marker coordinate={{ latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }} pinColor={colors.pickupPin} title="Pickup" />
+            <Marker coordinate={{ latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude }} pinColor={colors.dropoffPin} title="Destination" />
+            {driverLocation && <Marker coordinate={driverLocation}><View style={styles.driverMarker}><MaterialCommunityIcons name="rickshaw" size={20} color={colors.textInverse} /></View></Marker>}
+          </MapView>
+          <View style={styles.mapStatus}><StatusBadge label={STATUS_LABELS[rideStatus]} tone={rideStatus === 'searching' ? 'warning' : rideStatus === 'in_progress' ? 'info' : 'primary'} dot /></View>
+        </View>
+      )}
+      {refreshing && <ActivityIndicator color={colors.primary} />}
+      {socketError && (
+        <FeedbackBanner tone="error" title="Live updates unavailable" message={socketError} action={<TouchableOpacity onPress={() => router.replace({ pathname: '/(main)/ride/[id]', params: { id } })}><Text style={styles.retryText}>Retry</Text></TouchableOpacity>} />
       )}
       {/* Status */}
       <View style={styles.statusCard}>
-        {rideStatus === 'searching' && <ActivityIndicator size="large" color="#1B8B4B" />}
-        {rideStatus === 'driver_assigned' && <Text style={styles.statusEmoji}>{'\u2705'}</Text>}
-        {rideStatus === 'en_route' && <Text style={styles.statusEmoji}>{'\uD83D\uDE97'}</Text>}
-        {rideStatus === 'arrived' && <Text style={styles.statusEmoji}>{'\uD83D\uDCCD'}</Text>}
-        {rideStatus === 'in_progress' && <Text style={styles.statusEmoji}>{'\uD83D\uDEE3\uFE0F'}</Text>}
+        {rideStatus === 'searching' && <View style={styles.searchingIcon}><ActivityIndicator size="large" color={colors.primary} /></View>}
+        {rideStatus === 'driver_assigned' && <View style={styles.statusIcon}><Ionicons name="checkmark" size={26} color={colors.textInverse} /></View>}
+        {rideStatus === 'en_route' && <View style={styles.statusIcon}><MaterialCommunityIcons name="rickshaw" size={28} color={colors.textInverse} /></View>}
+        {rideStatus === 'arrived' && <View style={styles.statusIcon}><Ionicons name="location" size={27} color={colors.textInverse} /></View>}
+        {rideStatus === 'in_progress' && <View style={styles.statusIcon}><Ionicons name="navigate" size={27} color={colors.textInverse} /></View>}
         <Text style={styles.statusTitle}>{STATUS_LABELS[rideStatus]}</Text>
+        <Text style={styles.statusSubtitle}>{rideStatus === 'searching' ? 'We’re matching you with a nearby driver.' : rideStatus === 'arrived' ? 'Meet your driver at the pickup point.' : rideStatus === 'in_progress' ? 'Enjoy your trip. We’ll keep you updated.' : 'Your trip is progressing as expected.'}</Text>
       </View>
 
       {/* Driver info */}
       {activeRide?.driver && (
         <View style={styles.driverCard}>
-          <Text style={styles.driverName}>{activeRide.driver.name}</Text>
-          <Text style={styles.driverDetail}>
-            {activeRide.driver.vehicle} · {activeRide.driver.plateNumber}
-          </Text>
-          <Text style={styles.driverDetail}>
-            Rating: {activeRide.driver.rating.toFixed(1)} {'\u2605'}
-          </Text>
-          {driverLocation && (
-            <Text style={styles.locationText}>
-              Driver at: {driverLocation.latitude.toFixed(4)}, {driverLocation.longitude.toFixed(4)}
-            </Text>
-          )}
+          <View style={styles.driverActions}><View style={styles.driverAvatar}><Text style={styles.driverAvatarText}>{activeRide.driver.name.charAt(0)}</Text></View><View style={styles.driverIdentity}><Text style={styles.driverName}>{activeRide.driver.name}</Text><Text style={styles.driverDetail}>{activeRide.driver.vehicle} · {activeRide.driver.plateNumber}</Text><Text style={styles.driverRating}><Ionicons name="star" size={13} color={colors.secondaryDark} /> {activeRide.driver.rating.toFixed(1)} driver rating</Text></View></View>
         </View>
       )}
 
@@ -280,9 +329,7 @@ export default function ActiveRideScreen() {
           <Text style={styles.tripText}>{activeRide?.dropoffAddress || 'Dropoff location'}</Text>
         </View>
         {activeRide && (
-          <Text style={styles.fareText}>
-            Est. Fare: {formatGhsFromPesewas(activeRide.estimatedFarePesewas)}
-          </Text>
+          <View style={styles.fareRow}><Text style={styles.fareLabel}>Estimated fare</Text><Text style={styles.fareText}>{formatGhsFromPesewas(activeRide.estimatedFarePesewas)}</Text></View>
         )}
       </View>
 
@@ -301,7 +348,7 @@ export default function ActiveRideScreen() {
         disabled={sharing}
       >
         {sharing ? (
-          <ActivityIndicator color="#1B8B4B" />
+          <ActivityIndicator color={colors.primary} />
         ) : (
           <Text style={styles.shareText}>Share live tracking</Text>
         )}
@@ -315,7 +362,7 @@ export default function ActiveRideScreen() {
           disabled={cancelling}
         >
           {cancelling ? (
-            <ActivityIndicator color="#EF4444" />
+            <ActivityIndicator color={colors.error} />
           ) : (
             <Text style={styles.cancelText}>Cancel Ride</Text>
           )}
@@ -329,7 +376,7 @@ export default function ActiveRideScreen() {
         onRequestClose={() => setShowCancellationReasons(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.cancellationCard}>
+          <View style={[styles.cancellationCard, { paddingBottom: insets.compactBottom }]}>
             <Text style={styles.ratingTitle}>Why are you cancelling?</Text>
             {PASSENGER_CANCELLATION_REASONS.map((reason) => (
               <TouchableOpacity
@@ -346,7 +393,7 @@ export default function ActiveRideScreen() {
               onPress={() => selectedCancellationReason && void handleCancel(selectedCancellationReason)}
               disabled={!selectedCancellationReason || cancelling}
             >
-              {cancelling ? <ActivityIndicator color="#FFF" /> : <Text style={styles.buttonText}>Confirm cancellation</Text>}
+              {cancelling ? <ActivityIndicator color={colors.disabledText} /> : <Text style={[styles.buttonText, !selectedCancellationReason && styles.buttonTextDisabled]}>Confirm cancellation</Text>}
             </TouchableOpacity>
             <TouchableOpacity style={styles.skipBtn} onPress={() => setShowCancellationReasons(false)} disabled={cancelling}>
               <Text style={styles.skipText}>Keep ride</Text>
@@ -354,116 +401,70 @@ export default function ActiveRideScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
-  statusCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: spacing.lg },
+  stateContainer: { flexGrow: 1, paddingHorizontal: spacing.lg, justifyContent: 'center' },
+  previewPanel: { backgroundColor: colors.warningSoft, borderRadius: borderRadius.xl, padding: 12, marginBottom: 12 },
+  previewLabel: { ...typography.label, color: colors.warning, marginBottom: 8 },
+  previewStates: { gap: 8 },
+  previewChip: { minHeight: 34, paddingHorizontal: 12, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  previewChipActive: { backgroundColor: colors.primary },
+  previewChipText: { ...typography.caption, color: colors.textSecondary, textTransform: 'capitalize' },
+  previewChipTextActive: { color: colors.textInverse, fontWeight: '700' },
+  mapCard: { height: 220, borderRadius: borderRadius.xxl, overflow: 'hidden', marginBottom: 14, backgroundColor: colors.surfaceInset, ...shadows.md },
+  map: { flex: 1 },
+  mapStatus: { position: 'absolute', top: 12, left: 12 },
+  driverMarker: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: colors.surface, ...shadows.sm },
+  statusCard: { backgroundColor: colors.surface, borderRadius: borderRadius.xl, padding: spacing.lg, alignItems: 'center', marginBottom: 14, borderWidth: 1, borderColor: colors.border, ...shadows.sm },
+  searchingIcon: { width: 58, height: 58, borderRadius: borderRadius.xl, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  statusIcon: { width: 58, height: 58, borderRadius: borderRadius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   statusEmoji: { fontSize: 40, marginBottom: 8 },
-  statusTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A2E', marginTop: 8 },
-  driverCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  driverName: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
-  driverDetail: { fontSize: 14, color: '#64748B', marginTop: 4 },
-  locationText: { fontSize: 12, color: '#94A3B8', marginTop: 8 },
-  tripCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
+  statusTitle: { ...typography.h3, color: colors.textPrimary, marginTop: 10 },
+  statusSubtitle: { ...typography.small, color: colors.textSecondary, marginTop: 3, textAlign: 'center' },
+  driverCard: { backgroundColor: colors.surface, borderRadius: borderRadius.xl, padding: spacing.md, marginBottom: 14, borderWidth: 1, borderColor: colors.border },
+  driverActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  driverAvatar: { width: 52, height: 52, borderRadius: borderRadius.lg, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  driverAvatarText: { ...typography.h3, color: colors.primary },
+  driverIdentity: { flex: 1 },
+  driverName: { ...typography.h3, color: colors.textPrimary },
+  driverDetail: { ...typography.small, color: colors.textSecondary, marginTop: 1 },
+  driverRating: { ...typography.caption, color: colors.secondaryDark, marginTop: 4 },
+  tripCard: { backgroundColor: colors.surface, borderRadius: borderRadius.xl, padding: spacing.md, marginBottom: 14, borderWidth: 1, borderColor: colors.border },
   tripRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  tripDot: { fontSize: 16 },
-  tripText: { fontSize: 15, color: '#1A1A2E', flex: 1 },
-  tripDivider: {
-    width: 2,
-    height: 20,
-    backgroundColor: '#E2E8F0',
-    marginLeft: 7,
-    marginVertical: 4,
-  },
-  fareText: { fontSize: 16, fontWeight: '700', color: '#1B8B4B', marginTop: 12 },
-  pinCard: {
-    backgroundColor: '#FFF7ED',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#FDBA74',
-  },
-  pinLabel: { fontSize: 13, color: '#9A3412', fontWeight: '600' },
-  pinValue: { fontSize: 30, color: '#7C2D12', fontWeight: '800', letterSpacing: 8, marginTop: 4 },
-  pinHint: { fontSize: 12, color: '#9A3412', textAlign: 'center', marginTop: 4 },
-  cancelButton: {
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#EF4444',
-  },
-  shareButton: {
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#1B8B4B',
-    marginBottom: 12,
-  },
-  shareText: { color: '#1B8B4B', fontSize: 16, fontWeight: '600' },
-  cancelText: { color: '#EF4444', fontSize: 16, fontWeight: '600' },
-  buttonDisabled: { opacity: 0.7 },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    marginTop: 16,
-  },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  ratingCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 32,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  ratingTitle: { fontSize: 22, fontWeight: '700', color: '#1A1A2E' },
-  ratingSubtitle: { fontSize: 14, color: '#64748B', marginTop: 8, marginBottom: 24 },
-  starsRow: { flexDirection: 'row', gap: 12, marginBottom: 8 },
-  star: { fontSize: 40, color: '#E2E8F0' },
-  starActive: { color: '#F59E0B' },
-  skipBtn: { marginTop: 12 },
-  skipText: { color: '#64748B', fontSize: 14 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  cancellationCard: { backgroundColor: '#FFF', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 10 },
-  reasonOption: { borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, padding: 14 },
-  reasonOptionSelected: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
-  reasonText: { color: '#1A1A2E', fontSize: 15 },
-  errorCard: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 12, padding: 12, marginBottom: 12 },
-  errorText: { color: '#B91C1C', fontSize: 13, marginBottom: 6 },
-  retryText: { color: '#1B8B4B', fontSize: 13, fontWeight: '600' },
+  tripDot: { fontSize: 14 },
+  tripText: { ...typography.small, color: colors.textPrimary, flex: 1, fontWeight: '600' },
+  tripDivider: { width: 2, height: 20, backgroundColor: colors.borderStrong, marginLeft: 7, marginVertical: 4 },
+  fareRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.border },
+  fareLabel: { ...typography.small, color: colors.textSecondary },
+  fareText: { ...typography.h3, color: colors.primary },
+  pinCard: { backgroundColor: colors.warningSoft, borderRadius: borderRadius.xl, padding: spacing.md, marginBottom: 14, alignItems: 'center', borderWidth: 1, borderColor: colors.warningBorder },
+  pinLabel: { ...typography.label, color: colors.warning },
+  pinValue: { fontSize: 30, lineHeight: 38, color: colors.textPrimary, fontWeight: '800', letterSpacing: 8, marginTop: 2 },
+  pinHint: { ...typography.caption, color: colors.warning, textAlign: 'center', marginTop: 2 },
+  cancelButton: { borderRadius: borderRadius.xl, height: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.errorSoft },
+  shareButton: { borderRadius: borderRadius.xl, height: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: colors.primary, marginBottom: 10 },
+  shareText: { ...typography.bodyBold, color: colors.primary },
+  cancelText: { ...typography.bodyBold, color: colors.error },
+  buttonDisabled: { backgroundColor: colors.disabledSurface, borderColor: colors.disabledBorder },
+  button: { backgroundColor: colors.primary, borderRadius: borderRadius.xl, height: 52, alignItems: 'center', justifyContent: 'center', width: '100%', marginTop: 16 },
+  buttonText: { ...typography.button, color: colors.textInverse },
+  buttonTextDisabled: { color: colors.disabledText },
+  ratingCard: { backgroundColor: colors.surface, borderRadius: borderRadius.xxl, padding: spacing.xl, alignItems: 'center', borderWidth: 1, borderColor: colors.border, ...shadows.md },
+  ratingTitle: { ...typography.h2, color: colors.textPrimary },
+  ratingSubtitle: { ...typography.small, color: colors.textSecondary, marginTop: 6, marginBottom: spacing.lg },
+  starsRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  star: { fontSize: 38, color: colors.borderStrong },
+  starActive: { color: colors.secondary },
+  skipBtn: { marginTop: 12 }, skipText: { ...typography.small, color: colors.textSecondary },
+  modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
+  cancellationCard: { backgroundColor: colors.surface, borderTopLeftRadius: borderRadius.xxl, borderTopRightRadius: borderRadius.xxl, padding: spacing.lg, gap: 10 },
+  reasonOption: { borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.lg, padding: 14, backgroundColor: colors.surfaceRaised },
+  reasonOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  reasonText: { ...typography.small, color: colors.textPrimary },
+  retryText: { ...typography.label, color: colors.primary, padding: spacing.sm },
 });

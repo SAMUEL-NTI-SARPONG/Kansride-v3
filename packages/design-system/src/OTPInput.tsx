@@ -85,17 +85,17 @@ const styles = StyleSheet.create({
   },
   boxRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: 6,
   },
   box: {
-    width: 48,
+    width: 46,
     height: 56,
     borderWidth: 1.5,
     borderColor: colors.border,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
   },
   activeBox: {
     borderColor: colors.primary,
@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
   },
   filledBox: {
     borderColor: colors.primary,
-    backgroundColor: colors.background,
+    backgroundColor: colors.primarySoft,
   },
   errorBox: {
     borderColor: colors.error,

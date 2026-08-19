@@ -8,11 +8,15 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useState, useRef } from 'react';
 import { useAuthStore } from '../../src/stores/auth-store';
 import { postPublic } from '../../src/api/client';
+import { Ionicons } from '@expo/vector-icons';
+import { Button, Card, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function VerifyOTPScreen() {
   const { phone } = useLocalSearchParams<{ phone: string }>();
@@ -85,40 +89,38 @@ export default function VerifyOTPScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <Text style={styles.title}>Verify OTP</Text>
-      <Text style={styles.subtitle}>Enter the 6-digit code sent to {phone}</Text>
-      <View style={styles.otpRow}>
-        {otp.map((digit, i) => (
-          <TextInput
-            key={i}
-            ref={(ref) => { inputRefs.current[i] = ref; }}
-            style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
-            value={digit}
-            onChangeText={(value) => handleOtpChange(value.slice(-1), i)}
-            onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
-            keyboardType="number-pad"
-            maxLength={1}
-            editable={!loading}
-            autoFocus={i === 0}
-          />
-        ))}
-      </View>
-      <TouchableOpacity
-        style={[styles.button, loading && styles.buttonDisabled]}
-        onPress={() => handleVerify()}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color="#FFF" />
-        ) : (
-          <Text style={styles.buttonText}>Verify</Text>
-        )}
-      </TouchableOpacity>
-<TouchableOpacity
+    <SafeAreaView style={styles.safeArea}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={21} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <View style={styles.hero}>
+          <View style={styles.iconShell}><Ionicons name="chatbubble-ellipses-outline" size={29} color={colors.primary} /></View>
+          <Text style={styles.title}>Check your messages</Text>
+          <Text style={styles.subtitle}>We sent a 6-digit verification code to{`\n`}<Text style={styles.phone}>{phone}</Text></Text>
+        </View>
+        <Card variant="raised" shadow="lg" padding="lg" style={styles.card}>
+          <Text style={styles.codeLabel}>SECURE CODE</Text>
+          <View style={styles.otpRow}>
+            {otp.map((digit, i) => (
+              <TextInput
+                key={i}
+                ref={(ref) => { inputRefs.current[i] = ref; }}
+                style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
+                value={digit}
+                onChangeText={(value) => handleOtpChange(value.slice(-1), i)}
+                onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, i)}
+                keyboardType="number-pad"
+                maxLength={1}
+                editable={!loading}
+                autoFocus={i === 0}
+                accessibilityLabel={`Code digit ${i + 1}`}
+              />
+            ))}
+          </View>
+          <Button title="Verify and continue" onPress={() => void handleVerify()} loading={loading} disabled={otp.join('').length !== 6} fullWidth size="lg" />
+          <TouchableOpacity
         style={[styles.resendBtn, (loading || resending) && styles.resendDisabled]}
         onPress={async () => {
           // Surface the real outcome of the resend instead of always telling
@@ -145,50 +147,53 @@ export default function VerifyOTPScreen() {
         }}
         disabled={loading || resending}
       >
-        <Text style={styles.resendText}>{resending ? 'Sending…' : 'Resend Code'}</Text>
-      </TouchableOpacity>
-    </KeyboardAvoidingView>
+            {resending && <ActivityIndicator size="small" color={colors.primary} />}
+            <Text style={styles.resendText}>{resending ? 'Sending a new code…' : 'Didn’t receive it? Resend code'}</Text>
+          </TouchableOpacity>
+        </Card>
+        <Text style={styles.help}>Codes expire for your security. Never share this code with a driver.</Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, justifyContent: 'center' },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', textAlign: 'center' },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
+  content: { flexGrow: 1, padding: spacing.lg, justifyContent: 'center' },
+  backButton: { width: 46, height: 46, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, ...shadows.sm },
+  hero: { alignItems: 'center', marginBottom: spacing.lg },
+  iconShell: { width: 64, height: 64, borderRadius: borderRadius.xl, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  title: { ...typography.h1, color: colors.textPrimary, textAlign: 'center' },
   subtitle: {
-    fontSize: 14,
-    color: '#64748B',
+    ...typography.body,
+    color: colors.textSecondary,
     textAlign: 'center',
     marginTop: 8,
-    marginBottom: 32,
   },
-  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
+  phone: { color: colors.textPrimary, fontWeight: '700' },
+  card: { gap: spacing.lg },
+  codeLabel: { ...typography.label, color: colors.textSecondary, textAlign: 'center', letterSpacing: 1.2 },
+  otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
   otpBox: {
-    width: 48,
+    width: 44,
     height: 56,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFF',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     textAlign: 'center',
     fontSize: 24,
     fontWeight: '700',
-    color: '#1A1A2E',
+    color: colors.textPrimary,
   },
   otpBoxFilled: {
-    borderColor: '#1B8B4B',
-    backgroundColor: '#F0FDF4',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
   },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 32,
-  },
-  buttonDisabled: { opacity: 0.7 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  resendBtn: { alignItems: 'center', marginTop: 16 },
-  resendDisabled: { opacity: 0.5 },
-  resendText: { color: '#1B8B4B', fontSize: 14, fontWeight: '600' },
+  resendBtn: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing.sm, minHeight: 44 },
+  resendDisabled: { backgroundColor: colors.disabledSurface, borderRadius: borderRadius.lg },
+  resendText: { ...typography.small, color: colors.primary, fontWeight: '700' },
+  help: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg, paddingHorizontal: spacing.lg },
 });

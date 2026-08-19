@@ -5,6 +5,8 @@ import {
   TextInput as RNTextInput,
   StyleSheet,
   KeyboardTypeOptions,
+  ViewStyle,
+  StyleProp,
 } from 'react-native';
 import { colors } from './colors';
 import { borderRadius, spacing, typography } from './theme';
@@ -18,6 +20,12 @@ interface TextInputProps {
   keyboardType?: KeyboardTypeOptions;
   secureTextEntry?: boolean;
   editable?: boolean;
+  helperText?: string;
+  leftAccessory?: React.ReactNode;
+  rightAccessory?: React.ReactNode;
+  containerStyle?: StyleProp<ViewStyle>;
+  accessibilityLabel?: string;
+  maxLength?: number;
 }
 
 export const TextInput: React.FC<TextInputProps> = ({
@@ -29,6 +37,12 @@ export const TextInput: React.FC<TextInputProps> = ({
   keyboardType,
   secureTextEntry = false,
   editable = true,
+  helperText,
+  leftAccessory,
+  rightAccessory,
+  containerStyle,
+  accessibilityLabel,
+  maxLength,
 }) => {
   const [isFocused, setIsFocused] = useState(false);
 
@@ -39,25 +53,28 @@ export const TextInput: React.FC<TextInputProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerStyle]}>
       {label && <Text style={styles.label}>{label}</Text>}
-      <RNTextInput
-        style={[
-          styles.input,
-          { borderColor: getBorderColor() },
-          !editable && styles.disabled,
-        ]}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        editable={editable}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-      />
+      <View style={[styles.inputShell, { borderColor: getBorderColor() }, isFocused && styles.focused, !editable && styles.disabled]}>
+        {leftAccessory}
+        <RNTextInput
+          style={styles.input}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textMuted}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry}
+          editable={editable}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          accessibilityLabel={accessibilityLabel ?? label ?? placeholder}
+          maxLength={maxLength}
+        />
+        {rightAccessory}
+      </View>
       {error && <Text style={styles.errorText}>{error}</Text>}
+      {!error && helperText && <Text style={styles.helperText}>{helperText}</Text>}
     </View>
   );
 };
@@ -72,22 +89,26 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.xs,
   },
-  input: {
-    height: 48,
+  inputShell: {
+    minHeight: 54,
     borderWidth: 1.5,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.lg,
     paddingHorizontal: 16,
-    fontSize: 16,
-    color: colors.textPrimary,
-    backgroundColor: colors.white,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
+  focused: { backgroundColor: colors.white, shadowColor: colors.primary, shadowOpacity: 0.12, shadowRadius: 8, elevation: 2 },
+  input: { flex: 1, minHeight: 52, fontSize: 16, color: colors.textPrimary, paddingVertical: 0 },
   disabled: {
-    backgroundColor: colors.background,
-    opacity: 0.7,
+    backgroundColor: colors.disabledSurface,
+    borderColor: colors.disabledBorder,
   },
   errorText: {
     ...typography.caption,
     color: colors.error,
     marginTop: spacing.xs,
   },
+  helperText: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
 });

@@ -9,8 +9,15 @@ import {
   transformPassengerRideDetail,
   type PassengerRideDetail,
 } from '../../../src/ride-details';
+import { Ionicons } from '@expo/vector-icons';
+import { Button, StatusBadge, borderRadius, colors, spacing, typography } from '@kansride/ui';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { usePassengerInsets } from '../../../src/ui/use-passenger-insets';
+
+const reviewMode = developmentReviewModeEnabled(process.env.NODE_ENV, process.env.EXPO_PUBLIC_UI_REVIEW_MODE);
 
 export default function PassengerRideDetailScreen() {
+  const insets = usePassengerInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [detail, setDetail] = useState<PassengerRideDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,6 +30,10 @@ export default function PassengerRideDetailScreen() {
     setLoading(true);
     setError(null);
     try {
+      if (reviewMode) {
+        setDetail(transformPassengerRideDetail({ id: String(id), status: 'completed', pickupAddress: 'Market Circle', dropoffAddress: 'Airport Roundabout', rideType: 'standard_tricycle', estimatedDistanceMeters: 6400, estimatedDurationSeconds: 780, estimatedFarePesewas: 1850, actualFarePesewas: 1850, createdAt: '2026-08-18T10:15:00.000Z', updatedAt: '2026-08-18T10:30:00.000Z', completedAt: '2026-08-18T10:30:00.000Z', rating: 5, driver: { name: 'Kwame Boateng', vehicle: 'Green tricycle · WR 0001-26', rating: 4.8 } }));
+        return;
+      }
       const record = await get<Record<string, unknown>>(`/rides/${id}`);
       setDetail(transformPassengerRideDetail(record as never));
     } catch (loadError) {
@@ -38,6 +49,10 @@ export default function PassengerRideDetailScreen() {
 
   const submitRating = async () => {
     if (!detail || !isRideRatingEligible(detail) || rating === 0) return;
+    if (reviewMode) {
+      Alert.alert('UI review mode', 'Server actions are unavailable in UI review mode.');
+      return;
+    }
     setRatingLoading(true);
     try {
       await post(`/rides/${detail.id}/rate`, { rating });
@@ -51,14 +66,13 @@ export default function PassengerRideDetailScreen() {
     }
   };
 
-  if (loading) return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color="#1B8B4B" /></View>;
-  if (error || !detail) return <View style={[styles.container, styles.center]}><Text style={styles.error}>{error || 'Ride details unavailable.'}</Text><TouchableOpacity onPress={loadDetail} style={styles.button} accessibilityRole="button"><Text style={styles.buttonText}>Retry</Text></TouchableOpacity></View>;
+  if (loading) return <View style={[styles.container, styles.center, { paddingTop: insets.top, paddingBottom: insets.bottom }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
+  if (error || !detail) return <View style={[styles.container, styles.center, { paddingTop: insets.top, paddingBottom: insets.bottom }]}><View style={styles.emptyIcon}><Ionicons name="alert-circle-outline" size={30} color={colors.error} /></View><Text style={styles.error}>{error || 'Ride details unavailable.'}</Text><Button title="Try again" onPress={() => void loadDetail()} /></View>;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back"><Text style={styles.back}>Back</Text></TouchableOpacity>
-      <Text style={styles.title}>Ride details</Text>
-      <Text style={styles.status}>{formatRideStatus(detail.status)}</Text>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <TouchableOpacity onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Go back" style={styles.backButton}><Ionicons name="arrow-back" size={20} color={colors.textPrimary} /></TouchableOpacity>
+      <Text style={styles.eyebrow}>TRIP RECEIPT</Text><View style={styles.titleRow}><Text style={styles.title}>Ride details</Text><StatusBadge label={formatRideStatus(detail.status)} tone={detail.status === 'completed' ? 'success' : detail.status.includes('cancelled') ? 'error' : 'primary'} dot /></View>
       <View style={styles.card}>
         <Text style={styles.label}>Pickup</Text><Text style={styles.value}>{detail.pickup}</Text>
         <Text style={styles.label}>Destination</Text><Text style={styles.value}>{detail.destination}</Text>
@@ -80,25 +94,27 @@ export default function PassengerRideDetailScreen() {
         <Text style={styles.value}>{detail.driver?.rating === null || !detail.driver ? 'Rating unavailable' : `Rating ${detail.driver.rating.toFixed(1)}`}</Text>
       </View>
       {detail.cancellationReason && <View style={styles.card}><Text style={styles.label}>Cancellation reason</Text><Text style={styles.value}>{detail.cancellationReason}</Text></View>}
-      {isRideRatingEligible(detail) && <View style={styles.card}><Text style={styles.label}>Rate this completed ride</Text><View style={styles.stars}>{[1, 2, 3, 4, 5].map((star) => <TouchableOpacity key={star} onPress={() => setRating(star)} accessibilityRole="button" accessibilityLabel={`Rate ${star} stars`}><Text style={styles.star}>{star <= rating ? '★' : '☆'}</Text></TouchableOpacity>)}</View><TouchableOpacity onPress={submitRating} disabled={ratingLoading || rating === 0} style={[styles.button, (ratingLoading || rating === 0) && styles.disabled]}><Text style={styles.buttonText}>{ratingLoading ? 'Submitting…' : 'Submit rating'}</Text></TouchableOpacity></View>}
+      {isRideRatingEligible(detail) && <View style={styles.card}><Text style={styles.label}>Rate this completed ride</Text><View style={styles.stars}>{[1, 2, 3, 4, 5].map((star) => <TouchableOpacity key={star} onPress={() => setRating(star)} accessibilityRole="button" accessibilityLabel={`Rate ${star} stars`}><Text style={styles.star}>{star <= rating ? '★' : '☆'}</Text></TouchableOpacity>)}</View><TouchableOpacity onPress={submitRating} disabled={ratingLoading || rating === 0} style={[styles.button, (ratingLoading || rating === 0) && styles.disabled]}><Text style={[styles.buttonText, (ratingLoading || rating === 0) && styles.disabledText]}>{ratingLoading ? 'Submitting…' : 'Submit rating'}</Text></TouchableOpacity></View>}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB' },
-  content: { padding: 24, paddingTop: 60, gap: 12 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: spacing.lg, gap: 10 },
   center: { alignItems: 'center', justifyContent: 'center', padding: 24 },
-  back: { color: '#1B8B4B', fontWeight: '600' },
-  title: { fontSize: 26, fontWeight: '700', color: '#1A1A2E' },
-  status: { color: '#1B8B4B', fontWeight: '700', textTransform: 'capitalize' },
-  card: { backgroundColor: '#FFF', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E2E8F0', gap: 4 },
-  label: { color: '#64748B', fontSize: 12, marginTop: 8 },
-  value: { color: '#1A1A2E', fontSize: 15 },
-  error: { color: '#B91C1C', textAlign: 'center', marginBottom: 12 },
-  button: { backgroundColor: '#1B8B4B', borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 10 },
-  disabled: { opacity: 0.5 },
-  buttonText: { color: '#FFF', fontWeight: '700' },
+  backButton: { width: 44, height: 44, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.3 }, titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  title: { ...typography.h1, color: colors.textPrimary },
+  card: { backgroundColor: colors.surface, borderRadius: borderRadius.xl, padding: 14, borderWidth: 1, borderColor: colors.border, gap: 3 },
+  label: { ...typography.caption, color: colors.textSecondary, marginTop: 8 },
+  value: { ...typography.small, color: colors.textPrimary, fontWeight: '600' },
+  emptyIcon: { width: 60, height: 60, borderRadius: borderRadius.xl, backgroundColor: colors.errorSoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  error: { ...typography.small, color: colors.error, textAlign: 'center', marginBottom: 12 },
+  button: { backgroundColor: colors.primary, borderRadius: borderRadius.lg, padding: 14, alignItems: 'center', marginTop: 10 },
+  disabled: { backgroundColor: colors.disabledSurface, borderWidth: 1, borderColor: colors.disabledBorder },
+  disabledText: { color: colors.disabledText },
+  buttonText: { color: colors.textInverse, fontWeight: '700' },
   stars: { flexDirection: 'row', gap: 10 },
-  star: { fontSize: 34, color: '#F59E0B' },
+  star: { fontSize: 34, color: colors.secondary },
 });

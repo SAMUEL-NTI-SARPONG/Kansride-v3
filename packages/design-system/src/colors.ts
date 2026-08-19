@@ -1,37 +1,56 @@
 export const colors = {
-  // KansRide Brand (inspired by Ghana flag colors)
-  primary: '#1B8B4B',
-  primaryLight: '#2EAF65',
-  primaryDark: '#146B39',
-  secondary: '#FFB800',
-  secondaryLight: '#FFCC40',
-  secondaryDark: '#CC9300',
+  // KansRide brand — deep teal stays legible in bright outdoor conditions.
+  primary: '#075E59',
+  primaryLight: '#148078',
+  primaryDark: '#03423F',
+  primarySoft: '#DCEDEA',
+  primarySoftBorder: '#BBD7D2',
+  secondary: '#E4A94F',
+  secondaryLight: '#F3D69B',
+  secondaryDark: '#A96C18',
 
   // Semantic
-  success: '#22C55E',
-  warning: '#F59E0B',
-  error: '#EF4444',
-  info: '#3B82F6',
+  success: '#287A55',
+  successSoft: '#E2F1E8',
+  successBorder: '#BFDDCB',
+  warning: '#B66A16',
+  warningSoft: '#FFF1D8',
+  warningBorder: '#E9CC98',
+  error: '#B6423A',
+  errorSoft: '#FBE8E5',
+  errorBorder: '#E8C2BD',
+  info: '#236B8E',
+  infoSoft: '#E2F0F5',
+  infoBorder: '#BEDDE8',
 
   // Neutrals
   white: '#FFFFFF',
   black: '#000000',
-  background: '#F8FAFB',
-  surface: '#FFFFFF',
-  border: '#E2E8F0',
+  background: '#F6F0E6',
+  backgroundDeep: '#EDE4D7',
+  surface: '#FFFDF8',
+  surfaceRaised: '#FFFAF1',
+  surfaceTranslucent: 'rgba(255, 253, 248, 0.94)',
+  surfaceInset: '#EEE6DA',
+  border: '#DDD3C4',
+  borderStrong: '#C7BAA7',
+  overlay: 'rgba(18, 37, 35, 0.46)',
 
   // Text
-  textPrimary: '#1A1A2E',
-  textSecondary: '#64748B',
-  textMuted: '#94A3B8',
+  textPrimary: '#142F2C',
+  textSecondary: '#4D625D',
+  textMuted: '#6E7E79',
+  disabledSurface: '#E2DBCF',
+  disabledBorder: '#C9BFB0',
+  disabledText: '#65736F',
   textInverse: '#FFFFFF',
 
   // Map
-  driverMarker: '#1B8B4B',
-  passengerMarker: '#3B82F6',
-  routeLine: '#1B8B4B',
-  pickupPin: '#22C55E',
-  dropoffPin: '#EF4444',
+  driverMarker: '#075E59',
+  passengerMarker: '#236B8E',
+  routeLine: '#075E59',
+  pickupPin: '#287A55',
+  dropoffPin: '#B6423A',
 } as const;
 
 export type ColorKey = keyof typeof colors;

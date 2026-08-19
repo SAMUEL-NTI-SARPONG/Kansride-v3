@@ -1,7 +1,10 @@
 import { Redirect, Tabs } from 'expo-router';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../../src/stores/auth-store';
 import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { colors, layout, shadows, typography } from '@kansride/ui';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const reviewMode = developmentReviewModeEnabled(
   process.env.NODE_ENV,
@@ -9,11 +12,12 @@ const reviewMode = developmentReviewModeEnabled(
 );
 
 export default function MainLayout() {
+  const insets = useSafeAreaInsets();
   const { isAuthenticated, isLoading } = useAuthStore();
   if (!reviewMode && isLoading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color="#1B8B4B" />
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
@@ -21,27 +25,41 @@ export default function MainLayout() {
 
   return (
     <Tabs
-      screenOptions={{ headerShown: false, tabBarActiveTintColor: '#1B8B4B' }}
+      screenOptions={{
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarHideOnKeyboard: true,
+        tabBarLabelStyle: { ...typography.caption, fontWeight: '700', marginTop: 2 },
+        tabBarStyle: {
+          height: layout.bottomTabContentHeight + insets.bottom,
+          paddingTop: 8,
+          paddingBottom: Math.max(insets.bottom, 8),
+          backgroundColor: colors.surface,
+          borderTopWidth: 0,
+          ...shadows.md,
+        },
+      }}
     >
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🏠</Text>,
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="activity"
         options={{
           title: 'Activity',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📋</Text>,
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'time' : 'time-outline'} size={23} color={color} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>👤</Text>,
+          tabBarIcon: ({ color, focused }) => <Ionicons name={focused ? 'person' : 'person-outline'} size={22} color={color} />,
         }}
       />
       <Tabs.Screen

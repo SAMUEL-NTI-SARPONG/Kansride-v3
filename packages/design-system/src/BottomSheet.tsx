@@ -10,7 +10,8 @@ import {
   Dimensions,
 } from 'react-native';
 import { colors } from './colors';
-import { spacing, typography } from './theme';
+import { borderRadius, shadows, spacing, typography } from './theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -27,6 +28,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   children,
   title,
 }) => {
+  const insets = useSafeAreaInsets();
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
   useEffect(() => {
@@ -60,6 +62,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       <Animated.View
         style={[
           styles.container,
+          { paddingBottom: insets.bottom + spacing.md },
           { transform: [{ translateY }] },
         ]}
       >
@@ -83,18 +86,18 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: colors.overlay,
   },
   container: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: colors.white,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: spacing.xl,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
     maxHeight: SCREEN_HEIGHT * 0.85,
+    ...shadows.lg,
   },
   handle: {
     width: 40,
@@ -122,7 +125,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceInset,
   },
   closeText: {
     fontSize: 18,
