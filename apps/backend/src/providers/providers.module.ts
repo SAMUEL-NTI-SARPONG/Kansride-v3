@@ -7,6 +7,7 @@ import { MAPS_PROVIDER } from './maps/maps.interface';
 import { HaversineMapsProvider } from './maps/haversine-maps.provider';
 import { PAYMENT_PROVIDER } from './payments/payment.interface';
 import { MockPaymentProvider } from './payments/mock-payment.provider';
+import { DisabledPaymentProvider } from './payments/disabled-payment.provider';
 
 @Global()
 @Module({
@@ -37,10 +38,14 @@ import { MockPaymentProvider } from './payments/mock-payment.provider';
       provide: PAYMENT_PROVIDER,
       useFactory: () => {
         const provider = getEnv().PAYMENT_PROVIDER;
-        if (provider !== 'mock') {
-          throw new Error(`PAYMENT_PROVIDER=${provider} is not implemented`);
+        switch (provider) {
+          case 'mock':
+            return new MockPaymentProvider();
+          case 'disabled':
+            return new DisabledPaymentProvider();
+          default:
+            throw new Error(`PAYMENT_PROVIDER=${provider} is not implemented`);
         }
-        return new MockPaymentProvider();
       },
     },
   ],

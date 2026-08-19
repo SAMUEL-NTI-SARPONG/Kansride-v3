@@ -4,6 +4,10 @@ import { DriversService } from '../src/modules/drivers/drivers.service';
 import { makeDbStub } from './helpers/drizzle-mock';
 import type { IRedisService } from '../src/redis/redis.interface';
 import type { IPaymentProvider } from '../src/providers/payments/payment.interface';
+import {
+  DisabledPaymentProvider,
+  PAYMENTS_TEMPORARILY_UNAVAILABLE_MESSAGE,
+} from '../src/providers/payments/disabled-payment.provider';
 
 const DRIVER_ID = '00000000-0000-4000-8000-000000000020';
 const USER_ID = '00000000-0000-4000-8000-000000000021';
@@ -93,6 +97,52 @@ describe('DriversService.subscribe payment lifecycle', () => {
       reference: 'provider-1',
       status: 'successful',
     });
+    db.assertDrained();
+  });
+
+  it('returns a controlled unavailable response without writing payment state when payments are disabled', async () => {
+    const { service, db } = buildService(
+      makeDbStub(),
+      new DisabledPaymentProvider(),
+    );
+    const transaction = vi.spyOn(db, 'transaction');
+    db.enqueue([{ id: DRIVER_ID, userId: USER_ID }]);
+    db.enqueue([{ id: USER_ID, phoneNumber: '+233501234567' }]);
+
+    await expect(
+      service.subscribe(DRIVER_ID, 'mtn_mobile_money'),
+    ).rejects.toMatchObject({
+      status: 503,
+      response: {
+        statusCode: 503,
+        message: PAYMENTS_TEMPORARILY_UNAVAILABLE_MESSAGE,
+      },
+    });
+    expect(transaction).not.toHaveBeenCalled();
+    db.assertDrained();
+  });
+
+  it('keeps a pre-provisioned active pilot subscription usable when payments are disabled', async () => {
+    const { service, db, redis } = buildService(
+      makeDbStub(),
+      new DisabledPaymentProvider(),
+    );
+    db.enqueue([{ id: DRIVER_ID, userId: USER_ID }]);
+    db.enqueue([{ id: SUBSCRIPTION_ID, driverId: DRIVER_ID, status: 'active' }]);
+    db.enqueue([]);
+
+    await expect(
+      service.setOnlineStatus(DRIVER_ID, true, {
+        latitude: 5.603,
+        longitude: -0.187,
+      }),
+    ).resolves.toMatchObject({ driverId: DRIVER_ID, online: true });
+    expect(redis.geoAdd).toHaveBeenCalledWith(
+      'drivers:online:locations',
+      -0.187,
+      5.603,
+      DRIVER_ID,
+    );
     db.assertDrained();
   });
 });

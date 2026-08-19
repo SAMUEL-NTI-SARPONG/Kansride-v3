@@ -77,10 +77,11 @@ const envSchema = z.object({
   MAPS_PROVIDER: z.enum(['openstreetmap', 'google']).default('openstreetmap'),
   MAPS_API_KEY: z.string().default(''),
 
-  // Payments. Mock mode is deterministic for development only. A live adapter
-  // is intentionally credential-gated and fails startup until a provider is
-  // selected and implemented behind the existing IPaymentProvider interface.
-  PAYMENT_PROVIDER: z.enum(['mock', 'momo']).default('mock'),
+  // Payments. Mock mode is deterministic for development/test only. Disabled
+  // mode is the explicit production-safe V1 configuration and never reports a
+  // successful payment. A live adapter remains credential-gated and fails
+  // startup until implemented behind the existing IPaymentProvider interface.
+  PAYMENT_PROVIDER: z.enum(['mock', 'disabled', 'momo']).default('mock'),
   PAYMENT_API_KEY: z.string().default(''),
   PAYMENT_API_SECRET: z.string().default(''),
 

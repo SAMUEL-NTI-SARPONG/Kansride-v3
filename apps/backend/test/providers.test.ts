@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MockSMSProvider } from '../src/providers/sms/mock-sms.provider';
 import { MockPaymentProvider } from '../src/providers/payments/mock-payment.provider';
+import {
+  DisabledPaymentProvider,
+  PAYMENTS_TEMPORARILY_UNAVAILABLE_MESSAGE,
+} from '../src/providers/payments/disabled-payment.provider';
 import { HaversineMapsProvider } from '../src/providers/maps/haversine-maps.provider';
 
 describe('provider contracts', () => {
@@ -19,6 +23,23 @@ describe('provider contracts', () => {
       status: 'success',
       amountPesewas: 1000,
     });
+  });
+
+  it('disabled payments reject initiation and verification with a controlled 503', async () => {
+    const provider = new DisabledPaymentProvider();
+
+    for (const operation of [
+      provider.initiate(1000, 'mtn_mobile_money', '+233200000002', 'demo'),
+      provider.verify('provider-reference'),
+    ]) {
+      await expect(operation).rejects.toMatchObject({
+        status: 503,
+        response: {
+          statusCode: 503,
+          message: PAYMENTS_TEMPORARILY_UNAVAILABLE_MESSAGE,
+        },
+      });
+    }
   });
 
   it('Haversine maps returns finite integer distance and duration', async () => {

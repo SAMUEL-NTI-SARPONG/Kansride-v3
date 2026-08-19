@@ -68,9 +68,15 @@ async function main() {
 
   const paymentProvider = process.env.PAYMENT_PROVIDER || 'mock';
   const mapsProvider = process.env.MAPS_PROVIDER || 'openstreetmap';
-  report('payment-provider', !production && paymentProvider === 'mock', `${paymentProvider}${paymentProvider === 'mock' ? ' (development mock)' : ''}`);
+  const paymentProviderReady = paymentProvider === 'disabled' || (!production && paymentProvider === 'mock');
+  const paymentDetail = paymentProvider === 'mock'
+    ? 'mock (development mock)'
+    : paymentProvider === 'disabled'
+      ? 'disabled (online payments unavailable by configuration)'
+      : paymentProvider;
+  report('payment-provider', paymentProviderReady, paymentDetail);
   report('maps-provider', mapsProvider === 'openstreetmap', `${mapsProvider}${mapsProvider === 'openstreetmap' ? ' (Haversine adapter)' : ' (adapter unavailable)'}`);
-  if (production && paymentProvider !== 'mock') {
+  if (paymentProvider === 'momo') {
     report('payment-production-adapter', false, `${paymentProvider} is not implemented; activation requires an approved adapter`);
     ready = false;
   }

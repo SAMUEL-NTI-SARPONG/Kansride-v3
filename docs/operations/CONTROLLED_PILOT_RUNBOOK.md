@@ -9,7 +9,7 @@ Required gates before pilot:
 - PostgreSQL 16 with PostGIS and Redis 7 reachable from the backend.
 - HTTPS API/admin/tracking URLs and restrictive `WEB_CORS_ORIGINS`.
 - Non-default production JWT secrets supplied through a secret manager.
-- Approved SMS, payment, and maps provider decisions and credentials.
+- Approved SMS and maps provider decisions and credentials, plus the explicit V1 payment decision (`PAYMENT_PROVIDER=disabled`).
 - First admin and pilot drivers provisioned through controlled operations.
 - Android two-phone test matrix completed by the owner.
 
@@ -24,7 +24,7 @@ Required backend variables:
 - `APP_PORT`
 - `WEB_CORS_ORIGINS=https://admin.example,https://tracking.example`
 - `SMS_PROVIDER` and provider credentials when using a live SMS adapter
-- `PAYMENT_PROVIDER` and approved adapter credentials
+- `PAYMENT_PROVIDER=disabled` while V1 online payments are postponed
 - `MAPS_PROVIDER` and approved adapter credentials
 
 Required web variables:
@@ -102,7 +102,7 @@ Redis contains dispatch offers, driver geo availability, and tracking capabiliti
 ## Provider activation checklist
 
 - SMS: choose Hubtel or another approved provider; configure `SMS_PROVIDER`, API secret, sender ID, timeout and failure monitoring. Verify OTP delivery and failure reporting.
-- Mobile Money: choose a provider through owner decision D2; implement/approve the adapter behind `IPaymentProvider`, configure credentials, callback/verification URL, signature validation, timeout, retry and provider-reference idempotency. Do not activate `mock` in production.
+- Mobile Money: set `PAYMENT_PROVIDER=disabled` for V1. The driver subscription endpoint then returns HTTP 503 without recording or activating a payment. Existing controlled pilot subscriptions remain valid; the admin API currently lists but does not activate subscriptions. Do not activate `mock` or run the demo seed in production. A future live provider still requires owner approval, an implemented adapter, credentials, callback/verification handling, and provider-reference idempotency.
 - Maps: choose an approved maps/routing provider; configure the adapter and API key/quota restrictions. Current Haversine mode is deterministic development behavior, not a production routing SLA.
 - WhatsApp/USSD: no current V1 interface exists; do not claim activation until the owner approves a contract and provider.
 
