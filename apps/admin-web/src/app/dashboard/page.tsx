@@ -10,10 +10,10 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <div className="animate-pulse space-y-6">
-        <h2 className="text-2xl font-bold text-gray-900 mb-6">Dashboard Overview</h2>
+        <h2 className="mb-6 text-3xl font-extrabold text-gray-900">Dashboard overview</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 border border-gray-200 h-28" />
+            <div key={i} className="h-32 rounded-xl border border-gray-200 bg-white p-6" />
           ))}
         </div>
       </div>
@@ -30,30 +30,38 @@ export default function DashboardPage() {
   }
 
   const stats = [
-    { label: 'Total Users', value: data?.totalUsers ?? 0 },
-    { label: 'Total Drivers', value: data?.totalDrivers ?? 0 },
-    { label: 'Active Rides', value: data?.activeRides ?? 0 },
-    { label: 'Revenue', value: formatGhsFromPesewas(data?.totalRevenuePesewas) },
+    { label: 'Total users', value: data?.totalUsers ?? 0, detail: 'Registered accounts' },
+    { label: 'Total drivers', value: data?.totalDrivers ?? 0, detail: 'Approved and applicants' },
+    { label: 'Active rides', value: data?.activeRides ?? 0, detail: 'Currently in service' },
+    { label: 'Revenue', value: formatGhsFromPesewas(data?.totalRevenuePesewas), detail: 'Completed ride value' },
   ];
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Dashboard Overview</h2>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-3xl font-extrabold text-gray-900">Dashboard overview</h2>
+          <p className="mt-1 text-sm text-gray-500">A focused view of KansRide operations today.</p>
+        </div>
+        <span className="rounded-full border border-[#CADFD9] bg-[#E7F2EF] px-3 py-1.5 text-xs font-bold text-primary">Live overview</span>
+      </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => (
-          <div key={stat.label} className="bg-white rounded-xl p-6 border border-gray-200">
-            <p className="text-sm text-gray-500">{stat.label}</p>
-            <p className="text-3xl font-bold text-gray-900 mt-2">{stat.value}</p>
+          <div key={stat.label} className="rounded-xl border border-gray-200 bg-white p-5">
+            <div className="mb-4 h-1 w-9 rounded-full bg-primary/70" />
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-gray-500">{stat.label}</p>
+            <p className="mt-1 text-3xl font-extrabold tracking-[-0.035em] text-gray-900">{stat.value}</p>
+            <p className="mt-2 text-xs text-gray-500">{stat.detail}</p>
           </div>
         ))}
       </div>
 
       {/* Recent Rides */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Recent Rides</h3>
+          <h3 className="text-lg font-bold text-gray-900">Recent rides</h3>
         </div>
         {data?.recentRides && data.recentRides.length > 0 ? (
           <table className="w-full">

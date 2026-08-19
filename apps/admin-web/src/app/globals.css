@@ -2,6 +2,134 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+@layer base {
+  :root {
+    --kr-ivory: #f6f0e6;
+    --kr-surface: #fffdf8;
+    --kr-surface-soft: #eee6d8;
+    --kr-teal: #075e59;
+    --kr-teal-dark: #03423f;
+    --kr-ink: #173633;
+    --kr-muted: #61736f;
+    --kr-border: #ddd4c4;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    background: var(--kr-ivory);
+    color: var(--kr-ink);
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible {
+    outline: 3px solid rgba(20, 128, 120, 0.28);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .admin-sidebar {
+    background: rgba(255, 253, 248, 0.96);
+    border-color: var(--kr-border);
+    box-shadow: 12px 0 32px rgba(42, 58, 51, 0.05);
+  }
+
+  .admin-nav-link {
+    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition;
+    color: #526963;
+  }
+
+  .admin-nav-link:hover {
+    background: #f0eadd;
+    color: var(--kr-teal);
+  }
+
+  .admin-nav-link-active {
+    background: #dcebe7;
+    color: var(--kr-teal-dark);
+    box-shadow: inset 3px 0 0 var(--kr-teal);
+  }
+
+  .admin-main h2 {
+    color: var(--kr-ink);
+    letter-spacing: -0.025em;
+  }
+
+  .admin-main .bg-white {
+    background-color: var(--kr-surface);
+  }
+
+  .admin-main .border-gray-200 {
+    border-color: var(--kr-border);
+  }
+
+  .admin-main .bg-gray-50,
+  .admin-main .bg-gray-100 {
+    background-color: #f0eadd;
+  }
+
+  .admin-main .text-gray-900 {
+    color: var(--kr-ink);
+  }
+
+  .admin-main .text-gray-700,
+  .admin-main .text-gray-600,
+  .admin-main .text-gray-500 {
+    color: var(--kr-muted);
+  }
+
+  .admin-main .rounded-xl.border {
+    box-shadow: 0 14px 34px rgba(45, 55, 47, 0.065);
+  }
+
+  .admin-main table {
+    min-width: 720px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .admin-main thead th {
+    color: #63746f;
+    font-size: 0.68rem;
+    letter-spacing: 0.075em;
+  }
+
+  .admin-main tbody tr {
+    transition: background-color 150ms ease;
+  }
+
+  .admin-main tbody tr:hover {
+    background: #f8f3ea;
+  }
+
+  .admin-main input {
+    border-color: var(--kr-border);
+    background: var(--kr-surface);
+    color: var(--kr-ink);
+  }
+
+  .admin-main input::placeholder {
+    color: #87948f;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -65,11 +65,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F6F0E6] px-4 py-10">
+      <div className="absolute -left-24 top-16 h-64 w-64 rounded-full bg-primary/10 blur-3xl" />
+      <div className="absolute -right-24 bottom-12 h-72 w-72 rounded-full bg-secondary/15 blur-3xl" />
+      <div className="relative w-full max-w-md rounded-3xl border border-[#DDD4C4] bg-[#FFFDF8] p-7 shadow-panel sm:p-9">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-primary">KansRide</h1>
-          <p className="text-gray-500 mt-2">Admin Dashboard</p>
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-base font-black text-white shadow-control">KR</div>
+          <h1 className="text-3xl font-extrabold tracking-[-0.04em] text-primary-dark">KansRide</h1>
+          <p className="mt-2 text-sm text-[#61736F]">Sign in to the operations dashboard</p>
         </div>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>
@@ -82,7 +85,7 @@ export default function LoginPage() {
               disabled={otpRequested || loading}
               value={phone}
               onChange={(event) => setPhone(event.target.value)}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary disabled:bg-gray-100"
+              className="w-full rounded-xl border border-[#D8CFBF] bg-white px-4 py-3 text-[#173633] transition focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:bg-[#ECE7DD] disabled:text-[#788783]"
               placeholder="024 XXX XXXX"
             />
           </div>
@@ -102,7 +105,7 @@ export default function LoginPage() {
                 onChange={(event) =>
                   setCode(event.target.value.replace(/\D/g, '').slice(0, 6))
                 }
-                className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary"
+                className="w-full rounded-xl border border-[#D8CFBF] bg-white px-4 py-3 text-[#173633] transition focus:border-primary focus:ring-2 focus:ring-primary/20"
                 placeholder="6 digits"
               />
             </div>
@@ -111,7 +114,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary-dark transition disabled:opacity-60"
+            className="w-full rounded-xl bg-primary py-3.5 font-bold text-white shadow-control transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:bg-[#789C97] disabled:text-white/90 disabled:shadow-none"
           >
             {loading ? 'Please wait…' : otpRequested ? 'Verify and sign in' : 'Send OTP'}
           </button>
@@ -124,13 +127,13 @@ export default function LoginPage() {
                 setCode('');
                 setError('');
               }}
-              className="w-full text-sm text-gray-600"
+              className="w-full rounded-lg py-1 text-sm font-semibold text-[#526963] hover:text-primary"
             >
               Use a different number
             </button>
           )}
         </form>
-        <p className="text-xs text-gray-500 mt-6 text-center">
+        <p className="mt-6 text-center text-xs leading-5 text-[#6A7B76]">
           Access requires a pre-provisioned staff account.
         </p>
       </div>

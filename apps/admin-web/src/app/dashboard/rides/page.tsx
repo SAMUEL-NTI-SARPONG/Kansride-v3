@@ -33,13 +33,13 @@ export default function RidesPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Ride History</h2>
+      <div className="mb-6"><h2 className="text-3xl font-extrabold text-gray-900">Ride history</h2><p className="mt-1 text-sm text-gray-500">Search and investigate every ride state.</p></div>
 
       <input
         value={search}
         onChange={(event) => { setSearch(event.target.value); setPage(1); }}
         placeholder="Search ride UUID or passenger phone"
-        className="mb-4 w-full max-w-md rounded-lg border border-gray-200 px-4 py-2 text-sm"
+        className="mb-4 w-full max-w-md rounded-xl border border-gray-200 px-4 py-2.5 text-sm shadow-sm"
         aria-label="Search rides"
       />
 
@@ -66,7 +66,7 @@ export default function RidesPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
@@ -123,7 +123,7 @@ export default function RidesPage() {
 
       {selectedRideId && (
         <div className="fixed inset-0 z-20 flex justify-end bg-black/30" role="dialog" aria-modal="true" aria-label="Ride investigation">
-          <aside className="h-full w-full max-w-lg overflow-y-auto bg-white p-6 shadow-xl">
+          <aside className="h-full w-full max-w-lg overflow-y-auto border-l border-[#DDD4C4] bg-[#FFFDF8] p-6 shadow-2xl">
             <div className="mb-6 flex items-center justify-between">
               <h3 className="text-xl font-semibold text-gray-900">Ride investigation</h3>
               <button type="button" onClick={() => setSelectedRideId(null)} className="text-sm text-gray-500">Close</button>

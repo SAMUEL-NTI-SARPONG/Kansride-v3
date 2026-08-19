@@ -21,9 +21,9 @@ export default function DriversPage() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Driver Management</h2>
-        <div className="flex gap-2">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div><h2 className="text-3xl font-extrabold text-gray-900">Driver management</h2><p className="mt-1 text-sm text-gray-500">Review onboarding, availability and account standing.</p></div>
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-gray-100 p-1">
           {['all', 'pending', 'online', 'offline'].map((s) => (
             <button
               key={s}
@@ -53,7 +53,7 @@ export default function DriversPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>

@@ -12,7 +12,7 @@ export default function SubscriptionsPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">Subscriptions</h2>
+      <div className="mb-6"><h2 className="text-3xl font-extrabold text-gray-900">Subscriptions</h2><p className="mt-1 text-sm text-gray-500">Monitor driver access periods and payment status.</p></div>
 
       <div className="mb-4 bg-white rounded-xl border border-gray-200 p-4">
         <p className="text-gray-500">Daily subscription fee: <span className="font-bold text-primary">{formatGhsFromPesewas(DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS)}</span></p>
@@ -24,7 +24,7 @@ export default function SubscriptionsPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>

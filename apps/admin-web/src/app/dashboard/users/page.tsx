@@ -20,7 +20,7 @@ export default function UsersPage() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-900 mb-6">User Management</h2>
+      <div className="mb-6"><h2 className="text-3xl font-extrabold text-gray-900">User management</h2><p className="mt-1 text-sm text-gray-500">Review customer access and account health.</p></div>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 mb-4">
@@ -28,7 +28,7 @@ export default function UsersPage() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
