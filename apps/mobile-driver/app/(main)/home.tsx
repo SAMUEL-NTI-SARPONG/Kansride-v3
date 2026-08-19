@@ -1,4 +1,4 @@
-import { View, Text, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Modal, ActivityIndicator, Linking, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { router } from 'expo-router';
@@ -18,6 +18,12 @@ import {
 } from '../../src/services/location';
 import type { LocationOutcome } from '../../src/services/location';
 import { navigationRegion, navigationTargetForStatus, navigationUrl } from '../../src/navigation';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Button, FeedbackBanner, StatusBadge, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { useDriverInsets } from '../../src/ui/use-driver-insets';
+
+const reviewMode = developmentReviewModeEnabled(process.env.NODE_ENV, process.env.EXPO_PUBLIC_UI_REVIEW_MODE);
 
 // Honest, user-facing labels for typed location outcomes — no fabricated
 // coordinates, no silent failure. Each non-granted outcome maps to a title +
@@ -54,10 +60,11 @@ function formatGhsFromPesewas(pesewas: number | null | undefined): string {
 }
 
 export default function DriverHomeScreen() {
+  const insets = useDriverInsets();
   const {
     isOnline, setOnline, currentOffer, setCurrentOffer,
     activeRide, setActiveRide, setSubscription, setDriverId,
-    subscriptionActive, offerExpiresAt, updateRideStatus, isApproved, setApproved,
+    offerExpiresAt, updateRideStatus, isApproved, setApproved,
   } = useDriverStore();
   const getLocation = useLocationStore((s) => s.getLocation);
   const setLocation = useLocationStore((s) => s.setLocation);
@@ -71,6 +78,14 @@ export default function DriverHomeScreen() {
 
   // Initialize driver profile on mount
   useEffect(() => {
+    if (reviewMode) {
+      setDriverId('ui-review-driver');
+      setApproved(true);
+      setSubscription(true, '2026-08-20T23:59:00.000Z');
+      setLocation(4.9016, -1.7831);
+      setProfileLoading(false);
+      return;
+    }
     void loadDriverProfile();
     return () => {
       if (countdownRef.current) clearInterval(countdownRef.current);
@@ -79,6 +94,17 @@ export default function DriverHomeScreen() {
       socketClient.disconnect();
     };
   }, []);
+
+  const setReviewState = (state: 'offline' | 'online' | 'offer' | RideStatus) => {
+    if (!reviewMode) return;
+    setProfileLoading(false); setApproved(true); setSubscription(true, '2026-08-20T23:59:00.000Z');
+    setCurrentOffer(null); setActiveRide(null); setOnline(state !== 'offline');
+    if (state === 'offer') {
+      setCurrentOffer({ rideId: 'driver-review-offer', rideType: 'standard_tricycle', pickupAddress: 'Market Circle', pickupLandmark: null, pickupLatitude: 4.89, pickupLongitude: -1.75, dropoffAddress: 'Airport Roundabout', dropoffLandmark: null, dropoffLatitude: 4.905, dropoffLongitude: -1.765, estimatedFarePesewas: 2450, estimatedDistanceMeters: 6400, estimatedDurationSeconds: 780, distanceToPickupMeters: 1200, offeredAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 300000).toISOString() });
+    } else if (!['offline', 'online'].includes(state)) {
+      setActiveRide({ rideId: 'driver-review-ride', status: state as RideStatus, pickupAddress: 'Market Circle', dropoffAddress: 'Airport Roundabout', pickupLatitude: 4.89, pickupLongitude: -1.75, dropoffLatitude: 4.905, dropoffLongitude: -1.765, estimatedFarePesewas: 2450, passengerName: 'Ama Owusu', passengerPhone: '+233 24 555 0101' });
+    }
+  };
 
   // Countdown timer for ride offer
   useEffect(() => {
@@ -270,6 +296,7 @@ export default function DriverHomeScreen() {
 
   const handleToggleOnline = async (value: boolean) => {
     if (toggling) return;
+    if (reviewMode) { setOnline(value); return; }
     setToggling(true);
     setLocationError(null);
 
@@ -376,6 +403,7 @@ export default function DriverHomeScreen() {
 
   const openNavigation = async () => {
     if (!activeRide) return;
+    if (reviewMode) { Alert.alert('UI review mode', 'External navigation is unavailable in UI review mode.'); return; }
     const target = navigationTargetForStatus(activeRide.status);
     const point = target === 'pickup'
       ? { latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }
@@ -391,11 +419,15 @@ export default function DriverHomeScreen() {
 
   const handleAcceptOffer = useCallback(() => {
     if (!currentOffer) return;
+    if (reviewMode) {
+      setActiveRide({ rideId: currentOffer.rideId, status: 'driver_assigned', pickupAddress: currentOffer.pickupAddress || 'Pickup location', dropoffAddress: currentOffer.dropoffAddress || 'Dropoff location', pickupLatitude: currentOffer.pickupLatitude, pickupLongitude: currentOffer.pickupLongitude, dropoffLatitude: currentOffer.dropoffLatitude, dropoffLongitude: currentOffer.dropoffLongitude, estimatedFarePesewas: currentOffer.estimatedFarePesewas, passengerName: 'Ama Owusu', passengerPhone: '+233 24 555 0101' });
+      return;
+    }
     socketClient.acceptRide(currentOffer.rideId);
   }, [currentOffer]);
 
   const handleDeclineOffer = useCallback(() => {
-    if (currentOffer) {
+    if (currentOffer && !reviewMode) {
       socketClient.declineRide(currentOffer.rideId);
     }
     setCurrentOffer(null);
@@ -415,6 +447,12 @@ export default function DriverHomeScreen() {
     const nextStatus = statusProgression[activeRide.status];
     if (!nextStatus) return;
 
+    if (reviewMode) {
+      if (nextStatus === 'completed') { setActiveRide(null); setOnline(true); }
+      else updateRideStatus(nextStatus as RideStatus);
+      return;
+    }
+
     try {
       await api.patch(`/rides/${activeRide.rideId}/status`, { status: nextStatus });
       if (nextStatus === 'completed') {
@@ -433,6 +471,7 @@ export default function DriverHomeScreen() {
       Alert.alert('Invalid PIN', 'Enter the passenger\'s 4-digit verification PIN.');
       return;
     }
+    if (reviewMode) { setVerificationPin(''); updateRideStatus('passenger_verified'); return; }
     setVerifyingPassenger(true);
     try {
       await api.post(`/rides/${activeRide.rideId}/verify-passenger`, {
@@ -459,10 +498,26 @@ export default function DriverHomeScreen() {
     }
   };
 
+  const reviewControls = reviewMode ? (
+    <View style={[styles.reviewPanel, { paddingTop: insets.top }]}>
+      <Text style={styles.reviewLabel}>UI REVIEW · DRIVER STATE</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reviewStates}>
+        {([
+          ['offline', 'Offline'], ['online', 'Online'], ['offer', 'Offer'],
+          ['driver_assigned', 'Assigned'], ['driver_arrived', 'Arrived'],
+          ['waiting_for_passenger', 'Verify'], ['in_progress', 'In ride'],
+        ] as Array<['offline' | 'online' | 'offer' | RideStatus, string]>).map(([state, label]) => (
+          <TouchableOpacity key={state} style={styles.reviewChip} onPress={() => setReviewState(state)}><Text style={styles.reviewChipText}>{label}</Text></TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  ) : null;
+
   // Active ride view
   if (activeRide) {
     return (
-      <View style={styles.container}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        {reviewControls}
         <View style={styles.mapContainer}>
           <MapView
             style={styles.map}
@@ -473,18 +528,14 @@ export default function DriverHomeScreen() {
             ]) || undefined}
             showsUserLocation={Boolean(getLocation())}
           >
-            {getLocation() && <Marker coordinate={getLocation()!} title="Current location" pinColor="#1B8B4B" />}
-            <Marker coordinate={{ latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }} title="Pickup" pinColor="#F59E0B" />
-            <Marker coordinate={{ latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude }} title="Destination" pinColor="#EF4444" />
+            {getLocation() && <Marker coordinate={getLocation()!} title="Current location" pinColor={colors.primary} />}
+            <Marker coordinate={{ latitude: activeRide.pickupLatitude, longitude: activeRide.pickupLongitude }} title="Pickup" pinColor={colors.pickupPin} />
+            <Marker coordinate={{ latitude: activeRide.dropoffLatitude, longitude: activeRide.dropoffLongitude }} title="Destination" pinColor={colors.dropoffPin} />
           </MapView>
-          <Text style={styles.mapOverlay}>{navigationTargetForStatus(activeRide.status) === 'pickup' ? 'Navigate to pickup' : 'Navigate to destination'}</Text>
+          <View style={styles.mapOverlay}><Ionicons name="navigate" size={16} color={colors.primary} /><Text style={styles.mapOverlayText}>{navigationTargetForStatus(activeRide.status) === 'pickup' ? 'Navigate to pickup' : 'Navigate to destination'}</Text></View>
         </View>
-        <View style={styles.activeRideCard}>
-          <View style={styles.rideStatusBadge}>
-            <Text style={styles.rideStatusText}>
-              {activeRide.status.replace(/_/g, ' ').toUpperCase()}
-            </Text>
-          </View>
+        <ScrollView style={styles.activeRideCard} contentContainerStyle={[styles.activeRideContent, { paddingBottom: insets.compactBottom }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <View style={styles.activeHeader}><View><Text style={styles.activeEyebrow}>CURRENT JOB</Text><Text style={styles.activeTitle}>{activeRide.status === 'in_progress' ? 'Passenger on board' : 'Pickup in progress'}</Text></View><StatusBadge label={activeRide.status.replace(/_/g, ' ')} tone={activeRide.status === 'in_progress' ? 'info' : 'primary'} dot /></View>
           <View style={styles.rideDetail}>
             <Text style={styles.rideLabel}>Pickup</Text>
             <Text style={styles.rideAddress}>{activeRide.pickupAddress || 'Pickup location'}</Text>
@@ -506,7 +557,7 @@ export default function DriverHomeScreen() {
           )}
           {activeRide.status === 'waiting_for_passenger' && (
             <View style={styles.verificationCard}>
-              <Text style={styles.rideLabel}>Passenger verification PIN</Text>
+              <Text style={styles.rideLabel}>PASSENGER VERIFICATION PIN</Text>
               <TextInput
                 style={styles.pinInput}
                 value={verificationPin}
@@ -515,7 +566,7 @@ export default function DriverHomeScreen() {
                 maxLength={4}
                 secureTextEntry
                 placeholder="4 digits"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={colors.textMuted}
               />
               <TouchableOpacity
                 style={[styles.advanceButton, verifyingPassenger && styles.buttonDisabled]}
@@ -523,30 +574,26 @@ export default function DriverHomeScreen() {
                 disabled={verifyingPassenger}
               >
                 {verifyingPassenger ? (
-                  <ActivityIndicator color="#FFF" />
+                  <ActivityIndicator color={colors.textInverse} />
                 ) : (
                   <Text style={styles.advanceButtonText}>Verify Passenger</Text>
                 )}
               </TouchableOpacity>
             </View>
           )}
-          <TouchableOpacity style={styles.navigationButton} onPress={openNavigation} accessibilityRole="button" accessibilityLabel="Open external navigation">
-            <Text style={styles.navigationButtonText}>Open navigation</Text>
-          </TouchableOpacity>
+          <Button title="Open navigation" variant="outline" onPress={() => void openNavigation()} fullWidth leading={<Ionicons name="navigate-outline" size={19} color={colors.primary} />} />
           {getStatusButtonLabel() && (
-            <TouchableOpacity style={styles.advanceButton} onPress={handleAdvanceStatus}>
-              <Text style={styles.advanceButtonText}>{getStatusButtonLabel()}</Text>
-            </TouchableOpacity>
+            <Button title={getStatusButtonLabel()} onPress={() => void handleAdvanceStatus()} fullWidth size="lg" trailing={<Ionicons name="arrow-forward" size={19} color={colors.textInverse} />} />
           )}
-        </View>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     );
   }
 
   if (profileLoading) {
     return (
       <View style={[styles.container, styles.pendingContainer]}>
-        <ActivityIndicator size="large" color="#1B8B4B" />
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
@@ -567,47 +614,34 @@ export default function DriverHomeScreen() {
 
   return (
     <View style={styles.container}>
+      {reviewControls}
       <View style={styles.mapContainer}>
         <MapView style={styles.map} showsUserLocation={Boolean(getLocation())} region={getLocation() ? { ...getLocation()!, latitudeDelta: 0.04, longitudeDelta: 0.04 } : undefined} />
-        {!getLocation() && <Text style={styles.mapOverlay}>Real GPS location unavailable</Text>}
+        {!getLocation() && <View style={styles.mapOverlay}><Ionicons name="location-outline" size={16} color={colors.warning} /><Text style={styles.mapOverlayText}>Real GPS location unavailable</Text></View>}
       </View>
-      <View style={styles.bottomCard}>
+      <View style={[styles.bottomCard, { paddingBottom: insets.compactBottom }]}>
         <View style={styles.statusRow}>
           <View>
-            <Text style={styles.statusLabel}>
-              {isOnline ? 'You are Online' : 'You are Offline'}
-            </Text>
+            <View style={styles.availabilityLabel}><View style={[styles.availabilityDot, isOnline && styles.availabilityDotOnline]} /><Text style={styles.statusLabel}>{isOnline ? 'You’re online' : 'You’re offline'}</Text></View>
             <Text style={styles.statusHint}>
-              {isOnline ? 'Waiting for ride requests...' : 'Go online to receive rides'}
+              {isOnline ? 'Ready for incoming ride requests' : 'Go online when you are ready to drive'}
             </Text>
           </View>
           {toggling ? (
-            <ActivityIndicator color="#1B8B4B" />
+            <ActivityIndicator color={colors.primary} />
           ) : (
             <Switch
               value={isOnline}
               onValueChange={handleToggleOnline}
-              trackColor={{ true: '#1B8B4B', false: '#E2E8F0' }}
-              thumbColor="#FFF"
+              trackColor={{ true: colors.primary, false: colors.disabledBorder }}
+              thumbColor={colors.white}
             />
           )}
         </View>
-        {locationError ? (
-          <View style={styles.errorCard}>
-            <Text style={styles.errorText}>{locationError}</Text>
-            <TouchableOpacity
-              onPress={() => setLocationError(null)}
-              accessibilityLabel="Dismiss error"
-              accessibilityRole="button"
-            >
-              <Text style={styles.errorDismiss}>Dismiss</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        {locationError ? <FeedbackBanner tone="error" title="Driver location unavailable" message={locationError} action={<TouchableOpacity onPress={() => setLocationError(null)}><Text style={styles.errorDismiss}>Dismiss</Text></TouchableOpacity>} /> : null}
         {isOnline && !locationError && (
           <View style={styles.waitingCard}>
-            <Text style={styles.waitingText}>No ride requests yet</Text>
-            <Text style={styles.waitingSubtext}>Stay in the service area for best results</Text>
+            <View style={styles.waitingIcon}><MaterialCommunityIcons name="radar" size={22} color={colors.primary} /></View><View><Text style={styles.waitingText}>Listening for nearby requests</Text><Text style={styles.waitingSubtext}>Stay in the service area for best results</Text></View>
           </View>
         )}
       </View>
@@ -615,9 +649,9 @@ export default function DriverHomeScreen() {
       {/* Ride Offer Modal */}
       <Modal visible={!!currentOffer} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={styles.offerCard}>
+          <View style={[styles.offerCard, { paddingBottom: insets.compactBottom }]}>
             <View style={styles.offerHeader}>
-              <Text style={styles.offerTitle}>New Ride Request</Text>
+              <View><Text style={styles.offerEyebrow}>INCOMING REQUEST</Text><Text style={styles.offerTitle}>New ride nearby</Text></View>
               <View style={styles.countdownBadge}>
                 <Text style={styles.countdownText}>{countdown}s</Text>
               </View>
@@ -647,12 +681,8 @@ export default function DriverHomeScreen() {
                   </View>
                 </View>
                 <View style={styles.offerButtons}>
-                  <TouchableOpacity style={styles.declineButton} onPress={handleDeclineOffer}>
-                    <Text style={styles.declineText}>Decline</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.acceptButton} onPress={handleAcceptOffer}>
-                    <Text style={styles.acceptText}>Accept</Text>
-                  </TouchableOpacity>
+                  <Button title="Decline" variant="danger" onPress={handleDeclineOffer} style={styles.declineButton} />
+                  <Button title="Accept ride" onPress={handleAcceptOffer} style={styles.acceptButton} trailing={<Ionicons name="arrow-forward" size={18} color={colors.textInverse} />} />
                 </View>
               </>
             )}
@@ -664,139 +694,117 @@ export default function DriverHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#E8E8E8' },
-  pendingContainer: { alignItems: 'center', justifyContent: 'center', padding: 24 },
-  pendingCard: { backgroundColor: '#FFF', borderRadius: 16, padding: 24 },
-  pendingTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
-  pendingText: { fontSize: 14, color: '#64748B', lineHeight: 21, marginTop: 8 },
+  container: { flex: 1, backgroundColor: colors.backgroundDeep },
+  pendingContainer: { alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  pendingCard: { backgroundColor: colors.surface, borderRadius: borderRadius.xxl, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, ...shadows.md },
+  pendingTitle: { ...typography.h2, color: colors.textPrimary },
+  pendingText: { ...typography.small, color: colors.textSecondary, marginTop: 8 },
+  reviewPanel: { backgroundColor: colors.warningSoft, paddingHorizontal: spacing.md, paddingBottom: 10 },
+  reviewLabel: { ...typography.label, color: colors.warning, marginBottom: 7 },
+  reviewStates: { gap: 8, paddingRight: spacing.md },
+  reviewChip: { minHeight: 34, paddingHorizontal: 12, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  reviewChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: '700' },
   mapContainer: { flex: 1, position: 'relative' },
   map: { flex: 1 },
-  mapOverlay: { position: 'absolute', top: 20, alignSelf: 'center', backgroundColor: '#FFF', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, color: '#1B8B4B', fontWeight: '700' },
+  mapOverlay: { position: 'absolute', top: 14, alignSelf: 'center', backgroundColor: colors.surfaceTranslucent, borderRadius: borderRadius.full, paddingHorizontal: 13, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', gap: 7, ...shadows.sm },
+  mapOverlayText: { ...typography.label, color: colors.textPrimary },
   bottomCard: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    gap: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: 14,
+    ...shadows.lg,
   },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statusLabel: { fontSize: 18, fontWeight: '700', color: '#1A1A2E' },
-  statusHint: { fontSize: 14, color: '#64748B', marginTop: 2 },
-  errorCard: {
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
-    borderRadius: 12,
-    padding: 12,
-    gap: 4,
-  },
-  errorText: { fontSize: 13, color: '#B91C1C', lineHeight: 18 },
-  errorDismiss: { fontSize: 12, color: '#B91C1C', fontWeight: '600', marginTop: 4 },
-  waitingCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 16, alignItems: 'center' },
-  waitingText: { fontSize: 16, fontWeight: '600', color: '#1B8B4B' },
-  waitingSubtext: { fontSize: 12, color: '#64748B', marginTop: 4 },
+  availabilityLabel: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  availabilityDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.textMuted },
+  availabilityDotOnline: { backgroundColor: colors.success },
+  statusLabel: { ...typography.h3, color: colors.textPrimary },
+  statusHint: { ...typography.small, color: colors.textSecondary, marginTop: 2 },
+  errorDismiss: { ...typography.label, color: colors.error, padding: spacing.sm },
+  waitingCard: { backgroundColor: colors.primarySoft, borderRadius: borderRadius.xl, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  waitingIcon: { width: 42, height: 42, borderRadius: borderRadius.lg, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  waitingText: { ...typography.bodyBold, color: colors.primaryDark },
+  waitingSubtext: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
 
   // Active Ride styles
   activeRideCard: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    gap: 12,
+    maxHeight: '58%',
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    ...shadows.lg,
   },
-  rideStatusBadge: {
-    backgroundColor: '#1B8B4B',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  rideStatusText: { color: '#FFF', fontSize: 12, fontWeight: '700' },
+  activeRideContent: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, gap: 12 },
+  activeHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  activeEyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.1 },
+  activeTitle: { ...typography.h2, color: colors.textPrimary, marginTop: 1 },
   rideDetail: { gap: 2 },
-  rideLabel: { fontSize: 12, color: '#64748B' },
-  rideAddress: { fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
+  rideLabel: { ...typography.caption, color: colors.textSecondary },
+  rideAddress: { ...typography.bodyBold, color: colors.textPrimary },
   fareRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  fareLabel: { fontSize: 14, color: '#64748B' },
-  fareAmount: { fontSize: 24, fontWeight: '700', color: '#1B8B4B' },
-  passengerInfo: { fontSize: 14, color: '#64748B', marginTop: 4 },
-  verificationCard: { gap: 8, marginTop: 4 },
+  fareLabel: { ...typography.small, color: colors.textSecondary },
+  fareAmount: { ...typography.h2, color: colors.primary },
+  passengerInfo: { ...typography.small, color: colors.textSecondary, backgroundColor: colors.surfaceInset, borderRadius: borderRadius.lg, padding: 12 },
+  verificationCard: { gap: 8, marginTop: 4, backgroundColor: colors.warningSoft, borderRadius: borderRadius.xl, padding: 12, borderWidth: 1, borderColor: colors.warningBorder },
   pinInput: {
     height: 48,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    backgroundColor: '#FFF',
+    borderColor: colors.border,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     fontSize: 20,
     letterSpacing: 6,
     textAlign: 'center',
-    color: '#1A1A2E',
+    color: colors.textPrimary,
   },
   advanceButton: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
+    backgroundColor: colors.primary,
+    borderRadius: borderRadius.xl,
     height: 52,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
   },
-  advanceButtonText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
-  navigationButton: { borderWidth: 1, borderColor: '#1B8B4B', borderRadius: 12, height: 48, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  navigationButtonText: { color: '#1B8B4B', fontSize: 15, fontWeight: '700' },
-  buttonDisabled: { opacity: 0.6 },
+  advanceButtonText: { ...typography.button, color: colors.textInverse },
+  buttonDisabled: { backgroundColor: colors.disabledSurface },
 
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.overlay,
     justifyContent: 'flex-end',
   },
   offerCard: {
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-    gap: 16,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: borderRadius.xxl,
+    borderTopRightRadius: borderRadius.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    gap: 14,
+    ...shadows.lg,
   },
   offerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  offerTitle: { fontSize: 20, fontWeight: '700', color: '#1A1A2E' },
+  offerEyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.1 },
+  offerTitle: { ...typography.h2, color: colors.textPrimary },
   countdownBadge: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: colors.errorSoft,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
   },
-  countdownText: { fontSize: 14, fontWeight: '700', color: '#EF4444' },
+  countdownText: { ...typography.label, color: colors.error },
   offerDetail: { gap: 2 },
-  offerLabel: { fontSize: 12, color: '#64748B' },
-  offerValue: { fontSize: 16, fontWeight: '500', color: '#1A1A2E' },
+  offerLabel: { ...typography.caption, color: colors.textSecondary },
+  offerValue: { ...typography.bodyBold, color: colors.textPrimary },
   offerRow: { flexDirection: 'row', gap: 24 },
   offerStat: { flex: 1 },
-  offerStatLabel: { fontSize: 12, color: '#64748B' },
-  offerStatValue: { fontSize: 20, fontWeight: '700', color: '#1A1A2E', marginTop: 2 },
+  offerStatLabel: { ...typography.caption, color: colors.textSecondary },
+  offerStatValue: { ...typography.h3, color: colors.textPrimary, marginTop: 2 },
   offerButtons: { flexDirection: 'row', gap: 12, marginTop: 8 },
-  declineButton: {
-    flex: 1,
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  declineText: { fontSize: 16, fontWeight: '600', color: '#EF4444' },
-  acceptButton: {
-    flex: 2,
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#1B8B4B',
-  },
-  acceptText: { color: '#FFF', fontSize: 16, fontWeight: '700' },
+  declineButton: { flex: 1 },
+  acceptButton: { flex: 2 },
 });

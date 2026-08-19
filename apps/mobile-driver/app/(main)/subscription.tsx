@@ -1,198 +1,60 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { useState, useEffect } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/api/client';
 import { useDriverStore } from '../../src/stores/driver-store';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { Button, Card, FeedbackBanner, StatusBadge, borderRadius, colors, spacing, typography } from '@kansride/ui';
+import { useDriverInsets } from '../../src/ui/use-driver-insets';
 
-// Canonical Mobile Money methods. The backend PaymentMethod union (and the
-// real Hubtel-style provider) only accepts these exact string values; the
-// previous screen sent 'mobile_money', which is NOT a member — the mock
-// provider silently accepted it, but a real provider would reject it and the
-// driver could never activate a subscription. Let the driver pick their
-// provider so the value sent is always canonical.
+const reviewMode = developmentReviewModeEnabled(process.env.NODE_ENV, process.env.EXPO_PUBLIC_UI_REVIEW_MODE);
 type MobileMoneyMethod = 'mtn_mobile_money' | 'telecel_cash' | 'at_money';
-const PAYMENT_METHODS: Array<{ value: MobileMoneyMethod; label: string }> = [
-  { value: 'mtn_mobile_money', label: 'MTN MoMo' },
-  { value: 'telecel_cash', label: 'Telecel Cash' },
-  { value: 'at_money', label: 'AirtelTigo Money' },
-];
+const PAYMENT_METHODS: Array<{ value: MobileMoneyMethod; label: string }> = [{ value: 'mtn_mobile_money', label: 'MTN MoMo' }, { value: 'telecel_cash', label: 'Telecel Cash' }, { value: 'at_money', label: 'AT Money' }];
 
 export default function SubscriptionScreen() {
+  const insets = useDriverInsets();
   const { subscriptionActive, subscriptionExpiresAt, setSubscription } = useDriverStore();
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<MobileMoneyMethod>('mtn_mobile_money');
 
-  useEffect(() => {
-    refreshStatus();
-  }, []);
-
   const refreshStatus = async () => {
     setRefreshing(true);
     try {
-      const profile = await api.get<{
-        isDriver: boolean;
-        subscriptionActive?: boolean;
-        subscriptionExpiresAt?: string;
-      }>('/drivers/me');
-      if (profile.isDriver) {
-        setSubscription(profile.subscriptionActive || false, profile.subscriptionExpiresAt);
-      }
-    } catch {
-      // Ignore errors on refresh
-    } finally {
-      setRefreshing(false);
-    }
+      if (reviewMode) { setSubscription(true, '2026-08-20T23:59:00.000Z'); return; }
+      const profile = await api.get<{ isDriver: boolean; subscriptionActive?: boolean; subscriptionExpiresAt?: string }>('/drivers/me');
+      if (profile.isDriver) setSubscription(profile.subscriptionActive || false, profile.subscriptionExpiresAt);
+    } catch { /* Existing refresh remains best-effort. */ } finally { setRefreshing(false); }
   };
+  useEffect(() => { void refreshStatus(); }, []);
 
   const handleSubscribe = async () => {
+    if (reviewMode) { Alert.alert('UI review mode', 'Payment actions are unavailable in UI review mode.'); return; }
     setLoading(true);
     try {
-      const result = await api.post<{
-        message: string;
-        expiresAt?: string;
-        status?: string;
-      }>('/drivers/subscribe', { paymentMethod });
-
-      if (result.expiresAt) {
-        setSubscription(true, result.expiresAt);
-        Alert.alert('Success', 'Subscription activated! You can now go online.');
-      } else {
-        Alert.alert('Payment Pending', result.message || 'Please check your phone for payment prompt');
-      }
-    } catch (error: any) {
-      Alert.alert('Payment Failed', error.message || 'Could not process payment');
-    } finally {
-      setLoading(false);
-    }
+      const result = await api.post<{ message: string; expiresAt?: string; status?: string }>('/drivers/subscribe', { paymentMethod });
+      if (result.expiresAt) { setSubscription(true, result.expiresAt); Alert.alert('Success', 'Subscription activated! You can now go online.'); }
+      else Alert.alert('Payment pending', result.message || 'Please check your phone for payment prompt');
+    } catch (error: any) { Alert.alert('Payment unavailable', error.message || 'Could not process payment'); } finally { setLoading(false); }
   };
 
-  const formatExpiry = (dateStr: string | null): string => {
-    if (!dateStr) return 'N/A';
-    const date = new Date(dateStr);
-    return date.toLocaleString('en-GH', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  };
+  const formatExpiry = (dateStr: string | null) => dateStr ? new Date(dateStr).toLocaleString('en-GH', { dateStyle: 'medium', timeStyle: 'short' }) : 'N/A';
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Subscription</Text>
-
-      <View style={styles.card}>
-        <Text style={styles.plan}>Daily Plan</Text>
-        <Text style={styles.price}>GHS 10.00 / day</Text>
-        <Text style={[styles.status, subscriptionActive ? styles.statusActive : styles.statusInactive]}>
-          {subscriptionActive ? 'Active' : 'Not Active'}
-        </Text>
-        {subscriptionActive && subscriptionExpiresAt && (
-          <Text style={styles.expiry}>Expires: {formatExpiry(subscriptionExpiresAt)}</Text>
-        )}
-      </View>
-
-      <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>How it works</Text>
-        <Text style={styles.infoText}>- Pay GHS 10 daily to go online</Text>
-        <Text style={styles.infoText}>- Keep 100% of your ride fares</Text>
-        <Text style={styles.infoText}>- No commission per trip</Text>
-        <Text style={styles.infoText}>- Pay via Mobile Money</Text>
-      </View>
-
-      {!subscriptionActive && (
-        <View style={styles.methodRow}>
-          {PAYMENT_METHODS.map((method) => (
-            <TouchableOpacity
-              key={method.value}
-              style={[
-                styles.methodTile,
-                paymentMethod === method.value && styles.methodTileSelected,
-              ]}
-              onPress={() => setPaymentMethod(method.value)}
-              disabled={loading}
-            >
-              <Text
-                style={[
-                  styles.methodText,
-                  paymentMethod === method.value && styles.methodTextSelected,
-                ]}
-              >
-                {method.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {!subscriptionActive && (
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleSubscribe}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.buttonText}>Subscribe Now - GHS 10.00</Text>
-          )}
-        </TouchableOpacity>
-      )}
-
-      {subscriptionActive && (
-        <View style={styles.activeCard}>
-          <Text style={styles.activeText}>You're all set! Go online to receive rides.</Text>
-        </View>
-      )}
-
-      {refreshing && (
-        <ActivityIndicator style={styles.refreshIndicator} color="#1B8B4B" />
-      )}
-    </View>
-  );
+  return <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]} showsVerticalScrollIndicator={false}>
+    <Text style={styles.eyebrow}>DRIVER ACCESS</Text><Text style={styles.title}>Subscription</Text><Text style={styles.subtitle}>Your daily access status for receiving KansRide requests.</Text>
+    {reviewMode && <View style={styles.reviewPanel}><Text style={styles.reviewLabel}>UI REVIEW · SUBSCRIPTION STATE</Text><View style={styles.reviewRow}><TouchableOpacity style={[styles.reviewChip, !subscriptionActive && styles.reviewChipActive]} onPress={() => setSubscription(false)}><Text style={[styles.reviewText, !subscriptionActive && styles.reviewTextActive]}>Inactive</Text></TouchableOpacity><TouchableOpacity style={[styles.reviewChip, subscriptionActive && styles.reviewChipActive]} onPress={() => setSubscription(true, '2026-08-20T23:59:00.000Z')}><Text style={[styles.reviewText, subscriptionActive && styles.reviewTextActive]}>Active</Text></TouchableOpacity></View></View>}
+    <Card variant="raised" shadow="md" padding="lg" style={styles.planCard}><View style={styles.planTop}><View style={styles.planIcon}><Ionicons name="shield-checkmark" size={25} color={colors.textInverse} /></View><StatusBadge label={subscriptionActive ? 'Active' : 'Inactive'} tone={subscriptionActive ? 'success' : 'error'} dot /></View><Text style={styles.plan}>Daily driver access</Text><Text style={styles.price}>GHS 10.00 <Text style={styles.perDay}>/ day</Text></Text>{subscriptionActive && <Text style={styles.expiry}>Valid until {formatExpiry(subscriptionExpiresAt)}</Text>}</Card>
+    <Card variant="outline" shadow="none" padding="md" style={styles.benefits}><Text style={styles.sectionTitle}>What your plan includes</Text>{['Receive passenger ride requests', 'Keep 100% of completed ride fares', 'No commission deducted per trip'].map((item) => <View key={item} style={styles.benefit}><View style={styles.check}><Ionicons name="checkmark" size={15} color={colors.textInverse} /></View><Text style={styles.benefitText}>{item}</Text></View>)}</Card>
+    {!subscriptionActive && <><Text style={styles.sectionLabel}>PAYMENT METHOD</Text><View style={styles.methodRow}>{PAYMENT_METHODS.map((method) => <TouchableOpacity key={method.value} style={[styles.methodTile, paymentMethod === method.value && styles.methodSelected]} onPress={() => setPaymentMethod(method.value)} disabled={loading}><Text style={[styles.methodText, paymentMethod === method.value && styles.methodTextSelected]}>{method.label}</Text></TouchableOpacity>)}</View><Button title="Subscribe — GHS 10.00" onPress={() => void handleSubscribe()} loading={loading} fullWidth size="lg" /></>}
+    {subscriptionActive && <FeedbackBanner tone="success" title="Ready to drive" message="Your subscription is active. Go online from Home when you are ready to receive rides." />}
+    {refreshing && <ActivityIndicator color={colors.primary} style={styles.loader} />}
+  </ScrollView>;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E', marginBottom: 24 },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    alignItems: 'center',
-  },
-  plan: { fontSize: 18, fontWeight: '600', color: '#1A1A2E' },
-  price: { fontSize: 32, fontWeight: '700', color: '#1B8B4B', marginTop: 8 },
-  status: { marginTop: 8, fontWeight: '600', fontSize: 14 },
-  statusActive: { color: '#1B8B4B' },
-  statusInactive: { color: '#EF4444' },
-  expiry: { fontSize: 12, color: '#64748B', marginTop: 4 },
-  infoCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 16, marginBottom: 24 },
-  infoTitle: { fontSize: 16, fontWeight: '600', color: '#1A1A2E', marginBottom: 8 },
-  infoText: { fontSize: 14, color: '#64748B', marginBottom: 4 },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-  methodRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  methodTile: { flex: 1, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, paddingVertical: 12, alignItems: 'center', backgroundColor: '#FFF' },
-  methodTileSelected: { borderColor: '#1B8B4B', backgroundColor: '#F0FDF4' },
-  methodText: { color: '#64748B', fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  methodTextSelected: { color: '#1B8B4B' },
-  activeCard: {
-    backgroundColor: '#F0FDF4',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#1B8B4B',
-  },
-  activeText: { fontSize: 16, fontWeight: '600', color: '#1B8B4B' },
-  refreshIndicator: { marginTop: 16 },
+  container: { flex: 1, backgroundColor: colors.background }, content: { paddingHorizontal: spacing.lg }, eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.2 }, title: { ...typography.h1, color: colors.textPrimary }, subtitle: { ...typography.small, color: colors.textSecondary, marginTop: 3, marginBottom: spacing.lg },
+  reviewPanel: { backgroundColor: colors.warningSoft, padding: 12, borderRadius: borderRadius.xl, marginBottom: 12 }, reviewLabel: { ...typography.label, color: colors.warning, marginBottom: 8 }, reviewRow: { flexDirection: 'row', gap: 8 }, reviewChip: { flex: 1, minHeight: 36, borderRadius: borderRadius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' }, reviewChipActive: { backgroundColor: colors.primary }, reviewText: { ...typography.caption, color: colors.textSecondary }, reviewTextActive: { color: colors.textInverse, fontWeight: '700' },
+  planCard: { backgroundColor: colors.surfaceRaised }, planTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, planIcon: { width: 50, height: 50, borderRadius: borderRadius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }, plan: { ...typography.h3, color: colors.textPrimary, marginTop: spacing.lg }, price: { ...typography.h1, color: colors.primary, marginTop: 2 }, perDay: { ...typography.small, color: colors.textSecondary }, expiry: { ...typography.small, color: colors.textSecondary, marginTop: 5 },
+  benefits: { marginTop: 12, gap: 12 }, sectionTitle: { ...typography.bodyBold, color: colors.textPrimary }, benefit: { flexDirection: 'row', alignItems: 'center', gap: 10 }, check: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }, benefitText: { ...typography.small, color: colors.textSecondary, flex: 1 },
+  sectionLabel: { ...typography.label, color: colors.textSecondary, marginTop: spacing.lg, marginBottom: spacing.sm }, methodRow: { flexDirection: 'row', gap: 8, marginBottom: spacing.md }, methodTile: { flex: 1, minHeight: 52, borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface }, methodSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft }, methodText: { ...typography.caption, color: colors.textSecondary, fontWeight: '700', textAlign: 'center' }, methodTextSelected: { color: colors.primaryDark }, loader: { marginTop: spacing.md },
 });

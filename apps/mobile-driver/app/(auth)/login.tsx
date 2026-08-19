@@ -1,105 +1,14 @@
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/api/client';
+import { Button, Card, TextInput, borderRadius, colors, shadows, spacing, typography } from '@kansride/ui';
 
 export default function DriverLoginScreen() {
-  const [phone, setPhone] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleGetOTP = async () => {
-    const cleaned = phone.replace(/\s/g, '');
-    if (cleaned.length < 9) {
-      Alert.alert('Invalid Number', 'Please enter a valid Ghana phone number');
-      return;
-    }
-
-    const fullPhone = cleaned.startsWith('0') ? `+233${cleaned.slice(1)}` : `+233${cleaned}`;
-
-    setLoading(true);
-    try {
-      await api.postNoAuth('/auth/request-otp', { phoneNumber: fullPhone });
-      router.push({ pathname: '/(auth)/verify-otp', params: { phone: fullPhone } });
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.logo}>KansRide</Text>
-        <Text style={styles.badge}>DRIVER</Text>
-        <Text style={styles.subtitle}>Earn with your tricycle</Text>
-      </View>
-      <View style={styles.form}>
-        <Text style={styles.label}>Phone Number</Text>
-        <View style={styles.phoneInput}>
-          <Text style={styles.prefix}>+233</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="24 XXX XXXX"
-            placeholderTextColor="#94A3B8"
-            keyboardType="phone-pad"
-            value={phone}
-            onChangeText={setPhone}
-            maxLength={10}
-          />
-        </View>
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleGetOTP}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.buttonText}>Get OTP</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
+  const [phone, setPhone] = useState(''); const [loading, setLoading] = useState(false);
+  const handleGetOTP = async () => { const cleaned = phone.replace(/\s/g, ''); if (cleaned.length < 9) { Alert.alert('Invalid number', 'Please enter a valid Ghana phone number'); return; } const fullPhone = cleaned.startsWith('0') ? `+233${cleaned.slice(1)}` : `+233${cleaned}`; setLoading(true); try { await api.postNoAuth('/auth/request-otp', { phoneNumber: fullPhone }); router.push({ pathname: '/(auth)/verify-otp', params: { phone: fullPhone } }); } catch (error: any) { Alert.alert('Could not send code', error.message || 'Please try again'); } finally { setLoading(false); } };
+  return <SafeAreaView style={styles.safe}><KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"><View style={styles.hero}><View style={styles.mark}><Ionicons name="car-sport" size={29} color={colors.textInverse} /></View><Text style={styles.eyebrow}>KANSRIDE DRIVER</Text><Text style={styles.title}>Drive with confidence</Text><Text style={styles.subtitle}>Go online, manage rides, and track your earnings from one focused workspace.</Text></View><Card variant="raised" shadow="lg" padding="lg"><Text style={styles.formTitle}>Sign in to drive</Text><Text style={styles.formCopy}>We’ll send a secure one-time code to your mobile number.</Text><TextInput label="Mobile number" placeholder="24 000 0000" keyboardType="phone-pad" maxLength={10} value={phone} onChangeText={setPhone} editable={!loading} leftAccessory={<Text style={styles.prefix}>+233</Text>} /><Button title="Continue securely" onPress={() => void handleGetOTP()} loading={loading} fullWidth size="lg" trailing={!loading ? <Ionicons name="arrow-forward" size={18} color={colors.textInverse} /> : undefined} /></Card><View style={styles.trust}><Ionicons name="shield-checkmark-outline" size={17} color={colors.primary} /><Text style={styles.trustText}>Driver accounts are verified before they can receive rides.</Text></View></ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, justifyContent: 'center' },
-  header: { alignItems: 'center', marginBottom: 48 },
-  logo: { fontSize: 36, fontWeight: '700', color: '#1B8B4B' },
-  badge: {
-    backgroundColor: '#FFB800',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: '700',
-    overflow: 'hidden',
-  },
-  subtitle: { fontSize: 16, color: '#64748B', marginTop: 8 },
-  form: { gap: 16 },
-  label: { fontSize: 14, fontWeight: '600', color: '#1A1A2E' },
-  phoneInput: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    height: 52,
-  },
-  prefix: { paddingHorizontal: 16, fontSize: 16, fontWeight: '600', color: '#1A1A2E' },
-  input: { flex: 1, paddingHorizontal: 8, fontSize: 16, color: '#1A1A2E' },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
-});
+const styles = StyleSheet.create({ safe: { flex: 1, backgroundColor: colors.background }, flex: { flex: 1 }, content: { flexGrow: 1, padding: spacing.lg, justifyContent: 'center' }, hero: { alignItems: 'center', marginBottom: spacing.lg }, mark: { width: 64, height: 64, borderRadius: borderRadius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md, ...shadows.md }, eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.5 }, title: { ...typography.h1, color: colors.textPrimary, textAlign: 'center', marginTop: 2 }, subtitle: { ...typography.small, color: colors.textSecondary, textAlign: 'center', marginTop: 7, maxWidth: 330 }, formTitle: { ...typography.h2, color: colors.textPrimary }, formCopy: { ...typography.small, color: colors.textSecondary, marginTop: 3, marginBottom: spacing.md }, prefix: { ...typography.bodyBold, color: colors.primary, paddingRight: spacing.sm, borderRightWidth: 1, borderRightColor: colors.border }, trust: { flexDirection: 'row', alignSelf: 'center', alignItems: 'center', gap: 7, marginTop: spacing.lg, paddingHorizontal: spacing.md }, trustText: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 } });

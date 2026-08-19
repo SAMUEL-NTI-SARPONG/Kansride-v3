@@ -1,122 +1,61 @@
-import { View, Text, StyleSheet, ActivityIndicator, FlatList, TouchableOpacity } from 'react-native';
-import { useState, useEffect } from 'react';
-import { api } from '../../src/api/client';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { api } from '../../src/api/client';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { Button, Card, FeedbackBanner, borderRadius, colors, spacing, typography } from '@kansride/ui';
+import { useDriverInsets } from '../../src/ui/use-driver-insets';
 
-interface EarningsData {
-  todayPesewas: number;
-  thisWeekPesewas: number;
-  todayRides: number;
-  weekRides: number;
-}
+const reviewMode = developmentReviewModeEnabled(process.env.NODE_ENV, process.env.EXPO_PUBLIC_UI_REVIEW_MODE);
+
+interface EarningsData { todayPesewas: number; thisWeekPesewas: number; todayRides: number; weekRides: number }
 
 function formatGhsFromPesewas(pesewas: number | null | undefined): string {
-  if (typeof pesewas !== 'number' || !Number.isSafeInteger(pesewas) || pesewas < 0) {
-    return '--';
-  }
-  return `GHS ${(pesewas / 100).toFixed(2)}`;
+  return typeof pesewas === 'number' && Number.isSafeInteger(pesewas) && pesewas >= 0
+    ? `GHS ${(pesewas / 100).toFixed(2)}` : '--';
 }
 
 export default function EarningsScreen() {
+  const insets = useDriverInsets();
   const [earnings, setEarnings] = useState<EarningsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchEarnings();
-  }, []);
-
   const fetchEarnings = async () => {
     try {
       setError(null);
-      const data = await api.get<EarningsData>('/drivers/earnings');
-      setEarnings(data);
+      if (reviewMode) {
+        setEarnings({ todayPesewas: 14850, thisWeekPesewas: 68200, todayRides: 7, weekRides: 31 });
+        return;
+      }
+      setEarnings(await api.get<EarningsData>('/drivers/earnings'));
     } catch (err) {
-      // A failed earnings fetch must not be reported as a successful
-      // GHS 0.00 / 0 rides — a driver who actually earned today would be
-      // falsely told they earned nothing, with no signal anything failed.
-      // Keep earnings null and surface an honest error/retry row instead;
-      // the empty (zero) state is only shown when the API genuinely returns
-      // zeros.
       setEarnings(null);
-      setError(err instanceof Error && err.name !== 'SESSION_EXPIRED'
-        ? 'Could not load earnings. Pull to try again.'
-        : null);
-    } finally {
-      setLoading(false);
-    }
+      setError(err instanceof Error && err.name !== 'SESSION_EXPIRED' ? 'Could not load earnings. Try again.' : null);
+    } finally { setLoading(false); }
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#1B8B4B" />
-      </View>
-    );
-  }
+  useEffect(() => { void fetchEarnings(); }, []);
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}><Text style={styles.title}>Earnings</Text><TouchableOpacity onPress={() => router.push('/(main)/history')} accessibilityRole="button"><Text style={styles.historyLink}>Ride history</Text></TouchableOpacity></View>
-      {error && !earnings && (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={fetchEarnings} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-      {!error && earnings && (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.label}>Today's Earnings</Text>
-            <Text style={styles.amount}>
-              {formatGhsFromPesewas(earnings.todayPesewas)}
-            </Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.label}>This Week</Text>
-            <Text style={styles.amount}>
-              {formatGhsFromPesewas(earnings.thisWeekPesewas)}
-            </Text>
-          </View>
-          <View style={styles.row}>
-            <View style={[styles.card, styles.halfCard]}>
-              <Text style={styles.label}>Rides Today</Text>
-              <Text style={styles.count}>{earnings.todayRides}</Text>
-            </View>
-            <View style={[styles.card, styles.halfCard]}>
-              <Text style={styles.label}>Rides This Week</Text>
-              <Text style={styles.count}>{earnings.weekRides}</Text>
-            </View>
-          </View>
-        </>
-      )}
-    </View>
-  );
+  if (loading) return <View style={[styles.container, styles.centered, { paddingTop: insets.top, paddingBottom: insets.bottom }]}><ActivityIndicator size="large" color={colors.primary} /></View>;
+
+  return <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]} showsVerticalScrollIndicator={false}>
+    <View style={styles.headerRow}><View><Text style={styles.eyebrow}>DRIVER PERFORMANCE</Text><Text style={styles.title}>Earnings</Text></View><TouchableOpacity onPress={() => router.push('/(main)/history')} style={styles.historyButton} accessibilityRole="button"><Ionicons name="time-outline" size={18} color={colors.primary} /><Text style={styles.historyLink}>History</Text></TouchableOpacity></View>
+    {error && !earnings && <FeedbackBanner tone="error" title="Earnings unavailable" message={error} action={<Button title="Retry" size="sm" onPress={() => void fetchEarnings()} />} />}
+    {earnings && <>
+      <Card variant="raised" shadow="md" padding="lg" style={styles.heroCard}><View style={styles.heroTop}><View style={styles.walletIcon}><Ionicons name="wallet" size={22} color={colors.textInverse} /></View><Text style={styles.period}>TODAY</Text></View><Text style={styles.amount}>{formatGhsFromPesewas(earnings.todayPesewas)}</Text><Text style={styles.helper}>{earnings.todayRides} completed rides today</Text></Card>
+      <View style={styles.metricRow}><Card variant="outline" shadow="none" padding="md" style={styles.metricCard}><Text style={styles.metricLabel}>This week</Text><Text style={styles.metricValue}>{formatGhsFromPesewas(earnings.thisWeekPesewas)}</Text></Card><Card variant="outline" shadow="none" padding="md" style={styles.metricCard}><Text style={styles.metricLabel}>Weekly rides</Text><Text style={styles.metricValue}>{earnings.weekRides}</Text></Card></View>
+      <View style={styles.tip}><Ionicons name="trending-up" size={20} color={colors.primary} /><View style={styles.tipCopy}><Text style={styles.tipTitle}>Keep your momentum</Text><Text style={styles.tipText}>Stay online during busy periods to improve your weekly total.</Text></View></View>
+    </>}
+  </ScrollView>;
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB', padding: 24, paddingTop: 60 },
-  centered: { alignItems: 'center', justifyContent: 'center' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  historyLink: { color: '#1B8B4B', fontWeight: '700' },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  halfCard: { flex: 1 },
-  row: { flexDirection: 'row', gap: 12 },
-  label: { fontSize: 14, color: '#64748B' },
-  amount: { fontSize: 28, fontWeight: '700', color: '#1B8B4B', marginTop: 4 },
-  count: { fontSize: 28, fontWeight: '700', color: '#1A1A2E', marginTop: 4 },
-  errorCard: { backgroundColor: '#FFF', borderRadius: 12, padding: 20, borderWidth: 1, borderColor: '#FECACA', alignItems: 'center' },
-  errorText: { color: '#B91C1C', fontSize: 14, marginBottom: 12, textAlign: 'center' },
-  retryBtn: { backgroundColor: '#1B8B4B', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  retryText: { color: '#FFF', fontWeight: '600' },
+  container: { flex: 1, backgroundColor: colors.background }, content: { paddingHorizontal: spacing.lg }, centered: { alignItems: 'center', justifyContent: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg }, eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.2 }, title: { ...typography.h1, color: colors.textPrimary },
+  historyButton: { minHeight: 44, paddingHorizontal: 12, borderRadius: borderRadius.full, backgroundColor: colors.primarySoft, flexDirection: 'row', alignItems: 'center', gap: 6 }, historyLink: { ...typography.label, color: colors.primary },
+  heroCard: { backgroundColor: colors.primary }, heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, walletIcon: { width: 42, height: 42, borderRadius: borderRadius.lg, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' }, period: { ...typography.label, color: colors.primarySoft }, amount: { ...typography.display, color: colors.textInverse, marginTop: spacing.lg }, helper: { ...typography.small, color: colors.primarySoft, marginTop: 2 },
+  metricRow: { flexDirection: 'row', gap: 12, marginTop: 12 }, metricCard: { flex: 1 }, metricLabel: { ...typography.caption, color: colors.textSecondary }, metricValue: { ...typography.h3, color: colors.textPrimary, marginTop: 5 },
+  tip: { marginTop: spacing.lg, borderRadius: borderRadius.xl, backgroundColor: colors.surfaceInset, padding: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: 12 }, tipCopy: { flex: 1 }, tipTitle: { ...typography.bodyBold, color: colors.textPrimary }, tipText: { ...typography.small, color: colors.textSecondary, marginTop: 2 },
 });

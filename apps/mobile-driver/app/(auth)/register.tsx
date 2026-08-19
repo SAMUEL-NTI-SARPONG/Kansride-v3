@@ -1,11 +1,14 @@
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { api } from '../../src/api/client';
 import { useDriverStore } from '../../src/stores/driver-store';
 import { useAuthStore } from '../../src/stores/auth-store';
+import { Button, Card, borderRadius, colors, spacing, typography } from '@kansride/ui';
+import { useDriverInsets } from '../../src/ui/use-driver-insets';
 
 export default function DriverRegisterScreen() {
+  const insets = useDriverInsets();
   const [fullName, setFullName] = useState('');
   const [plateNumber, setPlateNumber] = useState('');
   const [vehicleColour, setVehicleColour] = useState('');
@@ -60,17 +63,18 @@ export default function DriverRegisterScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Driver Registration</Text>
-      <Text style={styles.subtitle}>Complete your profile to start earning</Text>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top, paddingBottom: insets.bottom }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <Text style={styles.eyebrow}>DRIVER APPLICATION</Text><Text style={styles.title}>Tell us about you</Text>
+      <Text style={styles.subtitle}>Complete your driver and tricycle details for review.</Text>
 
-      <View style={styles.form}>
+      <Card variant="raised" shadow="md" padding="lg" style={styles.form}>
         <View style={styles.field}>
           <Text style={styles.label}>Vehicle Make</Text>
           <TextInput
             style={styles.input}
             placeholder="e.g. TVS"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={vehicleMake}
             onChangeText={setVehicleMake}
           />
@@ -81,7 +85,7 @@ export default function DriverRegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="e.g. King Deluxe"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={vehicleModel}
             onChangeText={setVehicleModel}
           />
@@ -92,7 +96,7 @@ export default function DriverRegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Enter your full name"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={fullName}
             onChangeText={setFullName}
           />
@@ -110,7 +114,7 @@ export default function DriverRegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="e.g. GR-1234-22"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={plateNumber}
             onChangeText={setPlateNumber}
             autoCapitalize="characters"
@@ -122,7 +126,7 @@ export default function DriverRegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="e.g. Yellow"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={vehicleColour}
             onChangeText={setVehicleColour}
           />
@@ -133,64 +137,46 @@ export default function DriverRegisterScreen() {
           <TextInput
             style={styles.input}
             placeholder="Driver's license number"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={colors.textMuted}
             value={licenseNumber}
             onChangeText={setLicenseNumber}
           />
         </View>
 
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleRegister}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.buttonText}>Register as Driver</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+        <Button title="Submit driver application" onPress={() => void handleRegister()} loading={loading} fullWidth size="lg" />
+      </Card>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8FAFB' },
-  content: { padding: 24, paddingTop: 60 },
-  title: { fontSize: 24, fontWeight: '700', color: '#1A1A2E' },
-  subtitle: { fontSize: 14, color: '#64748B', marginTop: 4, marginBottom: 32 },
-  form: { gap: 20 },
+  container: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: spacing.lg },
+  eyebrow: { ...typography.label, color: colors.primary, letterSpacing: 1.2 },
+  title: { ...typography.h1, color: colors.textPrimary },
+  subtitle: { ...typography.small, color: colors.textSecondary, marginTop: 4, marginBottom: spacing.lg },
+  form: { gap: spacing.md },
   field: { gap: 6 },
-  label: { fontSize: 14, fontWeight: '600', color: '#1A1A2E' },
+  label: { ...typography.small, fontWeight: '600', color: colors.textPrimary },
   input: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    height: 52,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    minHeight: 52,
     paddingHorizontal: 16,
     fontSize: 16,
-    color: '#1A1A2E',
+    color: colors.textPrimary,
   },
   vehicleType: {
-    backgroundColor: '#F0FDF4',
-    borderRadius: 12,
+    backgroundColor: colors.primarySoft,
+    borderRadius: borderRadius.lg,
     height: 52,
     paddingHorizontal: 16,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#1B8B4B',
+    borderColor: colors.primary,
   },
-  vehicleTypeText: { fontSize: 16, color: '#1B8B4B', fontWeight: '600' },
-  button: {
-    backgroundColor: '#1B8B4B',
-    borderRadius: 12,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: '600' },
+  vehicleTypeText: { fontSize: 16, color: colors.primaryDark, fontWeight: '600' },
 });

@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
 import { useAuthStore } from '../src/stores/auth-store';
 import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+import { colors } from '@kansride/ui';
 
 const reviewMode = developmentReviewModeEnabled(
   process.env.NODE_ENV,
@@ -14,8 +15,8 @@ export default function Index() {
 
   if (!reviewMode && isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFB' }}>
-        <ActivityIndicator size="large" color="#1B8B4B" />
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
