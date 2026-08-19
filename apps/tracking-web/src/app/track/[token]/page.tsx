@@ -128,11 +128,11 @@ function TrackingMap({ location }: { location: { latitude: number; longitude: nu
   const stale = trackingLocationStale(location?.timestamp || null);
   const age = location ? trackingLocationAge(location.timestamp) : null;
   return (
-    <div className="flex-1 min-h-[240px] bg-slate-100 relative overflow-hidden" aria-label="Privacy-safe live tracking map">
+    <div className="relative min-h-[300px] flex-1 overflow-hidden bg-[#DDE8E3] sm:min-h-[380px]" aria-label="Privacy-safe live tracking map">
       <div className="absolute inset-0 opacity-50" style={{ backgroundImage: `url(${trackingTileUrl.replace('{z}', '12').replace('{x}', '0').replace('{y}', '0')})`, backgroundSize: 'cover' }} />
-      <div className="absolute inset-0 bg-gradient-to-br from-green-50/70 to-blue-50/70" />
-      {point ? <div className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${point.left}%`, top: `${point.top}%` }}><div className={`h-5 w-5 rounded-full border-4 border-white shadow-lg ${stale ? 'bg-amber-500' : 'bg-green-600'}`} /><div className="mt-2 rounded bg-white/90 px-2 py-1 text-xs font-medium text-gray-700">{stale ? 'Location may be stale' : 'Driver location'}</div></div> : <div className="absolute inset-0 z-10 flex items-center justify-center text-sm text-gray-500">Waiting for authorised driver location…</div>}
-      <div className="absolute bottom-2 left-2 z-10 rounded bg-white/90 px-2 py-1 text-[10px] text-gray-500">{location ? (age !== null ? `Updated ${Math.round(age / 1000)}s ago` : 'Location received') : 'No location yet'} · {trackingTileAttribution}</div>
+      <div className="absolute inset-0 bg-gradient-to-br from-[#E7F2EF]/80 to-[#F6F0E6]/65" />
+      {point ? <div className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${point.left}%`, top: `${point.top}%` }}><div className={`h-6 w-6 rounded-full border-4 border-white shadow-lg ${stale ? 'bg-amber-500' : 'bg-primary'}`} /><div className="mt-2 rounded-lg border border-white/80 bg-white/95 px-2.5 py-1.5 text-xs font-bold text-[#284844] shadow-sm">{stale ? 'Location may be stale' : 'Driver location'}</div></div> : <div className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center text-sm font-medium text-[#61736F]">Waiting for authorised driver location…</div>}
+      <div className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-1.5rem)] rounded-lg border border-white/70 bg-white/90 px-2.5 py-1.5 text-[10px] font-medium text-[#61736F] shadow-sm">{location ? (age !== null ? `Updated ${Math.round(age / 1000)}s ago` : 'Location received') : 'No location yet'} · {trackingTileAttribution}</div>
     </div>
   );
 }
@@ -311,10 +311,10 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F0E6]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 border-4 border-green-500 border-t-transparent mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading ride details...</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-primary/20 border-t-primary"></div>
+          <p className="mt-4 text-sm font-semibold text-[#61736F]">Opening secure ride details…</p>
         </div>
       </div>
     );
@@ -322,13 +322,13 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
   if (error || !ride) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-sm px-4">
-          <p className="text-5xl mb-4">🚫</p>
-          <h2 className="text-xl font-semibold text-gray-800 mb-2">Ride Not Found</h2>
-          <p className="text-gray-500">{error || 'Unable to load ride data'}</p>
-          <Link href="/" className="mt-6 inline-block text-green-600 hover:text-green-700 font-medium">
-            ← Back to home
+      <div className="flex min-h-screen items-center justify-center bg-[#F6F0E6] px-5">
+        <div className="w-full max-w-sm rounded-3xl border border-[#DDD4C4] bg-[#FFFDF8] p-7 text-center shadow-panel">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-xl font-bold text-red-700">!</div>
+          <h2 className="mb-2 text-xl font-extrabold text-[#173633]">Tracking unavailable</h2>
+          <p className="text-sm leading-6 text-[#61736F]">{error || 'Unable to load ride data'}</p>
+          <Link href="/" className="mt-6 inline-flex rounded-xl bg-primary px-5 py-3 text-sm font-bold text-white shadow-control hover:bg-primary-dark">
+            Enter another link
           </Link>
         </div>
       </div>
@@ -342,15 +342,15 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   const progressIdx = Math.max(progressHighWater.current, 0);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
+    <div className="flex min-h-screen flex-col bg-[#F6F0E6]">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 shadow-sm">
+      <header className="border-b border-[#DDD4C4] bg-[#FFFDF8]/95 px-4 py-3 shadow-sm backdrop-blur">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🛺</span>
-            <h1 className="text-lg font-bold text-green-700">KansRide</h1>
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-[10px] font-black text-white">KR</span>
+            <div><h1 className="text-base font-extrabold tracking-[-0.025em] text-primary-dark">KansRide</h1><p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#72817D]">Live tracking</p></div>
           </div>
-          <span className="text-xs text-gray-400 font-mono">{ride.publicReference}</span>
+          <span className="rounded-lg bg-[#EEE6D8] px-2.5 py-1.5 font-mono text-[11px] font-semibold text-[#526963]">{ride.publicReference}</span>
         </div>
       </header>
 
@@ -363,13 +363,14 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
       <TrackingMap location={privacySafeLocation(driverLocation)} />
 
       {/* Ride Details */}
-      <div className="bg-white border-t border-gray-200 shadow-lg">
-        <div className="max-w-2xl mx-auto p-4 space-y-4">
+      <div className="relative -mt-5 z-20 rounded-t-[28px] border-t border-[#DDD4C4] bg-[#FFFDF8] shadow-panel">
+        <div className="mx-auto max-w-2xl space-y-5 px-5 pb-6 pt-4 sm:px-6">
+          <div className="mx-auto h-1.5 w-11 rounded-full bg-[#D8CFBF]" />
           {/* Status Banner */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
               <span
-                className={`inline-block w-2.5 h-2.5 rounded-full ${
+                className={`mt-1 inline-block h-2.5 w-2.5 shrink-0 rounded-full ${
                   isCompleted
                     ? 'bg-green-500'
                     : isFailure
@@ -379,12 +380,12 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
                         : 'bg-amber-500 animate-pulse'
                 }`}
               ></span>
-              <span className={`text-sm font-semibold ${getStatusColor(status)}`}>
+              <span className={`text-base font-extrabold leading-5 ${getStatusColor(status)}`}>
                 {STATUS_MESSAGES[status] || status}
               </span>
             </div>
             {ride.estimatedDurationSeconds && !isEnded && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full font-medium">
+              <span className="shrink-0 rounded-full bg-[#DCEBE7] px-2.5 py-1 text-xs font-bold text-primary">
                 ETA: {formatETA(ride.estimatedDurationSeconds)}
               </span>
             )}
@@ -401,15 +402,15 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
                     key={step}
                     className={`w-3 h-3 rounded-full border-2 ${
                       i <= progressIdx
-                        ? 'bg-green-500 border-green-500'
-                        : 'bg-white border-gray-300'
+                        ? 'bg-primary border-primary'
+                        : 'bg-white border-[#CFC6B7]'
                     }`}
                   ></div>
                 ))}
               </div>
-              <div className="relative h-1 bg-gray-200 rounded-full">
+              <div className="relative h-1 rounded-full bg-[#DED6C8]">
                 <div
-                  className="absolute left-0 top-0 h-1 bg-green-500 rounded-full transition-all duration-500"
+                  className="absolute left-0 top-0 h-1 rounded-full bg-primary transition-all duration-500"
                   style={{ width: `${(progressIdx / (STATUS_STEPS.length - 1)) * 100}%` }}
                 ></div>
               </div>
@@ -422,46 +423,46 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
           {/* Driver Info */}
           {ride.driverFirstName && (
-            <div className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                <span className="text-green-700 font-bold text-sm">
+            <div className="flex items-center gap-3 rounded-2xl border border-[#E0D8CA] bg-[#F3EDE3] p-4">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary">
+                <span className="text-sm font-extrabold text-white">
                   {ride.driverFirstName.charAt(0).toUpperCase()}
                 </span>
               </div>
               <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-800">{ride.driverFirstName}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-sm font-extrabold text-[#173633]">{ride.driverFirstName}</p>
+                <p className="mt-0.5 text-xs font-medium text-[#61736F]">
                   {ride.vehicleColour && <span>{ride.vehicleColour} Tricycle</span>}
                   {ride.maskedVehiclePlate && (
                     <span className="ml-2 font-mono">{ride.maskedVehiclePlate}</span>
                   )}
                 </p>
               </div>
-              <span className="text-2xl">🛺</span>
+              <span className="rounded-full border border-[#CADFD9] bg-[#E7F2EF] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-primary">Verified trip</span>
             </div>
           )}
 
           {/* Locations */}
-          <div className="space-y-3">
+          <div className="rounded-2xl border border-[#E0D8CA] bg-white/70 p-4">
             <div className="flex items-start gap-3">
               <div className="mt-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-green-500 border-2 border-green-200"></span>
+                <span className="inline-block h-3 w-3 rounded-full border-2 border-[#A9D3C9] bg-primary"></span>
               </div>
               <div>
-                <p className="text-xs text-gray-500 font-medium">Pickup</p>
-                <p className="text-sm text-gray-800">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#72817D]">Pickup</p>
+                <p className="mt-0.5 text-sm font-semibold text-[#173633]">
                   {ride.pickupAddress || 'Pickup location'}
                 </p>
               </div>
             </div>
-            <div className="ml-1.5 border-l-2 border-dashed border-gray-300 h-4"></div>
+            <div className="ml-1.5 h-5 border-l-2 border-dashed border-[#CFC6B7]"></div>
             <div className="flex items-start gap-3">
               <div className="mt-1">
-                <span className="inline-block w-3 h-3 rounded-full bg-red-500 border-2 border-red-200"></span>
+                <span className="inline-block h-3 w-3 rounded-sm border-2 border-[#F0BDB5] bg-[#B7473A]"></span>
               </div>
               <div>
-                <p className="text-xs text-gray-500 font-medium">Dropoff</p>
-                <p className="text-sm text-gray-800">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#72817D]">Dropoff</p>
+                <p className="mt-0.5 text-sm font-semibold text-[#173633]">
                   {ride.dropoffAddress || 'Destination'}
                 </p>
               </div>
@@ -470,7 +471,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
           {/* Footer */}
           <p className="text-[11px] text-gray-400 text-center pt-2">
-            Shared by a KansRide passenger for safety tracking
+            Privacy protected · shared by a KansRide passenger for safety tracking
           </p>
         </div>
       </div>

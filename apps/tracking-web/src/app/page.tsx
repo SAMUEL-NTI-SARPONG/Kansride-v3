@@ -24,17 +24,19 @@ export default function TrackingHome() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 via-white to-blue-50">
-      <div className="w-full max-w-md px-6">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#F6F0E6] px-5 py-10">
+      <div className="absolute -left-28 top-12 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+      <div className="absolute -right-24 bottom-8 h-64 w-64 rounded-full bg-secondary/15 blur-3xl" />
+      <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <span className="text-5xl block mb-4">🛺</span>
-          <h1 className="text-3xl font-bold text-green-700">KansRide Tracking</h1>
-          <p className="text-gray-500 mt-3">Track your KansRide trip in real-time</p>
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-base font-black text-white shadow-control">KR</div>
+          <h1 className="text-3xl font-extrabold tracking-[-0.04em] text-primary-dark">Track a KansRide</h1>
+          <p className="mx-auto mt-3 max-w-sm text-sm leading-6 text-[#61736F]">Follow the driver and ride status from a secure link shared by the passenger.</p>
         </div>
 
-        <form onSubmit={handleTrack} className="bg-white rounded-2xl shadow-lg p-6 space-y-4">
+        <form onSubmit={handleTrack} className="space-y-5 rounded-3xl border border-[#DDD4C4] bg-[#FFFDF8] p-6 shadow-panel sm:p-7">
           <div>
-            <label htmlFor="trackingToken" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="trackingToken" className="mb-2 block text-sm font-bold text-[#284844]">
               Tracking link
             </label>
             <input
@@ -43,29 +45,29 @@ export default function TrackingHome() {
               value={trackingToken}
               onChange={(e) => setTrackingToken(e.target.value)}
               placeholder="Paste the tracking link or token"
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-green-500 outline-none transition text-sm"
+              className="w-full rounded-xl border border-[#D8CFBF] bg-white px-4 py-3.5 text-sm text-[#173633] outline-none transition placeholder:text-[#87948F] focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
           </div>
           <button
             type="submit"
             disabled={!trackingToken.trim()}
-            className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white font-semibold py-3 rounded-xl transition shadow-sm"
+            className="w-full rounded-xl bg-primary py-3.5 font-bold text-white shadow-control transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:bg-[#789C97] disabled:text-white/90 disabled:shadow-none"
           >
-            Track Ride
+            Track ride
           </button>
         </form>
 
         {reviewMode && (
           <Link
             href="/track/ui-review"
-            className="mt-4 block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900"
+            className="mt-4 block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-bold text-amber-950 transition hover:bg-amber-100"
           >
             Open UI review ride
           </Link>
         )}
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          Use only a tracking link shared by a KansRide passenger
+        <p className="mt-6 text-center text-xs leading-5 text-[#6A7B76]">
+          Your link reveals only the trip details needed for safety tracking.
         </p>
       </div>
     </div>
