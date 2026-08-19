@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { storeTokens, clearTokens, getAccessToken } from '../api/client';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
 
 export interface User {
   id: string;
@@ -48,6 +49,24 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   hydrate: async () => {
+    if (
+      developmentReviewModeEnabled(
+        process.env.NODE_ENV,
+        process.env.EXPO_PUBLIC_UI_REVIEW_MODE,
+      )
+    ) {
+      set({
+        isAuthenticated: true,
+        user: {
+          id: 'ui-review-passenger',
+          phone: '+233 20 000 0000',
+          name: 'UI Review Passenger',
+          totalRides: 12,
+        },
+        isLoading: false,
+      });
+      return;
+    }
     try {
       const token = await getAccessToken();
       if (token) {

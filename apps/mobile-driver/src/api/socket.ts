@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { getStoredToken } from './client';
-import { mobileRuntimeUrl } from '@kansride/config';
+import { mobileRuntimeUrl } from '@kansride/config/mobile-runtime';
 import type {
   RideAcceptResult,
   RideOfferPayload,

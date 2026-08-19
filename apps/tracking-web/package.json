@@ -10,6 +10,7 @@
     "type-check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@kansride/config": "*",
     "@kansride/types": "*",
     "next": "^15.0.0",
     "react": "^18.3.0",

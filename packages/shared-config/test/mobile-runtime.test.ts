@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { validatePhysicalDeviceUrl } from '../src/mobile-runtime';
+import packageJson from '../package.json';
+import {
+  developmentReviewModeEnabled,
+  mobileRuntimeUrl,
+  validatePhysicalDeviceUrl,
+} from '../src/mobile-runtime';
 
 describe('physical-device mobile URL validation', () => {
+  it('is exposed through the mobile-safe package entry point', () => {
+    expect(packageJson.exports['./mobile-runtime']).toEqual({
+      types: './src/mobile-runtime.ts',
+      default: './src/mobile-runtime.ts',
+    });
+    expect(mobileRuntimeUrl('EXPO_PUBLIC_API_URL', 'http://192.168.1.20:3000', 'http://localhost:3000'))
+      .toBe('http://192.168.1.20:3000');
+  });
+
   it('accepts a reachable LAN URL and removes one trailing slash', () => {
     expect(validatePhysicalDeviceUrl('EXPO_PUBLIC_API_URL', 'http://192.168.1.20:3000/api/v1/'))
       .toBe('http://192.168.1.20:3000/api/v1');
@@ -15,5 +29,13 @@ describe('physical-device mobile URL validation', () => {
 
   it('rejects non-http schemes', () => {
     expect(() => validatePhysicalDeviceUrl('EXPO_PUBLIC_TRACKING_URL', 'file:///tracking')).toThrow(/http/);
+  });
+
+  it('allows UI review mode only in development with an explicit flag', () => {
+    expect(developmentReviewModeEnabled('development', 'true')).toBe(true);
+    expect(developmentReviewModeEnabled('production', 'true')).toBe(false);
+    expect(developmentReviewModeEnabled('test', 'true')).toBe(false);
+    expect(developmentReviewModeEnabled('development', undefined)).toBe(false);
+    expect(developmentReviewModeEnabled('development', 'false')).toBe(false);
   });
 });

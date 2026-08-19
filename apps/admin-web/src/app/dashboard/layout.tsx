@@ -4,6 +4,12 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearAdminSession, getAdminRole, hasAdminSession } from '@/lib/api';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+
+const reviewMode = developmentReviewModeEnabled(
+  process.env.NODE_ENV,
+  process.env.NEXT_PUBLIC_UI_REVIEW_MODE,
+);
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '📊' },
@@ -40,6 +46,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    if (reviewMode) {
+      setReady(true);
+      return;
+    }
     if (!hasAdminSession()) {
       router.replace('/login');
       return;
@@ -55,7 +65,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const role = getAdminRole();
+  const role = reviewMode ? 'super_admin' : getAdminRole();
   const allowed = role ? ROLE_NAV[role] : undefined;
   const visibleNav = allowed ? navItems.filter((item) => allowed.has(item.label)) : navItems;
 
@@ -74,18 +84,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           ))}
         </nav>
-        <button
-          type="button"
-          onClick={() => {
-            clearAdminSession();
-            router.replace('/login');
-          }}
-          className="mt-8 w-full px-4 py-2 text-sm text-red-700 bg-red-50 rounded-lg"
-        >
-          Sign out
-        </button>
+        {!reviewMode && (
+          <button
+            type="button"
+            onClick={() => {
+              clearAdminSession();
+              router.replace('/login');
+            }}
+            className="mt-8 w-full px-4 py-2 text-sm text-red-700 bg-red-50 rounded-lg"
+          >
+            Sign out
+          </button>
+        )}
       </aside>
-      <main className="flex-1 p-8">{children}</main>
+      <main className="flex-1 p-8">
+        {reviewMode && (
+          <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            UI review mode — authentication is bypassed locally; live data and server actions remain unavailable.
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }

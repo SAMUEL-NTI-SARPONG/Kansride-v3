@@ -1,5 +1,12 @@
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
+export function developmentReviewModeEnabled(
+  nodeEnv: string | undefined,
+  flag: string | undefined,
+): boolean {
+  return nodeEnv === 'development' && flag === 'true';
+}
+
 export function validatePhysicalDeviceUrl(name: string, value: string | undefined): string {
   if (!value) throw new Error(`${name} is required for physical-device mode`);
   let parsed: URL;

@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import { getAccessToken } from './client';
-import { mobileRuntimeUrl } from '@kansride/config';
+import { mobileRuntimeUrl } from '@kansride/config/mobile-runtime';
 import type { RideUpdatePayload } from '@kansride/types';
 
 import {

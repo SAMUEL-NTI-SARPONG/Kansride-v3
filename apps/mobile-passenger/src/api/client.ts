@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '../stores/auth-store';
-import { mobileRuntimeUrl } from '@kansride/config';
+import { mobileRuntimeUrl } from '@kansride/config/mobile-runtime';
 
 const API_BASE_URL = mobileRuntimeUrl(
   'EXPO_PUBLIC_API_URL',

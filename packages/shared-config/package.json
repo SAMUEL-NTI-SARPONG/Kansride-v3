@@ -12,6 +12,10 @@
     "./constants": {
       "types": "./src/constants.ts",
       "default": "./src/constants.ts"
+    },
+    "./mobile-runtime": {
+      "types": "./src/mobile-runtime.ts",
+      "default": "./src/mobile-runtime.ts"
     }
   },
   "scripts": {

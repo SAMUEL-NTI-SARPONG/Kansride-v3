@@ -48,7 +48,27 @@ export default function DriverProfileScreen() {
       setUserProfile(user);
       setDriverProfile(driver);
     } catch {
-      // Ignore errors
+      const reviewUser = useAuthStore.getState().user;
+      if (reviewUser?.id === 'ui-review-driver') {
+        setUserProfile({
+          id: reviewUser.id,
+          phoneNumber: reviewUser.phoneNumber,
+          role: reviewUser.role,
+          firstName: reviewUser.firstName ?? undefined,
+          lastName: reviewUser.lastName ?? undefined,
+        });
+        setDriverProfile({
+          isDriver: true,
+          driverId: reviewUser.id,
+          rating: '4.8',
+          completedRides: 86,
+          vehicle: {
+            registrationNumber: 'WR 0000-26',
+            colour: 'Green',
+            type: 'Tricycle',
+          },
+        });
+      }
     } finally {
       setLoading(false);
     }

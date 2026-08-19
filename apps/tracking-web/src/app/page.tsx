@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
+
+const reviewMode = developmentReviewModeEnabled(
+  process.env.NODE_ENV,
+  process.env.NEXT_PUBLIC_UI_REVIEW_MODE,
+);
 
 export default function TrackingHome() {
   const [trackingToken, setTrackingToken] = useState('');
@@ -47,6 +54,15 @@ export default function TrackingHome() {
             Track Ride
           </button>
         </form>
+
+        {reviewMode && (
+          <Link
+            href="/track/ui-review"
+            className="mt-4 block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm font-semibold text-amber-900"
+          >
+            Open UI review ride
+          </Link>
+        )}
 
         <p className="text-center text-xs text-gray-400 mt-6">
           Use only a tracking link shared by a KansRide passenger

@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { post, del } from '../../src/api/client';
 import { useRideStore } from '../../src/stores/ride-store';
 import type { PublicTrackingLink } from '@kansride/types';
-import { mobileRuntimeUrl } from '@kansride/config';
+import { mobileRuntimeUrl } from '@kansride/config/mobile-runtime';
 
 export default function SafetyScreen() {
   const activeRide = useRideStore((state) => state.activeRide);

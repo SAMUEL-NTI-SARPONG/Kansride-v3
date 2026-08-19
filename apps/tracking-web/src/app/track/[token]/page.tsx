@@ -9,7 +9,29 @@ import type {
   PublicTrackingSnapshot,
   RideStatus,
 } from '@kansride/types';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
 import { mapPoint, privacySafeLocation, trackingLocationAge, trackingLocationStale, trackingTileAttribution, trackingTileUrl } from '../../../lib/tracking-map';
+
+const reviewMode = developmentReviewModeEnabled(
+  process.env.NODE_ENV,
+  process.env.NEXT_PUBLIC_UI_REVIEW_MODE,
+);
+
+function reviewRide(timestamp: string): PublicTrackingSnapshot {
+  return {
+    publicReference: 'KR-REVIEW-001',
+    status: 'driver_en_route',
+    rideType: 'standard_tricycle',
+    pickupAddress: 'Market Circle, Takoradi',
+    dropoffAddress: 'Airport Roundabout, Takoradi',
+    driverFirstName: 'Kwame',
+    vehicleColour: 'Green',
+    maskedVehiclePlate: 'WR •• 24',
+    estimatedDurationSeconds: 480,
+    createdAt: new Date(Date.now() - 5 * 60_000).toISOString(),
+    updatedAt: timestamp,
+  };
+}
 
 const STATUS_STEPS = [
   'requested',
@@ -122,6 +144,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<'connected' | 'disconnected' | 'reconnecting'>('reconnecting');
+  const isUiReview = reviewMode && trackingToken === 'ui-review';
 
   // High-water mark of the furthest ladder step the ride has visibly reached.
   // Several live (non-terminal) statuses fall outside the STATUS_STEPS ladder
@@ -146,6 +169,22 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
   const fetchRide = useCallback(async () => {
     if (!trackingToken) return;
+    if (isUiReview) {
+      const timestamp = new Date().toISOString();
+      const data = reviewRide(timestamp);
+      setRide(data);
+      setDriverLocation({
+        publicReference: data.publicReference,
+        latitude: 4.9016,
+        longitude: -1.7831,
+        timestamp,
+      });
+      progressHighWater.current = getProgressIndex(data.status);
+      setConnectionState('connected');
+      setError(null);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const data = await get<PublicTrackingSnapshot>(
@@ -158,7 +197,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     } finally {
       setLoading(false);
     }
-  }, [trackingToken]);
+  }, [trackingToken, isUiReview]);
 
   useEffect(() => {
     if (!trackingToken) return;
@@ -167,7 +206,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
 
   // WebSocket connection + listeners.
   useEffect(() => {
-    if (!trackingToken || !ride) return;
+    if (!trackingToken || !ride || isUiReview) return;
 
     connectTracking(trackingToken);
 
@@ -224,7 +263,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     };
     // ride?.publicReference intentionally used as the connection key; depending
     // on the whole ride object would reconnect on every status update.
-  }, [trackingToken, ride?.publicReference]);
+  }, [trackingToken, ride?.publicReference, isUiReview]);
 
   // Background polling + refetch-on-visible fallback. The websocket is the
   // primary channel, but if it silently drops or the tab was backgrounded long
@@ -233,7 +272,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
   // frequency fetch keeps the status honest, gated on the ride not having
   // ended so we don't keep poking a revoked token.
   useEffect(() => {
-    if (!trackingToken) return;
+    if (!trackingToken || isUiReview) return;
 
     const refetchIfActive = () => {
       const current = ride;
@@ -268,7 +307,7 @@ export default function TrackRidePage({ params }: { params: Promise<{ token: str
     };
     // Re-arm when the token or ride identity changes; a status-only update
     // must not restart the interval.
-  }, [trackingToken, ride?.publicReference]);
+  }, [trackingToken, ride?.publicReference, isUiReview]);
 
   if (loading) {
     return (

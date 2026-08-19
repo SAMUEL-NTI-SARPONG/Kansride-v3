@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { storeTokens, clearTokens, getStoredToken } from '../api/client';
+import { developmentReviewModeEnabled } from '@kansride/config/mobile-runtime';
 
 interface UserData {
   id: string;
@@ -40,6 +41,25 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   initialize: async () => {
+    if (
+      developmentReviewModeEnabled(
+        process.env.NODE_ENV,
+        process.env.EXPO_PUBLIC_UI_REVIEW_MODE,
+      )
+    ) {
+      set({
+        isAuthenticated: true,
+        user: {
+          id: 'ui-review-driver',
+          phoneNumber: '+233 24 000 0000',
+          role: 'driver',
+          firstName: 'UI Review',
+          lastName: 'Driver',
+        },
+        isLoading: false,
+      });
+      return;
+    }
     const token = await getStoredToken();
     if (token) {
       set({ isAuthenticated: true, accessToken: token, isLoading: false });

@@ -20,7 +20,7 @@ import {
   connectSocket,
 } from '../../../src/api/socket';
 import type { ActiveRide, RideStatus } from '../../../src/stores/ride-store';
-import { mobileRuntimeUrl } from '@kansride/config';
+import { mobileRuntimeUrl } from '@kansride/config/mobile-runtime';
 import type { PublicTrackingLink } from '@kansride/types';
 import {
   cancellationReasonLabel,
