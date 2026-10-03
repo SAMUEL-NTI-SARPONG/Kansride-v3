@@ -14,12 +14,17 @@ export class RedisService implements IRedisService, OnModuleDestroy {
       maxRetriesPerRequest: 3,
       retryStrategy: (times) => Math.min(times * 200, 5000),
       lazyConnect: true,
+      connectTimeout: 5000,
+      commandTimeout: 5000,
     });
 
-    this.client.on('connect', () => {
+    this.client.on('ready', () => {
       this.connected = true;
       this.logger.log('Connected to Redis');
     });
+
+    this.client.on('close', () => { this.connected = false; });
+    this.client.on('end', () => { this.connected = false; });
 
     this.client.on('error', (err) => {
       this.connected = false;
@@ -53,6 +58,15 @@ export class RedisService implements IRedisService, OnModuleDestroy {
 
   async expire(key: string, ttlSeconds: number): Promise<void> {
     await this.client.expire(key, ttlSeconds);
+  }
+
+  async consumeRateLimit(key: string, limit: number, windowSeconds: number): Promise<boolean> {
+    const attempts = await this.client.eval(`
+      local attempts = redis.call('INCR', KEYS[1])
+      if attempts == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+      return attempts
+    `, 1, key, windowSeconds);
+    return Number(attempts) <= limit;
   }
 
   async geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void> {

@@ -49,7 +49,10 @@ const envSchema = z.object({
   // Redis
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
-  REDIS_URL: z.string().default('redis://localhost:6379'),
+  REDIS_URL: z.string().url().refine(
+    (value) => value.startsWith('redis://') || value.startsWith('rediss://'),
+    'REDIS_URL must use redis:// or rediss:// (not a REST endpoint)',
+  ).default('redis://localhost:6379'),
 
   // JWT
   JWT_ACCESS_SECRET: z.string().min(1).default('change-this-to-a-strong-secret-in-production'),
@@ -66,11 +69,12 @@ const envSchema = z.object({
   // SMS_API_KEY / SMS_API_SECRET below, which are reserved for future
   // providers); they are declared here so the schema validates and documents
   // them and so production can require the live secret.
-  SMS_PROVIDER: z.enum(['mock', 'hubtel']).default('mock'),
+  SMS_PROVIDER: z.enum(['mock', 'hubtel', 'textbee']).default('mock'),
   SMS_API_KEY: z.string().default(''),
   SMS_API_SECRET: z.string().default(''),
   HUBTEL_SMS_API_KEY: z.string().default(''),
   HUBTEL_SENDER_ID: z.string().default('KansRide'),
+  TEXTBEE_API_KEY: z.string().default(''),
 
   // Maps. Haversine is the deterministic development adapter. Google mode is
   // reserved for the production adapter and must not silently fall back.
@@ -84,6 +88,11 @@ const envSchema = z.object({
   PAYMENT_PROVIDER: z.enum(['mock', 'disabled', 'momo']).default('mock'),
   PAYMENT_API_KEY: z.string().default(''),
   PAYMENT_API_SECRET: z.string().default(''),
+
+  // Driver access is free during the controlled community launch. Switching
+  // this to subscription later restores the existing paid-access gate without
+  // removing or simulating any payment functionality.
+  DRIVER_ACCESS_MODE: z.enum(['free_launch', 'subscription']).default('free_launch'),
 
   // Web CORS. Optional comma-separated list of allowed origins. When unset,
   // the API serves any origin without credentials (the V1 default). When set,
@@ -126,6 +135,8 @@ export function getEnv(): Env {
       'JWT_ACCESS_SECRET',
       'JWT_REFRESH_SECRET',
       'DATABASE_URL',
+      'REDIS_URL',
+      'WEB_CORS_ORIGINS',
     ] as const;
 
     const missing = requiredInProduction.filter(
@@ -139,12 +150,18 @@ export function getEnv(): Env {
     if (process.env['SMS_PROVIDER'] === 'hubtel' && (!process.env['HUBTEL_SMS_API_KEY'] || process.env['HUBTEL_SMS_API_KEY'] === '')) {
       (missing as string[]).push('HUBTEL_SMS_API_KEY');
     }
+    if (process.env['SMS_PROVIDER'] === 'textbee' && (!process.env['TEXTBEE_API_KEY'] || process.env['TEXTBEE_API_KEY'] === '')) {
+      (missing as string[]).push('TEXTBEE_API_KEY');
+    }
     const paymentProvider = process.env['PAYMENT_PROVIDER'] || 'mock';
     if (paymentProvider === 'momo') {
       (missing as string[]).push('PAYMENT_API_KEY', 'PAYMENT_API_SECRET');
     }
     if (paymentProvider === 'mock') {
       throw new Error('[ENV] PAYMENT_PROVIDER=mock is not permitted in production');
+    }
+    if (!process.env['SMS_PROVIDER'] || process.env['SMS_PROVIDER'] === 'mock') {
+      throw new Error('[ENV] A live SMS_PROVIDER is required in production');
     }
     if (process.env['MAPS_PROVIDER'] === 'google' && (!process.env['MAPS_API_KEY'] || process.env['MAPS_API_KEY'] === '')) {
       (missing as string[]).push('MAPS_API_KEY');
@@ -166,6 +183,20 @@ export function getEnv(): Env {
       throw new Error(
         '[ENV] JWT_REFRESH_SECRET must be changed from default value in production'
       );
+    }
+    const accessSecret = process.env['JWT_ACCESS_SECRET']!;
+    const refreshSecret = process.env['JWT_REFRESH_SECRET']!;
+    if (accessSecret.length < 32 || refreshSecret.length < 32 || accessSecret === refreshSecret) {
+      throw new Error('[ENV] Production JWT secrets must be distinct and at least 32 characters long');
+    }
+    const origins = process.env['WEB_CORS_ORIGINS']!.split(',').map((value) => value.trim());
+    if (origins.some((origin) => {
+      try {
+        const url = new URL(origin);
+        return !['https:', 'http:'].includes(url.protocol) || url.origin !== origin;
+      } catch { return true; }
+    })) {
+      throw new Error('[ENV] WEB_CORS_ORIGINS must contain explicit HTTP(S) origins, without paths or wildcards');
     }
   }
 

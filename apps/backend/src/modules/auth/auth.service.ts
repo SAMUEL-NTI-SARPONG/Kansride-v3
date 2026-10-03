@@ -1,11 +1,15 @@
-import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException, Inject, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException, HttpException, Inject, Logger } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { SMS_PROVIDER } from '../../providers';
 import { ISMSProvider } from '../../providers/sms/sms.interface';
 import { Database, users, otpRequests, passengers } from '@kansride/db';
-import { JWTService, OTPService, normalizeGhanaPhone, validateGhanaPhone } from '@kansride/auth';
-import { eq, and, gt, desc, count } from 'drizzle-orm';
+import { JWTService, OTPService, normalizeGhanaPhone, validateGhanaPhone, hashPIN, verifyPIN } from '@kansride/auth';
+import { eq, and, gt, desc, count, isNull } from 'drizzle-orm';
 import { getEnv } from '@kansride/config';
+import { createHash } from 'node:crypto';
+import { REDIS_SERVICE, type IRedisService } from '../../redis';
+
+const PIN_PATTERN = /^\d{4}$/;
 
 @Injectable()
 export class AuthService {
@@ -16,6 +20,7 @@ export class AuthService {
   constructor(
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     @Inject(SMS_PROVIDER) private readonly smsProvider: ISMSProvider,
+    @Inject(REDIS_SERVICE) private readonly redis: IRedisService,
   ) {
     const env = getEnv();
     this.jwtService = new JWTService({
@@ -72,8 +77,8 @@ export class AuthService {
     // waiting for a code that would never arrive. Surface a 503 and remove the
     // just-inserted code row so this failed attempt does not consume the
     // rate-limit window — the user can immediately request a new code.
-    const result = await this.smsProvider.sendOTP(normalized, code);
-    this.logger.log(`OTP requested for ${normalized}, sent: ${result.success}`);
+    const result = await this.smsProvider.sendOTP(normalized, code).catch(() => ({ success: false }));
+    this.logger.log(`OTP send accepted: ${result.success}`);
 
     if (!result.success) {
       await this.db
@@ -121,7 +126,7 @@ export class AuthService {
     const incremented = await this.db
       .update(otpRequests)
       .set({ attempts: otpRecord.attempts + 1 })
-      .where(and(eq(otpRequests.id, otpRecord.id), eq(otpRequests.attempts, otpRecord.attempts)))
+      .where(and(eq(otpRequests.id, otpRecord.id), eq(otpRequests.attempts, otpRecord.attempts), isNull(otpRequests.verifiedAt)))
       .returning({ id: otpRequests.id });
     if (!incremented[0]) {
       throw new UnauthorizedException('OTP verification is being processed, please retry.');
@@ -134,10 +139,16 @@ export class AuthService {
     }
 
     // Mark OTP as verified
-    await this.db
+    const claimed = await this.db
       .update(otpRequests)
       .set({ verifiedAt: new Date() })
-      .where(eq(otpRequests.id, otpRecord.id));
+      .where(and(
+        eq(otpRequests.id, otpRecord.id),
+        eq(otpRequests.attempts, otpRecord.attempts + 1),
+        isNull(otpRequests.verifiedAt),
+        gt(otpRequests.expiresAt, new Date()),
+      )).returning({ id: otpRequests.id });
+    if (!claimed[0]) throw new UnauthorizedException('OTP already used or expired. Please request a new one.');
 
     // Find or create user, and ensure a passenger profile exists for
     // passenger-role users. New-user creation and its passenger-profile
@@ -175,6 +186,7 @@ export class AuthService {
         return newUser;
       });
     } else {
+      if (user.status !== 'active') throw new UnauthorizedException('Account is not active');
       // Existing-user verification: the isVerified flag update and the
       // passenger-profile backfill must succeed or fail atomically. The
       // new-user path above already wraps both writes in a transaction;
@@ -210,6 +222,7 @@ export class AuthService {
 
     return {
       ...tokens,
+      registrationComplete: Boolean(user!.pinHash && user!.firstName),
       user: {
         id: user!.id,
         phoneNumber: user!.phoneNumber,
@@ -217,6 +230,59 @@ export class AuthService {
         firstName: user!.firstName,
         lastName: user!.lastName,
       },
+    };
+  }
+
+  async completePassengerRegistration(
+    userId: string,
+    data: { fullName: string; pin: string; communityId?: string },
+  ) {
+    const fullName = data.fullName?.trim();
+    if (!fullName) throw new BadRequestException('Name is required');
+    if (!PIN_PATTERN.test(data.pin || '')) {
+      throw new BadRequestException('PIN must contain exactly 4 digits');
+    }
+    const [firstName, ...rest] = fullName.split(/\s+/);
+    const [updated] = await this.db.update(users).set({
+      firstName,
+      lastName: rest.join(' ') || null,
+      pinHash: hashPIN(data.pin),
+      communityId: data.communityId?.trim() || 'kansaworodo',
+      updatedAt: new Date(),
+    }).where(and(eq(users.id, userId), eq(users.role, 'passenger'))).returning();
+    if (!updated) throw new BadRequestException('Passenger account could not be completed');
+    return { message: 'Passenger account created', user: this.publicUser(updated) };
+  }
+
+  async loginWithPIN(phoneNumber: string, pin: string) {
+    const normalized = normalizeGhanaPhone(phoneNumber);
+    if (!validateGhanaPhone(normalized) || !PIN_PATTERN.test(pin || '')) {
+      throw new UnauthorizedException('Invalid phone number or PIN');
+    }
+    // Four-digit PINs require an account-scoped limit, not just per-IP limits.
+    // Hash the normalized phone so Redis keys do not contain contact details.
+    const limitKey = `auth:pin:${createHash('sha256').update(normalized).digest('hex')}`;
+    const allowed = await this.redis.consumeRateLimit(limitKey, 5, 15 * 60).catch(() => {
+      throw new ServiceUnavailableException('Login temporarily unavailable. Please try again.');
+    });
+    if (!allowed) throw new HttpException('Too many PIN attempts. Try again in 15 minutes or sign in with OTP.', 429);
+    const [user] = await this.db.select().from(users).where(eq(users.phoneNumber, normalized)).limit(1);
+    if (!user?.pinHash || !user.isVerified || user.status !== 'active' || !verifyPIN(pin, user.pinHash)) {
+      throw new UnauthorizedException('Invalid phone number or PIN');
+    }
+    const tokens = this.jwtService.generateTokenPair({ userId: user.id, phoneNumber: user.phoneNumber, role: user.role });
+    await this.redis.del(limitKey).catch(() => undefined);
+    return { ...tokens, user: this.publicUser(user) };
+  }
+
+  private publicUser(user: typeof users.$inferSelect) {
+    return {
+      id: user.id,
+      phoneNumber: user.phoneNumber,
+      role: user.role,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      communityId: user.communityId,
     };
   }
 

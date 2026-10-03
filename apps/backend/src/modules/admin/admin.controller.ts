@@ -48,6 +48,17 @@ export class AdminController {
     return this.adminService.getDashboardStats();
   }
 
+  @Get('settings/otp-sms')
+  @RequirePermissions('admin:manage_system')
+  getOTPSMSSettings() { return this.adminService.getOTPSMSSettings(); }
+
+  @Patch('settings/otp-sms')
+  @RequirePermissions('admin:manage_system')
+  updateOTPSMSSettings(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { enabled?: boolean; deviceId?: string; simSubscriptionId?: number | null; sendingPhoneLabel?: string },
+  ) { return this.adminService.updateOTPSMSSettings(req.user.userId, body); }
+
   @Get('drivers')
   @RequirePermissions('admin:manage_drivers')
   getDrivers(

@@ -49,7 +49,7 @@ let adminUserId: string;
 let trackingToken: string;
 
 async function authenticate(phoneNumber: string, role: 'passenger' | 'driver' | 'super_admin') {
-  const auth = new AuthService(db, smsProvider);
+  const auth = new AuthService(db, smsProvider, redis);
   await auth.requestOTP(phoneNumber);
   const [otp] = await db.select().from(otpRequests)
     .where(eq(otpRequests.phoneNumber, phoneNumber))
@@ -175,16 +175,25 @@ describe('V1 passenger-driver ride journey against Postgres and Redis', () => {
       events as never,
     );
 
-    const created = await ridesService.createRide(passengerUserId, {
+    const request = {
       pickupLatitude: 5.603,
       pickupLongitude: -0.187,
       pickupAddress: 'Integration Pickup',
       dropoffLatitude: 5.61,
       dropoffLongitude: -0.19,
       dropoffAddress: 'Integration Dropoff',
-      rideType: 'standard_tricycle',
-    });
+      rideType: 'standard_tricycle' as const,
+    };
+    const attempts = await Promise.allSettled([
+      ridesService.createRide(passengerUserId, request),
+      ridesService.createRide(passengerUserId, request),
+    ]);
+    const accepted = attempts.filter((result) => result.status === 'fulfilled');
+    expect(accepted).toHaveLength(1);
+    expect(attempts.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    const created = accepted[0]!.value;
     rideId = created.id;
+    expect((await ridesService.getActiveRideForActor(passengerUserId, 'passenger'))?.id).toBe(rideId);
     expect(Number.isInteger(created.estimatedFarePesewas)).toBe(true);
 
     let offers = await dispatch.getDriverOffers(driverId);

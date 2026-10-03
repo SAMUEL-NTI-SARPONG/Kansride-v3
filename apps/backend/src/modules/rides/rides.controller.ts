@@ -44,6 +44,12 @@ export class RidesController {
     private readonly publicTrackingService: PublicTrackingService,
   ) {}
 
+  @Get('active')
+  @RequirePermissions('ride:view')
+  getActiveRide(@Request() req: AuthenticatedRequest) {
+    return this.ridesService.getActiveRideForActor(req.user.userId, req.user.role as UserRole);
+  }
+
   @Get('my-rides')
   @RequirePermissions('ride:view')
   getMyRides(

@@ -1,4 +1,5 @@
-import { pgTable, uuid, varchar, text, integer, numeric, timestamp, pgEnum, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, integer, numeric, timestamp, pgEnum, index, uniqueIndex } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { passengers } from './passengers';
 import { drivers } from './drivers';
 import { users } from './users';
@@ -43,6 +44,10 @@ export const rides = pgTable('rides', {
   ratedBy: uuid('rated_by').references(() => users.id),
 }, (table) => ({
   ridesStatusIdx: index('idx_rides_status_created').on(table.status, table.createdAt),
+  activePassengerIdx: uniqueIndex('idx_rides_one_active_passenger').on(table.passengerId)
+    .where(sql`${table.status} IN ('requested', 'searching', 'driver_offered', 'driver_assigned', 'driver_en_route', 'driver_arrived', 'waiting_for_passenger', 'passenger_verified', 'in_progress', 'emergency_hold')`),
   ridesPassengerIdx: index('idx_rides_passenger').on(table.passengerId, table.createdAt),
   ridesDriverIdx: index('idx_rides_driver').on(table.driverId, table.createdAt),
+  activeDriverIdx: uniqueIndex('idx_rides_one_active_driver').on(table.driverId)
+    .where(sql`${table.driverId} IS NOT NULL AND ${table.status} IN ('driver_assigned', 'driver_en_route', 'driver_arrived', 'waiting_for_passenger', 'passenger_verified', 'in_progress', 'emergency_hold')`),
 }));

@@ -8,17 +8,23 @@ import { HaversineMapsProvider } from './maps/haversine-maps.provider';
 import { PAYMENT_PROVIDER } from './payments/payment.interface';
 import { MockPaymentProvider } from './payments/mock-payment.provider';
 import { DisabledPaymentProvider } from './payments/disabled-payment.provider';
+import { TextBeeSMSProvider } from './sms/textbee-sms.provider';
+import { DATABASE_TOKEN } from '../database';
+import type { Database } from '@kansride/db';
 
 @Global()
 @Module({
   providers: [
     {
       provide: SMS_PROVIDER,
-      useFactory: () => {
+      inject: [DATABASE_TOKEN],
+      useFactory: (db: Database) => {
         const provider = process.env.SMS_PROVIDER || 'mock';
         switch (provider) {
           case 'hubtel':
             return new HubtelSMSProvider();
+          case 'textbee':
+            return new TextBeeSMSProvider(db);
           default:
             return new MockSMSProvider();
         }

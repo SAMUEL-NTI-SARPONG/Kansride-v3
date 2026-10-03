@@ -123,6 +123,7 @@ describe('DriversService.subscribe payment lifecycle', () => {
   });
 
   it('keeps a pre-provisioned active pilot subscription usable when payments are disabled', async () => {
+    vi.stubEnv('DRIVER_ACCESS_MODE', 'subscription');
     const { service, db, redis } = buildService(
       makeDbStub(),
       new DisabledPaymentProvider(),
@@ -144,5 +145,19 @@ describe('DriversService.subscribe payment lifecycle', () => {
       DRIVER_ID,
     );
     db.assertDrained();
+    vi.unstubAllEnvs();
+  });
+
+  it('allows an approved driver online without consuming payment state during free launch', async () => {
+    vi.stubEnv('DRIVER_ACCESS_MODE', 'free_launch');
+    const { service, db, redis, paymentProvider } = buildService();
+    db.enqueue([{ id: DRIVER_ID, userId: USER_ID }]);
+    db.enqueue([]);
+    await expect(service.setOnlineStatus(DRIVER_ID, true, { latitude: 4.962, longitude: -1.7693 }))
+      .resolves.toMatchObject({ driverId: DRIVER_ID, online: true });
+    expect(paymentProvider.initiate).not.toHaveBeenCalled();
+    expect(redis.geoAdd).toHaveBeenCalled();
+    db.assertDrained();
+    vi.unstubAllEnvs();
   });
 });

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
-import { Database, auditLogs, users, drivers, rides, subscriptions, vehicles, passengers } from '@kansride/db';
+import { Database, appSettings, auditLogs, users, drivers, rides, subscriptions, vehicles, passengers } from '@kansride/db';
 import { eq, desc, count, sum, and, inArray, or, ilike } from 'drizzle-orm';
 import type { UserRole } from '@kansride/types';
 import { RidesService } from '../rides/rides.service';
@@ -11,6 +11,34 @@ export class AdminService {
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     private readonly ridesService: RidesService,
   ) {}
+
+  async getOTPSMSSettings() {
+    const [row] = await this.db.select().from(appSettings).where(eq(appSettings.key, 'otp_sms')).limit(1);
+    const value = (row?.value || {}) as Record<string, unknown>;
+    return {
+      provider: 'textbee',
+      enabled: value.enabled !== false,
+      deviceId: typeof value.deviceId === 'string' ? value.deviceId : '',
+      simSubscriptionId: typeof value.simSubscriptionId === 'number' ? value.simSubscriptionId : null,
+      sendingPhoneLabel: typeof value.sendingPhoneLabel === 'string' ? value.sendingPhoneLabel : '+233 54 698 8890',
+      apiKeyConfigured: Boolean(process.env.TEXTBEE_API_KEY),
+      updatedAt: row?.updatedAt?.toISOString() || null,
+    };
+  }
+
+  async updateOTPSMSSettings(adminUserId: string, input: { enabled?: boolean; deviceId?: string; simSubscriptionId?: number | null; sendingPhoneLabel?: string }) {
+    const deviceId = input.deviceId?.trim() || undefined;
+    const phone = input.sendingPhoneLabel?.trim() || '+233 54 698 8890';
+    if (!/^\+233\s?(?:\d\s?){9}$/.test(phone)) throw new BadRequestException('Sending phone label must be a valid Ghana number');
+    if (input.simSubscriptionId != null && (!Number.isInteger(input.simSubscriptionId) || input.simSubscriptionId < 0)) throw new BadRequestException('SIM subscription ID must be a non-negative integer');
+    const previous = await this.getOTPSMSSettings();
+    const value = { enabled: input.enabled !== false, deviceId, simSubscriptionId: input.simSubscriptionId ?? undefined, sendingPhoneLabel: phone };
+    await this.db.transaction(async (tx) => {
+      await tx.insert(appSettings).values({ key: 'otp_sms', value, updatedBy: adminUserId, updatedAt: new Date() }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedBy: adminUserId, updatedAt: new Date() } });
+      await tx.insert(auditLogs).values({ userId: adminUserId, entityType: 'system_setting', entityId: '00000000-0000-4000-8000-000000000001', action: 'otp_sms_settings_updated', changes: { previous: { ...previous, apiKeyConfigured: undefined }, next: value } });
+    });
+    return this.getOTPSMSSettings();
+  }
 
   async getDashboardStats() {
     // Total users
@@ -120,6 +148,12 @@ export class AdminService {
           isActive: driver.isActive,
           vehicleRegistration: vehicle[0]?.registrationNumber || null,
           vehicleColour: vehicle[0]?.colour || null,
+          ghanaCardNumber: driver.ghanaCardNumber,
+          placeOfStay: driver.placeOfStay,
+          communityId: driver.communityId,
+          emergencyContactName: driver.emergencyContactName,
+          emergencyPhoneNumber: driver.emergencyPhoneNumber,
+          profilePhotoUrl: user[0]?.profilePhotoUrl || null,
           subscriptionExpiresAt: driver.subscriptionExpiresAt?.toISOString() || null,
           rating: driver.rating,
           completedRides,

@@ -81,6 +81,43 @@ describe('RidesService.estimateFare — canonical estimate contract', () => {
 });
 
 describe('RidesService.createRide — ride-type validation', () => {
+  it('rejects out-of-range coordinates before accessing storage or maps', async () => {
+    const { service, mapsProvider } = buildService();
+    await expect(service.createRide(PASSENGER_USER_ID, {
+      pickupLatitude: 91, pickupLongitude: -1.77, dropoffLatitude: 4.96, dropoffLongitude: -1.78,
+    })).rejects.toThrow(/coordinates/);
+    expect(mapsProvider.getDistance).not.toHaveBeenCalled();
+  });
+
+  it('does not dispatch or emit when the active-ride uniqueness guard rejects a duplicate', async () => {
+    const { service, db, dispatchService, eventsGateway } = buildService();
+    db.enqueue([{ id: PASSENGER_PROFILE_ID }]);
+    db.enqueue([]);
+    await expect(service.createRide(PASSENGER_USER_ID, {
+      pickupLatitude: 4.96, pickupLongitude: -1.77, dropoffLatitude: 4.97, dropoffLongitude: -1.78,
+    })).rejects.toThrow(/already have an active ride/);
+    expect(dispatchService.dispatchRide).not.toHaveBeenCalled();
+    expect(eventsGateway.emitToUser).not.toHaveBeenCalled();
+    db.assertDrained();
+  });
+
+  it('restores only the authenticated driver profile trip and withholds the passenger PIN', async () => {
+    const { service, db } = buildService();
+    db.enqueue([{ id: 'driver-profile-id' }]);
+    db.enqueue([{ id: 'ride-id', status: 'driver_assigned', verificationPin: '1234' }]);
+    const restored = await service.getActiveRideForActor('driver-user-id', 'driver');
+    expect(restored).toEqual({ id: 'ride-id', status: 'driver_assigned' });
+    db.assertDrained();
+  });
+
+  it('returns null when a passenger has no active ride', async () => {
+    const { service, db } = buildService();
+    db.enqueue([{ id: PASSENGER_PROFILE_ID }]);
+    db.enqueue([]);
+    expect(await service.getActiveRideForActor(PASSENGER_USER_ID, 'passenger')).toBeNull();
+    db.assertDrained();
+  });
+
   it('rejects unsupported rideType values with a 400 BadRequest and never touches maps / db', async () => {
     for (const rideType of INVALID_RIDE_TYPES) {
       const { service, db, mapsProvider } = buildService();

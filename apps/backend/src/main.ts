@@ -3,10 +3,14 @@ import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { getEnv } from '@kansride/config';
+import { json, urlencoded } from 'express';
 
 async function bootstrap() {
   const env = getEnv();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.enableShutdownHooks();
+  app.use(json({ limit: '2mb' }));
+  app.use(urlencoded({ extended: true, limit: '2mb' }));
   const logger = new Logger('Bootstrap');
 
   app.setGlobalPrefix('api/v1');

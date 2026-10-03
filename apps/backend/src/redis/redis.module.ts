@@ -13,6 +13,9 @@ import { MemoryRedisService } from './memory-redis.service';
         if (redisUrl) {
           return new RedisService();
         }
+        if (process.env.NODE_ENV === 'production') {
+          throw new Error('REDIS_URL is required in production; in-memory dispatch is development-only');
+        }
         return new MemoryRedisService();
       },
     },

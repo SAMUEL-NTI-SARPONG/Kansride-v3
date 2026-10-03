@@ -4,7 +4,7 @@ import { MAPS_PROVIDER } from '../../providers';
 import { IMapsProvider } from '../../providers/maps/maps.interface';
 import { Database, rides, drivers, passengers } from '@kansride/db';
 import { RBACService } from '@kansride/auth';
-import { eq, desc, avg, and, isNull, isNotNull, type SQL } from 'drizzle-orm';
+import { eq, desc, avg, and, isNull, isNotNull, inArray, type SQL } from 'drizzle-orm';
 import type {
   CreateRideResponse,
   UserRole,
@@ -16,6 +16,7 @@ import { StateMachineService } from './state-machine.service';
 import { DispatchService } from './dispatch.service';
 import { EventsGateway } from '../events/events.gateway';
 import { RIDE_EVENT_SELECTION, toRideUpdatePayload } from './ride-event.payload';
+import { randomInt } from 'node:crypto';
 
 /** Authorization mapping: which roles may cancel a ride. */
 const CANCELLATION_ROLES = {
@@ -37,6 +38,19 @@ const ALLOWED_RIDE_TYPES = [
   'shared',
   'parcel_delivery',
 ] as const satisfies readonly RideType[];
+
+const ACTIVE_STATUSES: RideStatus[] = [
+  'requested', 'searching', 'driver_offered', 'driver_assigned', 'driver_en_route',
+  'driver_arrived', 'waiting_for_passenger', 'passenger_verified', 'in_progress', 'emergency_hold',
+];
+
+function validateCoordinates(data: { pickupLatitude: number; pickupLongitude: number; dropoffLatitude: number; dropoffLongitude: number }) {
+  if (![data.pickupLatitude, data.pickupLongitude, data.dropoffLatitude, data.dropoffLongitude].every(Number.isFinite)
+    || Math.abs(data.pickupLatitude) > 90 || Math.abs(data.dropoffLatitude) > 90
+    || Math.abs(data.pickupLongitude) > 180 || Math.abs(data.dropoffLongitude) > 180) {
+    throw new BadRequestException('Valid pickup and dropoff coordinates are required');
+  }
+}
 
 function isRideType(value: unknown): value is RideType {
   return typeof value === 'string'
@@ -122,15 +136,7 @@ export class RidesService {
     dropoffLongitude: number;
     rideType?: RideType;
   }) {
-    const coordinates = [
-      data.pickupLatitude,
-      data.pickupLongitude,
-      data.dropoffLatitude,
-      data.dropoffLongitude,
-    ];
-    if (coordinates.some((value) => !Number.isFinite(value))) {
-      throw new BadRequestException('Valid pickup and dropoff coordinates are required');
-    }
+    validateCoordinates(data);
     const rideType = resolveRideType(data.rideType);
     const distance = await this.mapsProvider.getDistance(
       { latitude: data.pickupLatitude, longitude: data.pickupLongitude },
@@ -163,6 +169,7 @@ export class RidesService {
     },
   ): Promise<CreateRideResponse> {
     const rideType = resolveRideType(data.rideType);
+    validateCoordinates(data);
 
     // Resolve the real passenger.id from the authenticated users.id.
     // Never insert users.id into rides.passengerId (FK -> passengers.id).
@@ -182,7 +189,7 @@ export class RidesService {
     );
 
     // Generate 4-digit verification PIN
-    const verificationPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const verificationPin = randomInt(1000, 10000).toString();
 
     // Insert ride
     const inserted = await this.db
@@ -204,9 +211,11 @@ export class RidesService {
         estimatedDurationSeconds: distance.durationSeconds,
         verificationPin,
       })
+      .onConflictDoNothing()
       .returning();
 
-    const ride = inserted[0]!;
+    const ride = inserted[0];
+    if (!ride) throw new ConflictException('You already have an active ride. Open it before requesting another.');
     this.logger.log(
       `Ride created: ${ride.id} for passenger ${passenger.id}, fare: ${fare.totalFarePesewas} pesewas`,
     );
@@ -226,6 +235,24 @@ export class RidesService {
       verificationPin,
       fareBreakdown: fare,
     };
+  }
+
+  async getActiveRideForActor(authenticatedUserId: string, role: UserRole) {
+    const ownership = role === 'passenger'
+      ? eq(rides.passengerId, (await this.getPassengerProfileByUserId(authenticatedUserId)).id)
+      : role === 'driver'
+        ? eq(rides.driverId, (await this.getDriverProfileByUserId(authenticatedUserId)).id)
+        : null;
+    if (!ownership) throw new ForbiddenException('Only passengers and drivers have an active ride');
+    const [ride] = await this.db.select().from(rides)
+      .where(and(ownership, inArray(rides.status, ACTIVE_STATUSES)))
+      .orderBy(desc(rides.createdAt)).limit(1);
+    if (!ride) return null;
+    if (role === 'driver') {
+      const { verificationPin: _pin, ...safeRide } = ride;
+      return safeRide;
+    }
+    return ride;
   }
 
   async getRide(id: string) {

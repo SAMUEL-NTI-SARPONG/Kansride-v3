@@ -20,9 +20,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, product-governance, recovery/phase-2-opencode, release/kansride-v1]
+    branches: [main, develop, product-governance, recovery/phase-2-opencode, release/kansride-v1, ui/kansride-v1-refresh]
   pull_request:
-    branches: [main, develop, product-governance, recovery/phase-2-opencode, release/kansride-v1]
+    branches: [main, develop, product-governance, recovery/phase-2-opencode, release/kansride-v1, ui/kansride-v1-refresh]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -138,16 +138,14 @@ jobs:
       # Boot the backend in the background, wait for it to bind, then probe the
       # public health endpoint. The health handler (`HealthController`) is NOT
       # guarded by AuthGuard so an unauthenticated GET suffices. The endpoint
-      # exercises only the request pipeline (no DB query in this controller),
-      # so success also proves `getEnv()` validated the supplied DATABASE_URL /
-      # JWT secrets and that the AppModule wired cleanly with the live Redis.
-      - name: Start backend and smoke /api/v1/health
+      # readiness path also verifies PostgreSQL/PostGIS and a Redis command.
+      - name: Start backend and smoke /api/v1/health/ready
         run: |
           set -euo pipefail
           node apps/backend/dist/main.js > /tmp/backend.log 2>&1 &
           BACKEND_PID=$!
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:3000/api/v1/health > /tmp/health.json; then
+            if curl -sf http://127.0.0.1:3000/api/v1/health/ready > /tmp/health.json; then
               echo "Health probe succeeded on attempt $i:"
               cat /tmp/health.json
               echo

@@ -42,7 +42,8 @@ export class Chain<T = unknown> implements PromiseLike<T> {
   catch<TResult2 = never>(
     onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null | undefined,
   ): PromiseLike<T | TResult2> {
-    return Promise.resolve(this.resolver()).catch(onrejected);
+    try { return Promise.resolve(this.resolver()).catch(onrejected); }
+    catch (error) { return Promise.reject(error).catch(onrejected); }
   }
 }
 

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, boolean, timestamp, pgEnum } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, boolean, timestamp, pgEnum, text } from 'drizzle-orm/pg-core';
 
 export const userRoleEnum = pgEnum('user_role', [
   'passenger', 'driver_applicant', 'driver', 'dispatcher', 'support_agent',
@@ -16,7 +16,9 @@ export const users = pgTable('users', {
   role: userRoleEnum('role').notNull().default('passenger'),
   status: userStatusEnum('status').notNull().default('active'),
   isVerified: boolean('is_verified').notNull().default(false),
-  profilePhotoUrl: varchar('profile_photo_url', { length: 500 }),
+  pinHash: text('pin_hash'),
+  communityId: varchar('community_id', { length: 80 }),
+  profilePhotoUrl: text('profile_photo_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

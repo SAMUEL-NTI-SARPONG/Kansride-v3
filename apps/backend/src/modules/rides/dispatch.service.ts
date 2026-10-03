@@ -1,9 +1,10 @@
-import { Injectable, Inject, Logger, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, Logger, forwardRef, OnModuleDestroy } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
 import { DATABASE_TOKEN } from '../../database';
 import { REDIS_SERVICE } from '../../redis';
 import { IRedisService } from '../../redis/redis.interface';
 import { Database, drivers, rides, subscriptions, users, vehicles } from '@kansride/db';
-import { eq, and, gt, gte, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { eq, and, gt, gte, lt, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type {
   AssignedDriverSummary,
   RideOfferPayload,
@@ -33,9 +34,11 @@ interface EligibleDriver {
 }
 
 @Injectable()
-export class DispatchService {
+export class DispatchService implements OnModuleDestroy {
   private readonly logger = new Logger(DispatchService.name);
   private readonly activeDispatches = new Map<string, NodeJS.Timeout>();
+  private readonly expansionTimers = new Map<string, NodeJS.Timeout>();
+  private recovering = false;
 
   constructor(
     @Inject(DATABASE_TOKEN) private readonly db: Database,
@@ -76,7 +79,7 @@ export class DispatchService {
 
 // Set timeout: expand radius after the configured driver-response timeout
     // if no acceptance has occurred.
-    const expandTimeout = setTimeout(async () => {
+    const expandTimeout = setTimeout(() => { void (async () => {
       const rideData = await this.db.select().from(rides).where(eq(rides.id, rideId)).limit(1);
       if (rideData[0] && rideData[0].status === 'searching') {
         this.logger.log(`Expanding search radius for ride ${rideId} to ${MAX_DISPATCH_RADIUS_KM}km`);
@@ -90,10 +93,13 @@ export class DispatchService {
           await this.offerToDrivers(rideId, expandedDrivers);
         }
       }
+    })().catch(() => this.logger.error(`Radius expansion failed for ride ${rideId}`))
+      .finally(() => this.expansionTimers.delete(rideId));
     }, DRIVER_RESPONSE_TIMEOUT_SECONDS * 1000);
+    this.expansionTimers.set(rideId, expandTimeout);
 
     // Set timeout: no driver found after 30 seconds total
-    const noDriverTimeout = setTimeout(async () => {
+    const noDriverTimeout = setTimeout(() => { void (async () => {
       const rideData = await this.db.select().from(rides).where(eq(rides.id, rideId)).limit(1);
       if (rideData[0] && (rideData[0].status === 'searching' || rideData[0].status === 'driver_offered')) {
         this.logger.log(`No driver found for ride ${rideId} after ${OFFER_TTL_SECONDS}s`);
@@ -116,7 +122,8 @@ export class DispatchService {
           await this.cleanupOffers(rideId);
         }
       }
-      this.activeDispatches.delete(rideId);
+    })().catch(() => this.logger.error(`Dispatch expiry failed for ride ${rideId}; recovery will retry`))
+      .finally(() => this.activeDispatches.delete(rideId));
     }, OFFER_TTL_SECONDS * 1000);
 
     this.activeDispatches.set(rideId, noDriverTimeout);
@@ -273,15 +280,26 @@ export class DispatchService {
           isNull(rides.driverId),
         ),
       )
-      .returning(RIDE_EVENT_SELECTION);
+      .returning(RIDE_EVENT_SELECTION)
+      .catch((error: unknown) => {
+        const pg = error as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+        const detail = pg.cause || pg;
+        if (detail.code === '23505' && detail.constraint === 'idx_rides_one_active_driver') return [];
+        throw error;
+      });
 
     if (!assigned[0]) {
       await this.removeOffer(rideId, driverId);
-      return { success: false, message: 'Ride is no longer available' };
+      return { success: false, message: 'Ride is no longer available or you already have an active ride' };
     }
 
     // Clean up all offers for this ride
-    await this.cleanupOffers(rideId);
+    await this.cleanupOffers(rideId).catch(() => this.logger.error(`Offer cleanup deferred for accepted ride ${rideId}`));
+    // Assignment is already committed. A Redis cleanup failure must not tell
+    // the accepting driver it failed or hide the authoritative active trip.
+    const expansion = this.expansionTimers.get(rideId);
+    if (expansion) clearTimeout(expansion);
+    this.expansionTimers.delete(rideId);
 
     // Cancel the dispatch timeout
     const timeout = this.activeDispatches.get(rideId);
@@ -348,6 +366,46 @@ export class DispatchService {
       clearTimeout(timeout);
       this.activeDispatches.delete(rideId);
     }
+    const expansion = this.expansionTimers.get(rideId);
+    if (expansion) clearTimeout(expansion);
+    this.expansionTimers.delete(rideId);
+  }
+
+  /** Recover interrupted searches after process restarts or dependency outages. */
+  @Interval(10000)
+  async expireInterruptedSearches(): Promise<void> {
+    if (this.recovering) return;
+    this.recovering = true;
+    try {
+      const cutoff = new Date(Date.now() - OFFER_TTL_SECONDS * 1000);
+      // Active in-process searches retain their established timer. A restarted
+      // process has no such timer; only stale, unassigned searches are eligible.
+      const stale = await this.db.select({ id: rides.id }).from(rides).where(and(
+        isNull(rides.driverId),
+        inArray(rides.status, ['requested', 'searching', 'driver_offered']),
+        lt(rides.updatedAt, cutoff),
+      )).limit(100);
+      for (const ride of stale) {
+        if (this.activeDispatches.has(ride.id)) continue;
+        const expired = await this.db.update(rides).set({ status: 'no_driver_found', updatedAt: new Date() })
+          .where(and(eq(rides.id, ride.id), isNull(rides.driverId),
+            inArray(rides.status, ['requested', 'searching', 'driver_offered']), lt(rides.updatedAt, cutoff)))
+          .returning(RIDE_EVENT_SELECTION);
+        if (expired[0]) {
+          this.emitCommittedUpdate(toRideUpdatePayload(expired[0]));
+          await this.cleanupOffers(ride.id).catch(() => this.logger.error(`Offer cleanup deferred for expired ride ${ride.id}`));
+        }
+      }
+    } catch {
+      this.logger.error('Interrupted dispatch recovery unavailable; will retry');
+    } finally { this.recovering = false; }
+  }
+
+  onModuleDestroy(): void {
+    for (const timer of this.activeDispatches.values()) clearTimeout(timer);
+    for (const timer of this.expansionTimers.values()) clearTimeout(timer);
+    this.activeDispatches.clear();
+    this.expansionTimers.clear();
   }
 
   private emitCommittedUpdate(payload: RideUpdatePayload): void {
@@ -449,7 +507,7 @@ export class DispatchService {
         ),
       )
       .limit(1);
-    if (!subscription) return null;
+    if ((process.env.DRIVER_ACCESS_MODE || 'free_launch') !== 'free_launch' && !subscription) return null;
 
     if (!allowActiveRide) {
       const [activeRide] = await this.db

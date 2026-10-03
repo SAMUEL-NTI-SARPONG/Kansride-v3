@@ -19,9 +19,10 @@ async function checkDatabase(url) {
     try {
       const version = await client.query('SHOW server_version');
       const postgis = await client.query("SELECT COUNT(*)::int AS count FROM pg_extension WHERE extname = 'postgis'");
-      const migrations = await client.query("SELECT COUNT(*)::int AS count FROM drizzle_migrations");
+      const migrations = await client.query("SELECT COUNT(*)::int AS count FROM drizzle.__drizzle_migrations");
+      const expected = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../packages/shared-db/src/migrations/meta/_journal.json'), 'utf8')).entries.length;
       report('postgresql', true, `${version.rows[0]?.server_version || 'unknown'}; PostGIS ${postgis.rows[0]?.count ? 'installed' : 'missing'}; ${migrations.rows[0]?.count || 0} migrations`);
-      return Boolean(postgis.rows[0]?.count) && migrations.rows[0]?.count >= 3;
+      return Boolean(postgis.rows[0]?.count) && migrations.rows[0]?.count === expected;
     } finally {
       client.release();
     }

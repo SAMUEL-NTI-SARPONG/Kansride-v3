@@ -31,11 +31,17 @@ export class DriversController {
     @Body() body: {
       firstName: string;
       lastName?: string;
-      licenseNumber: string;
+      ghanaCardNumber: string;
       vehicleRegistration: string;
       vehicleColour: string;
       vehicleMake: string;
       vehicleModel: string;
+      placeOfStay: string;
+      communityId: string;
+      driverPhoto: string;
+      emergencyContactName: string;
+      emergencyPhoneNumber: string;
+      pin: string;
     },
   ) {
     const authenticatedUserId = req.user.userId;

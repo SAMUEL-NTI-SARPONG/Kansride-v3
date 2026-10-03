@@ -6,4 +6,5 @@ export * from './rides';
 export * from './payments';
 export * from './subscriptions';
 export * from './audit-logs';
+export * from './app-settings';
 export * from './otp-requests';

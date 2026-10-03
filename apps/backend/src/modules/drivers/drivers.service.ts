@@ -8,6 +8,7 @@ import { IPaymentProvider, PaymentMethod } from '../../providers/payments/paymen
 import { Database, users, drivers, vehicles, subscriptions, payments, rides } from '@kansride/db';
 import { DRIVER_SUBSCRIPTION_AMOUNT_PESEWAS, DRIVER_SUBSCRIPTION_DURATION_HOURS } from '@kansride/config';
 import { eq, and, lt, gt } from 'drizzle-orm';
+import { normalizeGhanaPhone, validateGhanaPhone, hashPIN } from '@kansride/auth';
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   'cash',
@@ -17,6 +18,7 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 ];
 
 const DRIVERS_GEO_KEY = 'drivers:online:locations';
+const freeLaunchAccess = () => (process.env.DRIVER_ACCESS_MODE || 'free_launch') === 'free_launch';
 
 @Injectable()
 export class DriversService {
@@ -70,6 +72,8 @@ export class DriversService {
       rating: driver.rating,
       completedRides: driver.completedRides,
       subscriptionActive: hasSubscription,
+      accessMode: freeLaunchAccess() ? 'free_launch' : 'subscription',
+      canGoOnline: freeLaunchAccess() || hasSubscription,
       subscriptionExpiresAt: driver.subscriptionExpiresAt,
       vehicle: vehicleRecords[0] || null,
     };
@@ -127,23 +131,41 @@ export class DriversService {
     data: {
       firstName: string;
       lastName?: string;
-      licenseNumber: string;
+      ghanaCardNumber: string;
       vehicleRegistration: string;
       vehicleColour: string;
       vehicleMake: string;
       vehicleModel: string;
+      placeOfStay: string;
+      communityId: string;
+      driverPhoto: string;
+      emergencyContactName: string;
+      emergencyPhoneNumber: string;
+      pin: string;
     },
   ) {
     const required = [
       data.firstName,
-      data.licenseNumber,
+      data.ghanaCardNumber,
       data.vehicleRegistration,
       data.vehicleColour,
       data.vehicleMake,
       data.vehicleModel,
+      data.placeOfStay,
+      data.communityId,
+      data.driverPhoto,
+      data.emergencyContactName,
+      data.emergencyPhoneNumber,
+      data.pin,
     ];
     if (required.some((value) => typeof value !== 'string' || value.trim().length === 0)) {
       throw new BadRequestException('Driver and vehicle details are required');
+    }
+    if (!/^\d{4}$/.test(data.pin)) throw new BadRequestException('PIN must contain exactly 4 digits');
+    const emergencyPhone = normalizeGhanaPhone(data.emergencyPhoneNumber);
+    if (!validateGhanaPhone(emergencyPhone)) throw new BadRequestException('Enter a valid emergency Ghana phone number');
+    if (!/^data:image\/(jpeg|png);base64,/.test(data.driverPhoto) || data.driverPhoto.length > 1_500_000) {
+      throw new BadRequestException('A valid driver photo under 1 MB is required');
     }
 
     const driver = await this.db.transaction(async (tx) => {
@@ -185,7 +207,14 @@ export class DriversService {
         .insert(drivers)
         .values({
           userId,
-          licenseNumber: data.licenseNumber.trim(),
+          // Keep the legacy non-null license column populated for backwards
+          // compatibility while Ghana Card is the launch verification ID.
+          licenseNumber: data.ghanaCardNumber.trim().toUpperCase(),
+          ghanaCardNumber: data.ghanaCardNumber.trim().toUpperCase(),
+          placeOfStay: data.placeOfStay.trim(),
+          communityId: data.communityId.trim(),
+          emergencyContactName: data.emergencyContactName.trim(),
+          emergencyPhoneNumber: emergencyPhone,
           vehicleId: vehicle.id,
           rating: '5.00',
           isOnline: false,
@@ -203,6 +232,9 @@ export class DriversService {
           firstName: data.firstName.trim(),
           lastName: data.lastName?.trim() || null,
           role: 'driver_applicant',
+          pinHash: hashPIN(data.pin),
+          profilePhotoUrl: data.driverPhoto,
+          communityId: data.communityId.trim(),
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
@@ -220,7 +252,7 @@ export class DriversService {
 
     if (online) {
       // Check active subscription
-      const hasSubscription = await this.hasActiveSubscription(driverId);
+      const hasSubscription = freeLaunchAccess() || await this.hasActiveSubscription(driverId);
       if (!hasSubscription) {
         throw new BadRequestException('Active subscription required to go online. Subscribe first.');
       }

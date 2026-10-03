@@ -45,6 +45,16 @@ export class MemoryRedisService implements IRedisService {
     this.collectionExpiries.set(key, Date.now() + ttlSeconds * 1000);
   }
 
+  async consumeRateLimit(key: string, limit: number, windowSeconds: number): Promise<boolean> {
+    // No awaits between read and write: preserve atomicity in development tests.
+    const now = Date.now();
+    const stored = this.store.get(key);
+    const entry = stored?.expiresAt && stored.expiresAt > now ? stored : undefined;
+    const attempts = Number(entry?.value || 0) + 1;
+    this.store.set(key, { value: String(attempts), expiresAt: entry?.expiresAt || now + windowSeconds * 1000 });
+    return attempts <= limit;
+  }
+
   async geoAdd(key: string, longitude: number, latitude: number, member: string): Promise<void> {
     const entries = this.geoStore.get(key) || [];
     const existingIdx = entries.findIndex((e) => e.member === member);

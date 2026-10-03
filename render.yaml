@@ -1,0 +1,43 @@
+# Reproducible configuration for the EXISTING KansRide pilot service.
+# Do not apply this as a new Blueprint if it would create a duplicate service.
+# Free is retained for the authorized pilot; an always-on paid upgrade requires approval.
+services:
+  - type: web
+    name: kansride-pilot-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: ui/kansride-v1-refresh
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run build --workspace=@kansride/backend
+    startCommand: npm run db:migrate --workspace=@kansride/db && npm run start:prod --workspace=@kansride/backend
+    healthCheckPath: /api/v1/health/ready
+    envVars:
+      - key: NODE_VERSION
+        value: 24.13.0
+      - key: NODE_ENV
+        value: production
+      - key: PAYMENT_PROVIDER
+        value: disabled
+      - key: DRIVER_ACCESS_MODE
+        value: free_launch
+      - key: MAPS_PROVIDER
+        value: openstreetmap
+      - key: SMS_PROVIDER
+        value: textbee
+      - key: LOG_LEVEL
+        value: info
+      - key: DATABASE_URL
+        sync: false
+      - key: MIGRATION_DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: JWT_REFRESH_SECRET
+        sync: false
+      - key: TEXTBEE_API_KEY
+        sync: false
+      - key: WEB_CORS_ORIGINS
+        sync: false

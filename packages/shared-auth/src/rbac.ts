@@ -19,6 +19,7 @@ export type Permission =
   | 'admin:view_analytics'
   | 'admin:manage_support'
   | 'admin:view_audit_logs'
+  | 'admin:manage_system'
   | 'finance:view_payments'
   | 'finance:process_refunds'
   | 'finance:manage_wallets'
@@ -76,7 +77,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'ride:view_all', 'ride:cancel', 'admin:manage_users', 'admin:manage_drivers',
     'admin:manage_vehicles', 'admin:manage_subscriptions', 'admin:manage_fares',
     'admin:manage_zones', 'admin:view_analytics', 'admin:manage_support',
-    'admin:view_audit_logs', 'dispatch:assign_rides', 'dispatch:view_live_map',
+    'admin:view_audit_logs', 'admin:manage_system', 'dispatch:assign_rides', 'dispatch:view_live_map',
     'finance:view_payments', 'safety:manage_incidents',
   ],
   super_admin: [
@@ -86,7 +87,7 @@ const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'driver:accept_ride', 'admin:manage_users', 'admin:manage_drivers',
     'admin:manage_vehicles', 'admin:manage_subscriptions', 'admin:manage_fares',
     'admin:manage_zones', 'admin:view_analytics', 'admin:manage_support',
-    'admin:view_audit_logs', 'finance:view_payments', 'finance:process_refunds',
+    'admin:view_audit_logs', 'admin:manage_system', 'finance:view_payments', 'finance:process_refunds',
     'finance:manage_wallets', 'safety:manage_incidents', 'safety:emergency_actions',
     'safety:view_live_trips', 'dispatch:assign_rides', 'dispatch:view_live_map',
     'support:manage_tickets', 'support:contact_users',
