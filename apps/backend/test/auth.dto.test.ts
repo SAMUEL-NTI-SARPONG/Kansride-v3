@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { ValidationPipe } from '@nestjs/common';
-import { LoginPINDTO, PhoneDTO, VerifyOTPDTO, PassengerRegistrationDTO } from '../src/modules/auth/auth.dto';
+import { LoginPINDTO, PhoneDTO, VerifyOTPDTO, PassengerRegistrationDTO, RegisterPassengerDTO } from '../src/modules/auth/auth.dto';
+import { DriverApplicationDTO } from '../src/modules/drivers/driver-application.dto';
 
 const pipe = new ValidationPipe({ whitelist: true, transform: true });
 describe('authentication input validation', () => {
+  it('strips approval/role/session flags from public passenger registration', async () => {
+    expect(await pipe.transform({ fullName: 'Ama Owusu', phoneNumber: '0501234567', pin: '0123', role: 'super_admin', isVerified: true, activeSessionId: 'forged' }, { type: 'body', metatype: RegisterPassengerDTO }))
+      .toEqual({ fullName: 'Ama Owusu', phoneNumber: '0501234567', pin: '0123' });
+  });
+  it('requires driver application fields and rejects oversized photos', async () => {
+    await expect(pipe.transform({ phoneNumber: '0501234567', pin: '0123' }, { type: 'body', metatype: DriverApplicationDTO })).rejects.toThrow();
+    await expect(pipe.transform({ driverPhoto: 'x'.repeat(1_500_001) }, { type: 'body', metatype: DriverApplicationDTO })).rejects.toThrow();
+  });
   it('rejects missing, numeric, or object phone fields before calling a service', async () => {
     for (const input of [{}, { phoneNumber: 233501234567 }, { phoneNumber: {} }]) {
       await expect(pipe.transform(input, { type: 'body', metatype: PhoneDTO })).rejects.toThrow();

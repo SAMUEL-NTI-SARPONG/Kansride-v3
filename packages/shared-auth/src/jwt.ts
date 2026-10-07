@@ -11,6 +11,7 @@ export interface TokenPayload {
   userId: string;
   phoneNumber: string;
   role: string;
+  sessionId?: string;
 }
 
 export class JWTService {

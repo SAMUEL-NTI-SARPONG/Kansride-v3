@@ -1,14 +1,15 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, Inject, Injectable, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JWTService } from '@kansride/auth';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { getEnv } from '@kansride/config';
+import { SessionService } from '../../modules/auth/session.service';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   private readonly jwtService: JWTService;
 
-  constructor(private readonly reflector: Reflector) {
+  constructor(private readonly reflector: Reflector, @Inject(SessionService) private readonly sessions: SessionService) {
     const env = getEnv();
     this.jwtService = new JWTService({
       accessSecret: env.JWT_ACCESS_SECRET,
@@ -18,7 +19,7 @@ export class AuthGuard implements CanActivate {
     });
   }
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -35,9 +36,11 @@ export class AuthGuard implements CanActivate {
     try {
       const token = authHeader.slice(7);
       const payload = this.jwtService.verifyAccessToken(token);
+      await this.sessions.assertActive(payload);
       request.user = payload;
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

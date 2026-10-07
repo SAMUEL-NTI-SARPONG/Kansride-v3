@@ -17,6 +17,7 @@ export const users = pgTable('users', {
   status: userStatusEnum('status').notNull().default('active'),
   isVerified: boolean('is_verified').notNull().default(false),
   pinHash: text('pin_hash'),
+  activeSessionId: uuid('active_session_id'),
   communityId: varchar('community_id', { length: 80 }),
   profilePhotoUrl: text('profile_photo_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

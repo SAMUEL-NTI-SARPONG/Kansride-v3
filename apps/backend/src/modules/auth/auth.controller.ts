@@ -3,11 +3,26 @@ import { AuthService } from './auth.service';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import type { TokenPayload } from '@kansride/auth';
 import { Throttle } from '@nestjs/throttler';
-import { PhoneDTO, VerifyOTPDTO, LoginPINDTO, PassengerRegistrationDTO, RefreshTokenDTO } from './auth.dto';
+import { PhoneDTO, VerifyOTPDTO, LoginPINDTO, PassengerRegistrationDTO, RegisterPassengerDTO, RefreshTokenDTO } from './auth.dto';
+import { SessionService } from './session.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, private readonly sessions: SessionService) {}
+
+  @Post('register-passenger')
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  registerPassenger(@Body() body: RegisterPassengerDTO) {
+    return this.authService.registerPassenger(body);
+  }
+
+  @Post('logout')
+  @UseGuards(AuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async logout(@Req() req: Request & { user: TokenPayload }) {
+    await this.sessions.end(req.user);
+    return { message: 'Signed out' };
+  }
 
   @Post('request-otp')
   @HttpCode(HttpStatus.OK)

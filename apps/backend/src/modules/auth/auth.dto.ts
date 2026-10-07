@@ -33,6 +33,12 @@ export class PassengerRegistrationDTO {
   communityId?: string;
 }
 
+export class RegisterPassengerDTO extends PassengerRegistrationDTO {
+  @IsString()
+  @Length(9, 24)
+  phoneNumber!: string;
+}
+
 export class RefreshTokenDTO {
   @IsString()
   @Length(20, 4096)

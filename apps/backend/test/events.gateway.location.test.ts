@@ -31,6 +31,7 @@ function buildGateway(db = makeDbStub(), eligible = true, activeRide = false) {
     redis as never,
     dispatch as never,
     publicTracking as never,
+    { on: vi.fn(), assertActive: vi.fn() } as never,
   );
   gateway.server = {
     to: vi.fn().mockReturnValue({ emit: vi.fn() }),

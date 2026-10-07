@@ -7,7 +7,7 @@ import {
   ConnectedSocket,
   MessageBody,
 } from '@nestjs/websockets';
-import { Inject, Logger, forwardRef } from '@nestjs/common';
+import { Inject, Logger, UnauthorizedException, forwardRef } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JWTService, RBACService } from '@kansride/auth';
 import { DATABASE_TOKEN } from '../../database';
@@ -20,6 +20,8 @@ import { DispatchService } from '../rides/dispatch.service';
 import type { RideAcceptResult, RideUpdatePayload } from '@kansride/types';
 import { PublicTrackingGateway } from './public-tracking.gateway';
 import { ACTIVE_RIDE_LOCATION_STATUSES, getEnv } from '@kansride/config';
+import { SessionService } from '../auth/session.service';
+import { Cron } from '@nestjs/schedule';
 
 type DriverLocationInput = { latitude: number; longitude: number };
 
@@ -31,6 +33,7 @@ interface AuthenticatedSocket extends Socket {
     userId: string;
     role: string;
     phoneNumber: string;
+    sessionId?: string;
   };
 }
 
@@ -45,6 +48,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /** Map of userId → Set of socket IDs */
   private readonly connectedUsers = new Map<string, Set<string>>();
+  private readonly connectedClients = new Map<string, AuthenticatedSocket>();
 
   /** Map of driverId → last DB update timestamp (for debouncing) */
   private readonly lastDbUpdate = new Map<string, number>();
@@ -54,6 +58,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @Inject(REDIS_SERVICE) private readonly redis: IRedisService,
     @Inject(forwardRef(() => DispatchService)) private readonly dispatchService: DispatchService,
     private readonly publicTrackingGateway: PublicTrackingGateway,
+    @Inject(SessionService) private readonly sessions: SessionService,
   ) {
     const env = getEnv();
     this.jwtService = new JWTService({
@@ -61,6 +66,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       refreshSecret: env.JWT_REFRESH_SECRET,
       accessExpiry: '15m',
       refreshExpiry: '7d',
+    });
+    this.sessions.on('replaced', (userId: string, sessionId: string | null) => {
+      for (const client of this.connectedClients.values()) {
+        if (client.data.userId === userId && client.data.sessionId !== sessionId) this.endSession(client);
+      }
     });
   }
 
@@ -78,11 +88,21 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       const payload = this.jwtService.verifyAccessToken(token);
+      await this.sessions.assertActive(payload);
 
       // Store user info on socket
       client.data.userId = payload.userId;
       client.data.role = payload.role;
       client.data.phoneNumber = payload.phoneNumber;
+      client.data.sessionId = payload.sessionId;
+      this.connectedClients.set(client.id, client);
+      // A socket authenticated before a takeover must not retain ride/GPS access.
+      client.use((_packet, next) => {
+        void this.sessions.assertActive(client.data).then(() => next()).catch((error: unknown) => {
+          if (error instanceof UnauthorizedException) this.endSession(client);
+          next(new Error('Session check failed'));
+        });
+      });
 
       // Track connected user
       const userSockets = this.connectedUsers.get(payload.userId) || new Set();
@@ -100,6 +120,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   handleDisconnect(client: AuthenticatedSocket) {
+    this.connectedClients.delete(client.id);
     const userId = client.data?.userId;
     if (userId) {
       const userSockets = this.connectedUsers.get(userId);
@@ -111,6 +132,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
     this.logger.log(`Client disconnected: ${client.id} (user: ${userId || 'unknown'})`);
+  }
+
+  private endSession(client: AuthenticatedSocket) {
+    client.emit('session:revoked', { message: 'Your account was signed in on another phone, or your access changed. Please sign in again.' });
+    client.disconnect(true);
+    this.connectedClients.delete(client.id);
+  }
+
+  @Cron('*/15 * * * * *')
+  async checkSessions() {
+    for (const client of this.connectedClients.values()) {
+      try { await this.sessions.assertActive(client.data); }
+      catch (error) { if (error instanceof UnauthorizedException) this.endSession(client); }
+    }
   }
 
   @SubscribeMessage('driver:location')

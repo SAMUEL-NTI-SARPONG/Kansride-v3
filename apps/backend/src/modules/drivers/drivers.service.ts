@@ -1,4 +1,4 @@
-import { Injectable, Inject, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, Inject, BadRequestException, ConflictException, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DATABASE_TOKEN } from '../../database';
 import { REDIS_SERVICE } from '../../redis';
@@ -73,7 +73,7 @@ export class DriversService {
       completedRides: driver.completedRides,
       subscriptionActive: hasSubscription,
       accessMode: freeLaunchAccess() ? 'free_launch' : 'subscription',
-      canGoOnline: freeLaunchAccess() || hasSubscription,
+      canGoOnline: driver.isActive && (freeLaunchAccess() || hasSubscription),
       subscriptionExpiresAt: driver.subscriptionExpiresAt,
       vehicle: vehicleRecords[0] || null,
     };
@@ -127,8 +127,9 @@ export class DriversService {
   }
 
   async register(
-    userId: string,
+    userId: string | undefined,
     data: {
+      phoneNumber?: string;
       firstName: string;
       lastName?: string;
       ghanaCardNumber: string;
@@ -168,7 +169,16 @@ export class DriversService {
       throw new BadRequestException('A valid driver photo under 1 MB is required');
     }
 
+    const phone = userId ? null : normalizeGhanaPhone(data.phoneNumber || '');
+    if (!userId && !validateGhanaPhone(phone!)) throw new BadRequestException('Enter a valid Ghana phone number');
     const driver = await this.db.transaction(async (tx) => {
+      if (!userId) {
+        const [created] = await tx.insert(users).values({
+          phoneNumber: phone!, role: 'driver_applicant', isVerified: false,
+        }).onConflictDoNothing({ target: users.phoneNumber }).returning({ id: users.id });
+        if (!created) throw new ConflictException('An account already uses this number. Sign in or contact support.');
+        userId = created.id;
+      }
       const [user] = await tx
         .select({ role: users.role })
         .from(users)
@@ -232,6 +242,7 @@ export class DriversService {
           firstName: data.firstName.trim(),
           lastName: data.lastName?.trim() || null,
           role: 'driver_applicant',
+          isVerified: false,
           pinHash: hashPIN(data.pin),
           profilePhotoUrl: data.driverPhoto,
           communityId: data.communityId.trim(),
@@ -251,6 +262,11 @@ export class DriversService {
     if (!driver[0]) throw new NotFoundException('Driver not found');
 
     if (online) {
+      if (!driver[0].isActive) throw new ForbiddenException('Admin approval is required before you can go online');
+      const [account] = await this.db.select().from(users).where(eq(users.id, driver[0].userId)).limit(1);
+      if (!account || account.role !== 'driver' || account.status !== 'active' || !account.isVerified) {
+        throw new ForbiddenException('Admin approval is required before you can go online');
+      }
       // Check active subscription
       const hasSubscription = freeLaunchAccess() || await this.hasActiveSubscription(driverId);
       if (!hasSubscription) {

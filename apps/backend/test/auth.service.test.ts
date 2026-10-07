@@ -1,17 +1,12 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { UnauthorizedException, ServiceUnavailableException } from '@nestjs/common';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { ConflictException, ForbiddenException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import type { Database } from '@kansride/db';
 import { AuthService } from '../src/modules/auth/auth.service';
-import type { ISMSProvider } from '../src/providers/sms/sms.interface';
-import { makeDbStub } from './helpers/drizzle-mock';
-import { OTPService, hashPIN } from '@kansride/auth';
+import { SessionService } from '../src/modules/auth/session.service';
 import { MemoryRedisService } from '../src/redis/memory-redis.service';
+import { makeDbStub } from './helpers/drizzle-mock';
+import { hashPIN, OTPService } from '@kansride/auth';
 
-// AuthService's constructor calls getEnv(), which validates the environment.
-// No repo-root .env exists in the test environment, so set the required
-// DATABASE_URL (postgres scheme — the new env gate rejects anything else) and
-// deterministic JWT secrets before the first construction. getEnv caches, so
-// these are read once per test file (vitest isolates modules per file).
 beforeAll(() => {
   process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test';
   process.env.JWT_ACCESS_SECRET = 'test-access-secret';
@@ -19,191 +14,134 @@ beforeAll(() => {
   process.env.NODE_ENV = 'test';
   process.env.SMS_PROVIDER = 'mock';
 });
-
-const USER_ID = '00000000-0000-4000-8000-000000000001';
-
-function makeSmsProvider(success: boolean, messageId?: string): ISMSProvider {
-  return {
-    sendOTP: vi.fn().mockResolvedValue(
-      success ? { success: true, messageId: messageId ?? 'msg-1' } : { success: false },
-    ),
-  };
-}
-
-function buildAuthService(db = makeDbStub(), sms: ISMSProvider = makeSmsProvider(true)) {
+const ID = '00000000-0000-4000-8000-000000000001';
+const SID = '00000000-0000-4000-8000-000000000002';
+const account = (extra = {}) => ({ id: ID, phoneNumber: '+233501234567', role: 'passenger', status: 'active', isVerified: false, firstName: 'Ama', pinHash: hashPIN('0123'), activeSessionId: SID, ...extra });
+const staff = () => account({ role: 'super_admin', isVerified: true });
+function build() {
+  const db = makeDbStub();
+  const sms = { sendOTP: vi.fn().mockResolvedValue({ success: true }) };
   const redis = new MemoryRedisService();
-  const service = new AuthService(
-    db as unknown as Database,
-    sms,
-    redis,
-  );
-  return { service, db, sms, redis };
+  const sessions = { start: vi.fn().mockResolvedValue(SID) };
+  const service = new AuthService(db as unknown as Database, sms, redis, sessions as unknown as SessionService);
+  return { db, sms, redis, sessions, service };
 }
-
-describe('account-scoped PIN protection', () => {
-  it('limits failed attempts for the same phone across different number formats', async () => {
-    const { service, db } = buildAuthService();
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+describe('PIN-only registration and login', () => {
+  it('creates a passenger/profile without SMS and starts a session', async () => {
+    const { db, service, sms, sessions } = build();
+    db.enqueue([account()]); db.enqueue([]);
+    const result = await service.registerPassenger({ phoneNumber: '0501234567', fullName: 'Ama Owusu', pin: '0123' });
+    expect(result.user.role).toBe('passenger');
+    expect(result.accessToken).toBeTruthy();
+    expect(sessions.start).toHaveBeenCalledWith(expect.objectContaining({ id: ID }));
+    expect(sms.sendOTP).not.toHaveBeenCalled();
+    db.assertDrained();
+  });
+  it('does not overwrite an existing account or PIN', async () => {
+    const { db, service, sessions } = build();
+    db.enqueue([]);
+    await expect(service.registerPassenger({ phoneNumber: '0501234567', fullName: 'Other', pin: '9999' })).rejects.toThrow(ConflictException);
+    expect(sessions.start).not.toHaveBeenCalled(); db.assertDrained();
+  });
+  it('rejects invalid registration before writes', async () => {
+    const { db, service } = build();
+    await expect(service.registerPassenger({ phoneNumber: 'bad', fullName: ' ', pin: 'abc' })).rejects.toThrow();
+    db.assertDrained();
+  });
+  it('allows passengers to log in without an OTP/manual verified flag', async () => {
+    const { db, service, sessions } = build(); db.enqueue([account()]);
+    expect(await service.loginWithPIN('0501234567', '0123')).toHaveProperty('accessToken');
+    expect(sessions.start).toHaveBeenCalledOnce(); db.assertDrained();
+  });
+  it('blocks pending drivers even with a correct PIN', async () => {
+    const { db, service, sessions } = build(); db.enqueue([account({ role: 'driver_applicant' })]);
+    await expect(service.loginWithPIN('0501234567', '0123')).rejects.toThrow(ForbiddenException);
+    expect(sessions.start).not.toHaveBeenCalled(); db.assertDrained();
+  });
+  it('allows a manually approved driver to log in', async () => {
+    const { db, service } = build(); db.enqueue([account({ role: 'driver', isVerified: true })]);
+    expect(await service.loginWithPIN('0501234567', '0123')).toHaveProperty('accessToken'); db.assertDrained();
+  });
+  it('limits wrong PINs across phone number formats', async () => {
+    const { db, service } = build();
+    for (let i = 0; i < 5; i++) {
       db.enqueue([]);
-      await expect(service.loginWithPIN(attempt % 2 ? '0501234567' : '+233501234567', '1234')).rejects.toThrow(UnauthorizedException);
+      await expect(service.loginWithPIN(i % 2 ? '0501234567' : '+233501234567', '1234')).rejects.toThrow(UnauthorizedException);
     }
     await expect(service.loginWithPIN('233501234567', '1234')).rejects.toThrow('Too many PIN attempts');
     db.assertDrained();
   });
-  it('clears failures after valid PIN authentication', async () => {
-    const { service, db, redis } = buildAuthService();
+  it('clears attempts after successful login', async () => {
+    const { db, service, redis } = build(); db.enqueue([account()]);
     const remove = vi.spyOn(redis, 'del');
-    db.enqueue([{
-      id: USER_ID, phoneNumber: '+233501234567', role: 'passenger',
-      status: 'active', isVerified: true, pinHash: hashPIN('0123'),
-    }]);
-    expect(await service.loginWithPIN('+233501234567', '0123')).toHaveProperty('accessToken');
+    await service.loginWithPIN('0501234567', '0123');
     expect(remove).toHaveBeenCalledWith(expect.stringMatching(/^auth:pin:[a-f0-9]{64}$/));
-    db.assertDrained();
   });
-  it('fails closed if the shared account limiter is unavailable', async () => {
-    const { service, db, redis } = buildAuthService();
+  it('fails closed on limiter outage', async () => {
+    const { service, redis } = build();
     vi.spyOn(redis, 'consumeRateLimit').mockRejectedValue(new Error('offline'));
-    await expect(service.loginWithPIN('+233501234567', '1234')).rejects.toThrow(ServiceUnavailableException);
+    await expect(service.loginWithPIN('0501234567', '0123')).rejects.toThrow(ServiceUnavailableException);
+  });
+  it('cannot reactivate a suspended account', async () => {
+    const { db, service } = build(); db.enqueue([account({ status: 'suspended' })]);
+    await expect(service.loginWithPIN('0501234567', '0123')).rejects.toThrow(UnauthorizedException);
+  });
+});
+describe('retained staff OTP protection', () => {
+  it('rejects mobile OTP requests without sending a code', async () => {
+    const { db, service, sms } = build(); db.enqueue([account()]);
+    await expect(service.requestOTP('0501234567')).rejects.toThrow(UnauthorizedException);
+    expect(sms.sendOTP).not.toHaveBeenCalled();
+  });
+  it('cannot create or reclaim a mobile account through verification', async () => {
+    const { db, service } = build(); db.enqueue([]);
+    await expect(service.verifyOTP('0501234567', '123456')).rejects.toThrow(UnauthorizedException);
+    db.assertDrained();
+  });
+  it('reports staff SMS delivery failure honestly and cleans up', async () => {
+    const { db, service, sms } = build();
+    sms.sendOTP.mockRejectedValue(new Error('offline'));
+    db.enqueue([staff()]); db.enqueue([{ total: 0 }]); db.enqueue([{ id: SID }]); db.enqueue([]);
+    await expect(service.requestOTP('0501234567')).rejects.toThrow(ServiceUnavailableException);
+    db.assertDrained();
+  });
+  it('issues staff OTP only for a provisioned account', async () => {
+    const { db, service } = build();
+    db.enqueue([staff()]); db.enqueue([{ total: 0 }]); db.enqueue([{ id: SID }]);
+    expect(await service.requestOTP('0501234567')).toHaveProperty('expiresIn', 600);
+    db.assertDrained();
+  });
+  it('rejects a concurrently consumed OTP', async () => {
+    const { db, service } = build();
+    db.enqueue([staff()]);
+    db.enqueue([{ id: SID, codeHash: new OTPService().hashOTP('123456'), attempts: 0, maxAttempts: 3, verifiedAt: null, expiresAt: new Date(Date.now() + 60000) }]);
+    db.enqueue([{ id: SID }]); db.enqueue([]);
+    await expect(service.verifyOTP('0501234567', '123456')).rejects.toThrow('already used or expired');
     db.assertDrained();
   });
 });
-
-describe('AuthService.requestOTP — honest SMS delivery reporting (B1)', () => {
-  it('throws ServiceUnavailableException when the SMS provider rejects the message', async () => {
-    const { service, db, sms } = buildAuthService(makeDbStub(), makeSmsProvider(false));
-    db.enqueue([{ total: 0 }]); // rate-limit count
-    db.enqueue([{ id: 'otp-row-1' }]); // insert returning { id }
-    db.enqueue([undefined]); // cleanup delete of the just-inserted row
-
-    await expect(
-      service.requestOTP('+233501234567'),
-    ).rejects.toThrow(ServiceUnavailableException);
-    expect(sms.sendOTP).toHaveBeenCalledTimes(1);
-    db.assertDrained();
+describe('refresh cannot resurrect a replaced login', () => {
+  const token = (service: AuthService, extra = {}) => (service as any).jwtService.generateRefreshToken({ userId: ID, phoneNumber: '+233501234567', role: 'passenger', sessionId: SID, ...extra });
+  it('preserves the current session id on refresh', async () => {
+    const { db, service, sessions } = build(); db.enqueue([account()]);
+    const result = await service.refreshToken(token(service));
+    expect((service as any).jwtService.verifyAccessToken(result.accessToken).sessionId).toBe(SID);
+    expect(sessions.start).not.toHaveBeenCalled(); db.assertDrained();
   });
-
-  it('resolves with a success message when the SMS provider accepts the message', async () => {
-    const { service, db } = buildAuthService();
-    db.enqueue([{ total: 0 }]); // rate-limit count
-    db.enqueue([{ id: 'otp-row-1' }]); // insert returning { id }
-
-    const result = await service.requestOTP('+233501234567');
-    expect(result).toEqual({ message: 'OTP sent successfully', expiresIn: 600 });
-    // No cleanup delete is issued on the success path.
-    expect(db.pending()).toBe(0);
+  it.each([null, 'other-session'])('rejects a session replaced in the database: %s', async (activeSessionId) => {
+    const { db, service } = build(); db.enqueue([account({ activeSessionId })]);
+    await expect(service.refreshToken(token(service))).rejects.toThrow(UnauthorizedException);
   });
-});
-
-describe('AuthService.verifyOTP — race-safe attempt increment (B3)', () => {
-  function enqueueOTP(db: ReturnType<typeof makeDbStub>) {
-    db.enqueue([{
-      id: 'otp-row-1', phoneNumber: '+233501234567',
-      codeHash: new OTPService().hashOTP('123456'), attempts: 0, maxAttempts: 3,
-      verifiedAt: null, expiresAt: new Date(Date.now() + 60_000),
-    }]);
-    db.enqueue([{ id: 'otp-row-1' }]);
-  }
-
-  it('does not issue a session when another request already consumed the OTP', async () => {
-    const { service, db } = buildAuthService();
-    enqueueOTP(db);
-    db.enqueue([]); // conditional claim loses
-    await expect(service.verifyOTP('+233501234567', '123456')).rejects.toThrow('already used or expired');
-    db.assertDrained();
+  it('rejects legacy session-less refresh tokens', async () => {
+    const { db, service } = build(); db.enqueue([account()]);
+    await expect(service.refreshToken(token(service, { sessionId: undefined }))).rejects.toThrow(UnauthorizedException);
   });
-
-  it('does not reactivate a suspended account through OTP login', async () => {
-    const { service, db } = buildAuthService();
-    enqueueOTP(db);
-    db.enqueue([{ id: 'otp-row-1' }]);
-    db.enqueue([{ id: USER_ID, phoneNumber: '+233501234567', role: 'passenger', status: 'suspended' }]);
-    await expect(service.verifyOTP('+233501234567', '123456')).rejects.toThrow('Account is not active');
-    db.assertDrained();
+  it('does not silently refresh a changed role', async () => {
+    const { db, service } = build(); db.enqueue([account({ role: 'driver' })]);
+    await expect(service.refreshToken(token(service))).rejects.toThrow(UnauthorizedException);
   });
-
-  it('rejects with a retry message when a concurrent verify already incremented attempts (0 rows updated)', async () => {
-    const { service, db } = buildAuthService();
-    db.enqueue([{
-      id: 'otp-row-1',
-      phoneNumber: '+233501234567',
-      codeHash: 'hash',
-      attempts: 2,
-      maxAttempts: 3,
-      verifiedAt: null,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
-    }]); // latest unexpired OTP lookup
-    db.enqueue([]); // conditional increment returning 0 rows — concurrent loser
-
-    const promise = service.verifyOTP('+233501234567', '123456');
-    await expect(promise).rejects.toThrow(UnauthorizedException);
-    await expect(promise).rejects.toThrow(/being processed/);
-    db.assertDrained();
-  });
-});
-
-describe('OTP gateway exceptions', () => {
-  it('cleans up the failed code and returns a controlled error if the gateway throws', async () => {
-    const sms = { sendOTP: vi.fn().mockRejectedValue(new Error('network failure')) };
-    const { service, db } = buildAuthService(makeDbStub(), sms);
-    db.enqueue([{ total: 0 }]); db.enqueue([{ id: 'otp-row-1' }]); db.enqueue([]);
-    await expect(service.requestOTP('+233501234567')).rejects.toThrow(ServiceUnavailableException);
-    db.assertDrained();
-  });
-});
-
-describe('AuthService.refreshToken — re-validate the user before re-issuing (B2)', () => {
-  // Mint refresh tokens with the AuthService's own JWTService instance so the
-  // signing secret can never diverge from the one verifyRefreshToken uses.
-  function mintRefreshToken(service: AuthService, payload: { userId: string; phoneNumber: string; role: string }) {
-    return (service as unknown as { jwtService: { generateRefreshToken: (p: typeof payload) => string } })
-      .jwtService.generateRefreshToken(payload);
-  }
-
-  it('rejects when the user no longer exists', async () => {
-    const { service, db } = buildAuthService();
-    db.enqueue([]); // users lookup returns no row
-    const token = mintRefreshToken(service, { userId: USER_ID, phoneNumber: '+233501234567', role: 'passenger' });
-    const promise = service.refreshToken(token);
-    await expect(promise).rejects.toThrow(UnauthorizedException);
-    await expect(promise).rejects.toThrow(/no longer valid/);
-    db.assertDrained();
-  });
-
-  it('rejects when the user is suspended (status !== active)', async () => {
-    const { service, db } = buildAuthService();
-    db.enqueue([{
-      id: USER_ID,
-      phoneNumber: '+233501234567',
-      role: 'passenger',
-      status: 'suspended',
-      isVerified: true,
-    }]);
-    const token = mintRefreshToken(service, { userId: USER_ID, phoneNumber: '+233501234567', role: 'passenger' });
-    await expect(service.refreshToken(token)).rejects.toThrow(/no longer valid/);
-    db.assertDrained();
-  });
-
-  it('re-issues with the current role when the user is active', async () => {
-    const { service, db } = buildAuthService();
-    db.enqueue([{
-      id: USER_ID,
-      phoneNumber: '+233501234567',
-      // The persisted role has changed since the refresh token was minted;
-      // the refresh path must use the *current* role, not the stale payload.
-      role: 'driver',
-      status: 'active',
-      isVerified: true,
-    }]);
-    const token = mintRefreshToken(service, { userId: USER_ID, phoneNumber: '+233501234567', role: 'passenger' });
-    const refreshed = await service.refreshToken(token);
-    expect(refreshed).toHaveProperty('accessToken');
-    expect(refreshed).toHaveProperty('refreshToken');
-    // The decoded access token carries the current role ('driver'), proving
-    // we did not replay the stale 'passenger' role from the refresh payload.
-    const decoded = (service as unknown as { jwtService: { verifyAccessToken: (t: string) => { role: string } } })
-      .jwtService.verifyAccessToken(refreshed.accessToken);
-    expect(decoded.role).toBe('driver');
-    db.assertDrained();
+  it('does not clear credentials on a database outage', async () => {
+    const { db, service } = build(); db.enqueueFn(() => { throw new Error('offline'); });
+    await expect(service.refreshToken(token(service))).rejects.toThrow(ServiceUnavailableException);
   });
 });

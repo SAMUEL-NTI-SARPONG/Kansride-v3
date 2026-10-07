@@ -1,8 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { getDb, type Database, auditLogs, closeDb, drivers, otpRequests, payments, passengers, rides, subscriptions, users, vehicles } from '@kansride/db';
-import { desc, eq, inArray } from 'drizzle-orm';
+import { getDb, type Database, auditLogs, closeDb, drivers, payments, passengers, rides, subscriptions, users, vehicles } from '@kansride/db';
+import { eq, inArray } from 'drizzle-orm';
 import { AuthService } from '../../src/modules/auth/auth.service';
+import { SessionService } from '../../src/modules/auth/session.service';
+import { DriversService } from '../../src/modules/drivers/drivers.service';
+import { AdminService } from '../../src/modules/admin/admin.service';
+import { DisabledPaymentProvider } from '../../src/providers/payments/disabled-payment.provider';
+import { JWTService } from '@kansride/auth';
 import { DispatchService } from '../../src/modules/rides/dispatch.service';
 import { FareService } from '../../src/modules/rides/fare.service';
 import { RidesService } from '../../src/modules/rides/rides.service';
@@ -12,7 +17,6 @@ import { RedisService } from '../../src/redis/redis.service';
 import type { IRedisService } from '../../src/redis/redis.interface';
 import type { ISMSProvider } from '../../src/providers/sms/sms.interface';
 import type { IMapsProvider } from '../../src/providers/maps/maps.interface';
-import { OTPService } from '@kansride/auth';
 
 const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
@@ -36,6 +40,7 @@ const mapsProvider: IMapsProvider = {
 let db: Database;
 let redis: IRedisService;
 let redisClient: { onModuleDestroy: () => Promise<void> };
+const redisKeys = new Set<string>();
 let passengerUserId: string;
 let passengerId: string;
 let driverUserId: string;
@@ -47,20 +52,13 @@ let vehicleId: string;
 let rideId: string;
 let adminUserId: string;
 let trackingToken: string;
+let applicantUserId: string;
+let applicantDriverId: string;
+let applicantVehicleId: string;
 
 async function authenticate(phoneNumber: string, role: 'passenger' | 'driver' | 'super_admin') {
-  const auth = new AuthService(db, smsProvider, redis);
-  await auth.requestOTP(phoneNumber);
-  const [otp] = await db.select().from(otpRequests)
-    .where(eq(otpRequests.phoneNumber, phoneNumber))
-    .orderBy(desc(otpRequests.createdAt))
-    .limit(1);
-  if (!otp) throw new Error(`OTP fixture was not created for ${phoneNumber}`);
-  const rawCode = '000000';
-  await db.update(otpRequests)
-    .set({ codeHash: new OTPService().hashOTP(rawCode) })
-    .where(eq(otpRequests.id, otp.id));
-  const result = await auth.verifyOTP(phoneNumber, rawCode);
+  const auth = new AuthService(db, smsProvider, redis, new SessionService(db));
+  const result = await auth.registerPassenger({ phoneNumber, fullName: 'Integration Account', pin: '0123' });
   const user = result.user;
   if (user.role !== role) {
     await db.update(users).set({ role, isVerified: true }).where(eq(users.id, user.id));
@@ -71,8 +69,21 @@ async function authenticate(phoneNumber: string, role: 'passenger' | 'driver' | 
 describe('V1 passenger-driver ride journey against Postgres and Redis', () => {
   beforeAll(async () => {
     db = getDb(databaseUrl!);
-    redisClient = new RedisService();
-    redis = redisClient;
+    const realRedis = new RedisService();
+    redisClient = realRedis;
+    // Runtime tests never read/change the pilot's driver availability or sessions.
+    redis = new Proxy(realRedis, {
+      get(target, property) {
+        const method = Reflect.get(target, property);
+        if (typeof method !== 'function') return method;
+        if (property === 'isConnected') return method.bind(target);
+        return (key: string, ...args: unknown[]) => {
+          const namespaced = `kansride:integration:${runId}:${key}`;
+          redisKeys.add(namespaced);
+          return method.call(target, namespaced, ...args);
+        };
+      },
+    });
     for (let attempt = 0; attempt < 20 && !redis.isConnected(); attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -86,6 +97,14 @@ describe('V1 passenger-driver ride journey against Postgres and Redis', () => {
     const [passenger] = await db.select().from(passengers).where(eq(passengers.userId, passengerUserId)).limit(1);
     if (!passenger) throw new Error('Passenger profile was not created');
     passengerId = passenger.id;
+    // A second login invalidates both the old access session and refresh token.
+    const sessions = new SessionService(db);
+    const auth = new AuthService(db, smsProvider, redis, sessions);
+    const first = await auth.loginWithPIN(passengerPhone, '0123');
+    const second = await auth.loginWithPIN(passengerPhone, '0123');
+    expect(second.accessToken).not.toBe(first.accessToken);
+    await expect(auth.refreshToken(first.refreshToken)).rejects.toThrow();
+    await expect(auth.refreshToken(second.refreshToken)).resolves.toHaveProperty('accessToken');
 
     const [vehicle] = await db.insert(vehicles).values({
       registrationNumber: `INT-${runId}`,
@@ -272,22 +291,61 @@ describe('V1 passenger-driver ride journey against Postgres and Redis', () => {
     await db.delete(rides).where(eq(rides.id, activeRide.id));
   });
 
+  it('requires manual approval for PIN-only driver accounts and revokes the previous login', async () => {
+    const phoneNumber = `+23355${runId.replace(/[^0-9]/g, '').padEnd(7, '5').slice(0, 7)}`;
+    const driversService = new DriversService(db, redis, new DisabledPaymentProvider());
+    const application = {
+      phoneNumber, firstName: 'Integration', lastName: 'Applicant', pin: '0123',
+      ghanaCardNumber: `INT-GHA-${runId}`, vehicleRegistration: `INT-A-${runId}`,
+      vehicleColour: 'Teal', vehicleMake: 'Bajaj', vehicleModel: 'RE',
+      placeOfStay: 'Kansaworodo', communityId: 'kansaworodo',
+      driverPhoto: 'data:image/jpeg;base64,YQ==', emergencyContactName: 'Integration Contact',
+      emergencyPhoneNumber: '+233501234567',
+    };
+    const submitted = await driversService.register(undefined, application);
+    applicantDriverId = submitted.driverId;
+    const [driver] = await db.select().from(drivers).where(eq(drivers.id, applicantDriverId));
+    applicantUserId = driver!.userId; applicantVehicleId = driver!.vehicleId!;
+    expect(driver).toMatchObject({ isActive: false, isOnline: false });
+    const sessions = new SessionService(db);
+    const auth = new AuthService(db, smsProvider, redis, sessions);
+    await expect(auth.loginWithPIN(phoneNumber, '0123')).rejects.toThrow('pending admin approval');
+    await expect(driversService.setOnlineStatus(applicantDriverId, true, { latitude: 4.962, longitude: -1.7693 })).rejects.toThrow('Admin approval');
+    await expect(driversService.register(undefined, application)).rejects.toThrow('An account already uses this number');
+    await new AdminService(db, {} as never).approveDriver(applicantDriverId, adminUserId);
+    const first = await auth.loginWithPIN(phoneNumber, '0123');
+    const second = await auth.loginWithPIN(phoneNumber, '0123');
+    expect(second.user.role).toBe('driver');
+    const jwt = new JWTService({ accessSecret: process.env.JWT_ACCESS_SECRET!, refreshSecret: process.env.JWT_REFRESH_SECRET!, accessExpiry: '15m', refreshExpiry: '7d' });
+    await expect(sessions.assertActive(jwt.verifyAccessToken(first.accessToken))).rejects.toThrow();
+    await expect(auth.refreshToken(first.refreshToken)).rejects.toThrow();
+    await expect(sessions.assertActive(jwt.verifyAccessToken(second.accessToken))).resolves.toMatchObject({ id: applicantUserId, role: 'driver', isVerified: true });
+    await sessions.end(jwt.verifyAccessToken(first.accessToken));
+    await expect(auth.refreshToken(second.refreshToken)).resolves.toHaveProperty('accessToken');
+    await sessions.end(jwt.verifyAccessToken(second.accessToken));
+    await expect(auth.refreshToken(second.refreshToken)).rejects.toThrow();
+  });
+
   afterAll(async () => {
     if (!db) return;
     if (rideId) await db.delete(rides).where(eq(rides.id, rideId));
-    if (driverId || competingDriverId) {
-      await db.delete(subscriptions).where(inArray(subscriptions.driverId, [driverId, competingDriverId].filter(Boolean)));
-      await db.delete(drivers).where(inArray(drivers.id, [driverId, competingDriverId].filter(Boolean)));
+    if (driverId || competingDriverId || applicantDriverId) {
+      await db.delete(subscriptions).where(inArray(subscriptions.driverId, [driverId, competingDriverId, applicantDriverId].filter(Boolean)));
+      await db.delete(drivers).where(inArray(drivers.id, [driverId, competingDriverId, applicantDriverId].filter(Boolean)));
     }
-    if (vehicleId || competingVehicleId) {
-      await db.delete(vehicles).where(inArray(vehicles.id, [vehicleId, competingVehicleId].filter(Boolean)));
+    if (vehicleId || competingVehicleId || applicantVehicleId) {
+      await db.delete(vehicles).where(inArray(vehicles.id, [vehicleId, competingVehicleId, applicantVehicleId].filter(Boolean)));
     }
     if (passengerId) await db.delete(passengers).where(eq(passengers.id, passengerId));
-    const userIds = [passengerUserId, driverUserId, competingDriverUserId, adminUserId].filter(Boolean);
+    const userIds = [passengerUserId, driverUserId, competingDriverUserId, adminUserId, applicantUserId].filter(Boolean);
     if (userIds.length) {
+      await db.delete(passengers).where(inArray(passengers.userId, userIds));
       await db.delete(auditLogs).where(inArray(auditLogs.userId, userIds));
       await db.delete(payments).where(inArray(payments.userId, userIds));
       await db.delete(users).where(inArray(users.id, userIds));
+    }
+    if (redisClient instanceof RedisService) {
+      for (const key of redisKeys) await redisClient.del(key);
     }
     await redisClient?.onModuleDestroy();
     await closeDb();

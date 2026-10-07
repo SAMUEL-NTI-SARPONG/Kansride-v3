@@ -4,6 +4,9 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { DriversService } from './drivers.service';
 import type { TokenPayload } from '@kansride/auth';
+import { Public } from '../../common/decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
+import { DriverApplicationDTO } from './driver-application.dto';
 
 /**
  * Shape of the authenticated request populated by AuthGuard. AuthGuard sets
@@ -23,6 +26,13 @@ type AuthenticatedRequest = Request & {
 @UseGuards(AuthGuard, RolesGuard)
 export class DriversController {
   constructor(private readonly driversService: DriversService) {}
+
+  @Post('apply')
+  @Public()
+  @Throttle({ default: { limit: 5, ttl: 900000 } })
+  apply(@Body() body: DriverApplicationDTO) {
+    return this.driversService.register(undefined, body);
+  }
 
   @Post('register')
   @RequirePermissions('driver:register')

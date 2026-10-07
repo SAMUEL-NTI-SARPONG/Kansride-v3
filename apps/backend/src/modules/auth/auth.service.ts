@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException, ServiceUnavailableException, HttpException, Inject, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, ConflictException, ForbiddenException, ServiceUnavailableException, HttpException, Inject, Logger } from '@nestjs/common';
 import { DATABASE_TOKEN } from '../../database';
 import { SMS_PROVIDER } from '../../providers';
 import { ISMSProvider } from '../../providers/sms/sms.interface';
@@ -8,6 +8,7 @@ import { eq, and, gt, desc, count, isNull } from 'drizzle-orm';
 import { getEnv } from '@kansride/config';
 import { createHash } from 'node:crypto';
 import { REDIS_SERVICE, type IRedisService } from '../../redis';
+import { SessionService } from './session.service';
 
 const PIN_PATTERN = /^\d{4}$/;
 
@@ -21,6 +22,7 @@ export class AuthService {
     @Inject(DATABASE_TOKEN) private readonly db: Database,
     @Inject(SMS_PROVIDER) private readonly smsProvider: ISMSProvider,
     @Inject(REDIS_SERVICE) private readonly redis: IRedisService,
+    @Inject(SessionService) private readonly sessions: SessionService,
   ) {
     const env = getEnv();
     this.jwtService = new JWTService({
@@ -37,6 +39,10 @@ export class AuthService {
     if (!validateGhanaPhone(normalized)) {
       throw new BadRequestException('Invalid Ghana phone number');
     }
+
+    // Mobile registration/login is PIN-only. Retain OTP solely for existing,
+    // controlled staff accounts; it must not create or reclaim mobile accounts.
+    await this.staffAccount(normalized);
 
     // Rate limit: max 3 OTP requests per 15 minutes
     const fifteenMinAgo = new Date(Date.now() - 15 * 60 * 1000);
@@ -92,6 +98,7 @@ export class AuthService {
 
   async verifyOTP(phoneNumber: string, code: string) {
     const normalized = normalizeGhanaPhone(phoneNumber);
+    await this.staffAccount(normalized);
 
     // Find the latest unexpired, unverified OTP for this phone
     const otpRecords = await this.db
@@ -150,74 +157,17 @@ export class AuthService {
       )).returning({ id: otpRequests.id });
     if (!claimed[0]) throw new UnauthorizedException('OTP already used or expired. Please request a new one.');
 
-    // Find or create user, and ensure a passenger profile exists for
-    // passenger-role users. New-user creation and its passenger-profile
-    // creation are wrapped in a single transaction so they succeed or
-    // fail atomically. For an existing passenger user, the passenger
-    // profile is ensured via an idempotent lookup-or-insert: the unique
-    // constraint on passengers.userId serializes concurrent attempts.
-    let user = await this.db
-      .select()
-      .from(users)
-      .where(eq(users.phoneNumber, normalized))
-      .limit(1)
-      .then((rows) => rows[0]);
-
-    if (!user) {
-      user = await this.db.transaction(async (tx) => {
-        const inserted = await tx
-          .insert(users)
-          .values({
-            phoneNumber: normalized,
-            role: 'passenger',
-            isVerified: true,
-          })
-          .returning();
-        const newUser = inserted[0]!;
-        this.logger.log(`New user created: ${newUser.id} (${normalized})`);
-
-        if (newUser.role === 'passenger') {
-          await tx
-            .insert(passengers)
-            .values({ userId: newUser.id })
-            .onConflictDoNothing({ target: passengers.userId });
-          this.logger.log(`Passenger profile ensured for user ${newUser.id}`);
-        }
-        return newUser;
-      });
-    } else {
-      if (user.status !== 'active') throw new UnauthorizedException('Account is not active');
-      // Existing-user verification: the isVerified flag update and the
-      // passenger-profile backfill must succeed or fail atomically. The
-      // new-user path above already wraps both writes in a transaction;
-      // this branch previously issued them as independent statements, so a
-      // failure of the passengers insert after isVerified=true would leave
-      // the user verified but unable to create rides. Wrap both in one
-      // transaction to match the new-user path.
-      await this.db.transaction(async (tx) => {
-        if (!user!.isVerified) {
-          await tx.update(users).set({ isVerified: true }).where(eq(users.id, user!.id));
-        }
-
-        // Ensure a passenger profile exists for an existing passenger-role
-        // user. This is idempotent: ON CONFLICT DO NOTHING on the unique
-        // passengers.userId constraint means repeated verification never
-        // creates a duplicate row, and a concurrent insert by another
-        // request is serialized by the unique constraint at the DB layer.
-        if (user!.role === 'passenger') {
-          await tx
-            .insert(passengers)
-            .values({ userId: user!.id })
-            .onConflictDoNothing({ target: passengers.userId });
-        }
-      });
-    }
+    // Re-read after claiming the code. OTP never creates a mobile account or
+    // changes its PIN, role or manual verification state.
+    const user = await this.staffAccount(normalized);
 
     // Generate tokens
+    const sessionId = await this.sessions.start(user!);
     const tokens = this.jwtService.generateTokenPair({
       userId: user!.id,
       phoneNumber: normalized,
       role: user!.role,
+      sessionId,
     });
 
     return {
@@ -249,7 +199,7 @@ export class AuthService {
       pinHash: hashPIN(data.pin),
       communityId: data.communityId?.trim() || 'kansaworodo',
       updatedAt: new Date(),
-    }).where(and(eq(users.id, userId), eq(users.role, 'passenger'))).returning();
+    }).where(and(eq(users.id, userId), eq(users.role, 'passenger'), isNull(users.pinHash))).returning();
     if (!updated) throw new BadRequestException('Passenger account could not be completed');
     return { message: 'Passenger account created', user: this.publicUser(updated) };
   }
@@ -265,13 +215,18 @@ export class AuthService {
     const allowed = await this.redis.consumeRateLimit(limitKey, 5, 15 * 60).catch(() => {
       throw new ServiceUnavailableException('Login temporarily unavailable. Please try again.');
     });
-    if (!allowed) throw new HttpException('Too many PIN attempts. Try again in 15 minutes or sign in with OTP.', 429);
+    if (!allowed) throw new HttpException('Too many PIN attempts. Try again in 15 minutes.', 429);
     const [user] = await this.db.select().from(users).where(eq(users.phoneNumber, normalized)).limit(1);
-    if (!user?.pinHash || !user.isVerified || user.status !== 'active' || !verifyPIN(pin, user.pinHash)) {
+    if (!user?.pinHash || user.status !== 'active' || !verifyPIN(pin, user.pinHash)) {
       throw new UnauthorizedException('Invalid phone number or PIN');
     }
-    const tokens = this.jwtService.generateTokenPair({ userId: user.id, phoneNumber: user.phoneNumber, role: user.role });
     await this.redis.del(limitKey).catch(() => undefined);
+    if (user.role === 'driver_applicant' || (user.role === 'driver' && !user.isVerified)) {
+      throw new ForbiddenException('Your driver application is pending admin approval. Please contact KansRide support.');
+    }
+    if (user.role !== 'passenger' && !user.isVerified) throw new UnauthorizedException('Account has not been approved');
+    const sessionId = await this.sessions.start(user);
+    const tokens = this.jwtService.generateTokenPair({ userId: user.id, phoneNumber: user.phoneNumber, role: user.role, sessionId });
     return { ...tokens, user: this.publicUser(user) };
   }
 
@@ -286,6 +241,38 @@ export class AuthService {
     };
   }
 
+  async registerPassenger(data: { phoneNumber: string; fullName: string; pin: string; communityId?: string }) {
+    const normalized = normalizeGhanaPhone(data.phoneNumber);
+    const name = data.fullName?.trim();
+    if (!validateGhanaPhone(normalized) || !name || name.length > 160 || !PIN_PATTERN.test(data.pin || '')) {
+      throw new BadRequestException('Enter your name, a valid Ghana number and a 4-digit PIN');
+    }
+    const [firstName, ...lastName] = name.split(/\s+/);
+    const user = await this.db.transaction(async (tx) => {
+      const [created] = await tx.insert(users).values({
+        phoneNumber: normalized, firstName, lastName: lastName.join(' ') || null,
+        pinHash: hashPIN(data.pin), role: 'passenger', isVerified: false,
+        communityId: data.communityId?.trim() || null,
+      }).onConflictDoNothing({ target: users.phoneNumber }).returning();
+      if (!created) throw new ConflictException('An account already uses this number. Sign in or contact support.');
+      await tx.insert(passengers).values({ userId: created.id });
+      return created;
+    });
+    const sessionId = await this.sessions.start(user);
+    return {
+      ...this.jwtService.generateTokenPair({ userId: user.id, phoneNumber: user.phoneNumber, role: user.role, sessionId }),
+      user: this.publicUser(user),
+    };
+  }
+
+  private async staffAccount(phoneNumber: string) {
+    const [user] = await this.db.select().from(users).where(eq(users.phoneNumber, phoneNumber)).limit(1);
+    if (!user || ['passenger', 'driver', 'driver_applicant'].includes(user.role) || user.status !== 'active' || !user.isVerified) {
+      throw new UnauthorizedException('Use your phone number and PIN to sign in. Contact support if you need help.');
+    }
+    return user;
+  }
+
   async refreshToken(refreshToken: string) {
     try {
       const payload = this.jwtService.verifyRefreshToken(refreshToken);
@@ -297,14 +284,15 @@ export class AuthService {
       // JWT carries users.id, so we re-load the row by that id and use the
       // current role/status for the new token; reject if the user is gone or
       // no longer active.
-      const userRecord = await this.db
-        .select()
-        .from(users)
-        .where(eq(users.id, payload.userId))
-        .limit(1)
-        .then((rows) => rows[0]);
+      let userRecord: typeof users.$inferSelect | undefined;
+      try {
+        const rows = await this.db.select().from(users).where(eq(users.id, payload.userId)).limit(1);
+        userRecord = rows[0];
+      } catch {
+        throw new ServiceUnavailableException('Sign in temporarily unavailable. Please retry.');
+      }
 
-      if (!userRecord || userRecord.status !== 'active') {
+      if (!userRecord || userRecord.status !== 'active' || !payload.sessionId || userRecord.activeSessionId !== payload.sessionId || userRecord.role !== payload.role || (userRecord.role !== 'passenger' && !userRecord.isVerified)) {
         throw new UnauthorizedException('Session is no longer valid');
       }
 
@@ -312,10 +300,11 @@ export class AuthService {
         userId: userRecord.id,
         phoneNumber: userRecord.phoneNumber,
         role: userRecord.role,
+        sessionId: payload.sessionId,
       });
       return tokens;
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof UnauthorizedException || error instanceof ServiceUnavailableException) {
         throw error;
       }
       throw new UnauthorizedException('Invalid refresh token');

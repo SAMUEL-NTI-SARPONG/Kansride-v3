@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SessionModule } from './modules/auth/session.service';
 import { UsersModule } from './modules/users/users.module';
 import { DriversModule } from './modules/drivers/drivers.module';
 import { RidesModule } from './modules/rides/rides.module';
@@ -22,6 +23,7 @@ import { AllExceptionsFilter } from './common/filters/http-exception.filter';
     RedisModule,
     ProvidersModule,
     AuthModule,
+    SessionModule,
     UsersModule,
     DriversModule,
     RidesModule,

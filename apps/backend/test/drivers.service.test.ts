@@ -34,6 +34,35 @@ function buildService(
   };
 }
 
+describe('manual driver approval', () => {
+  const application = {
+    phoneNumber: '0501234567', firstName: 'Kofi', lastName: 'Mensah',
+    ghanaCardNumber: 'GHA-123456789-0', vehicleRegistration: 'WR-123-26',
+    vehicleColour: 'Teal', vehicleMake: 'Bajaj', vehicleModel: 'RE',
+    placeOfStay: 'Kansaworodo', communityId: 'kansaworodo',
+    driverPhoto: 'data:image/jpeg;base64,YQ==', emergencyContactName: 'Ama',
+    emergencyPhoneNumber: '0241234567', pin: '0123',
+  };
+  it('creates a public application without OTP or issuing login tokens', async () => {
+    const { service, db } = buildService();
+    db.enqueue([{ id: USER_ID }]); db.enqueue([{ role: 'driver_applicant' }]); db.enqueue([]);
+    db.enqueue([{ id: 'vehicle-1' }]); db.enqueue([{ id: DRIVER_ID }]); db.enqueue([]);
+    const result = await service.register(undefined, application);
+    expect(result).toEqual({ message: 'Registration submitted for review', driverId: DRIVER_ID, status: 'pending' });
+    expect(result).not.toHaveProperty('accessToken'); db.assertDrained();
+  });
+  it('cannot replace an existing account through a public application', async () => {
+    const { service, db } = buildService(); db.enqueue([]);
+    await expect(service.register(undefined, application)).rejects.toThrow('An account already uses this number');
+    db.assertDrained();
+  });
+  it('blocks a pending driver from going online even in free-launch mode', async () => {
+    const { service, db, redis } = buildService(); db.enqueue([{ id: DRIVER_ID, userId: USER_ID, isActive: false }]);
+    await expect(service.setOnlineStatus(DRIVER_ID, true, { latitude: 4.962, longitude: -1.7693 })).rejects.toThrow('Admin approval');
+    expect(redis.geoAdd).not.toHaveBeenCalled(); db.assertDrained();
+  });
+});
+
 describe('DriversService.subscribe payment lifecycle', () => {
   it('rejects unsupported payment methods before database or provider work', async () => {
     const { service, db, paymentProvider } = buildService();
@@ -128,7 +157,8 @@ describe('DriversService.subscribe payment lifecycle', () => {
       makeDbStub(),
       new DisabledPaymentProvider(),
     );
-    db.enqueue([{ id: DRIVER_ID, userId: USER_ID }]);
+    db.enqueue([{ id: DRIVER_ID, userId: USER_ID, isActive: true }]);
+    db.enqueue([{ id: USER_ID, role: 'driver', status: 'active', isVerified: true }]);
     db.enqueue([{ id: SUBSCRIPTION_ID, driverId: DRIVER_ID, status: 'active' }]);
     db.enqueue([]);
 
@@ -151,7 +181,8 @@ describe('DriversService.subscribe payment lifecycle', () => {
   it('allows an approved driver online without consuming payment state during free launch', async () => {
     vi.stubEnv('DRIVER_ACCESS_MODE', 'free_launch');
     const { service, db, redis, paymentProvider } = buildService();
-    db.enqueue([{ id: DRIVER_ID, userId: USER_ID }]);
+    db.enqueue([{ id: DRIVER_ID, userId: USER_ID, isActive: true }]);
+    db.enqueue([{ id: USER_ID, role: 'driver', status: 'active', isVerified: true }]);
     db.enqueue([]);
     await expect(service.setOnlineStatus(DRIVER_ID, true, { latitude: 4.962, longitude: -1.7693 }))
       .resolves.toMatchObject({ driverId: DRIVER_ID, online: true });
